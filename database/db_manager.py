@@ -1,18 +1,11 @@
 # zeroda_platform/database/db_manager.py
-# ==========================================
-# Supabase 연동 DB 매니저
-# ==========================================
-
 import json
 import streamlit as st
 from datetime import datetime
 
-# ──────────────────────────────────────────
-# Supabase 클라이언트 초기화
-# ──────────────────────────────────────────
 
-@st.cache_resource
 def get_supabase():
+    """캐시 없이 매번 새로 연결"""
     try:
         from supabase import create_client
         url = st.secrets["SUPABASE_URL"]
@@ -23,12 +16,7 @@ def get_supabase():
         return None
 
 
-# ──────────────────────────────────────────
-# 기본 CRUD (SQLite API와 동일한 인터페이스 유지)
-# ──────────────────────────────────────────
-
 def db_get(table, where_dict=None):
-    """SELECT"""
     sb = get_supabase()
     if not sb:
         return []
@@ -39,12 +27,12 @@ def db_get(table, where_dict=None):
                 query = query.eq(k, v)
         res = query.execute()
         return res.data or []
-    except Exception:
+    except Exception as e:
+        st.error(f"db_get 오류: {e}")
         return []
 
 
 def db_upsert(table, data):
-    """INSERT OR UPDATE"""
     sb = get_supabase()
     if not sb:
         return False
@@ -56,7 +44,6 @@ def db_upsert(table, data):
 
 
 def db_delete(table, where_dict):
-    """DELETE"""
     sb = get_supabase()
     if not sb:
         return False
@@ -71,21 +58,8 @@ def db_delete(table, where_dict):
 
 
 def db_execute(sql, params=None):
-    """직접 SQL (Supabase RPC 사용)"""
-    sb = get_supabase()
-    if not sb:
-        return []
-    try:
-        res = sb.rpc('execute_sql',
-                     {'query': sql, 'params': params or []}).execute()
-        return res.data or []
-    except Exception:
-        return []
+    return []
 
-
-# ──────────────────────────────────────────
-# 학교 마스터
-# ──────────────────────────────────────────
 
 def get_all_schools():
     rows = db_get('school_master')
@@ -108,15 +82,8 @@ def get_schools_by_edu_office(edu_office):
 
 
 def assign_school_to_vendor(school_name, vendor):
-    return db_upsert('school_master', {
-        'school_name': school_name,
-        'vendor': vendor
-    })
+    return db_upsert('school_master', {'school_name': school_name, 'vendor': vendor})
 
-
-# ──────────────────────────────────────────
-# 외주업체
-# ──────────────────────────────────────────
 
 def get_all_vendors():
     rows = db_get('vendor_info')
@@ -131,91 +98,47 @@ def get_vendor_display_name(vendor_id):
 
 
 def update_vendor_name(old_vendor_id, new_biz_name):
-    """업체명 변경 CASCADE"""
     sb = get_supabase()
     if not sb:
         return False
     try:
-        sb.table('vendor_info').update(
-            {'biz_name': new_biz_name}
-        ).eq('vendor', old_vendor_id).execute()
-
-        cascade_tables = [
-            ('users',         'vendor'),
-            ('contract_info', 'vendor'),
-            ('schedule_data', 'vendor'),
-            ('schedules',     'vendor'),
-            ('customer_info', 'vendor'),
-            ('biz_customers', 'vendor'),
-            ('school_master', 'vendor'),
-        ]
-        for tbl, col in cascade_tables:
+        sb.table('vendor_info').update({'biz_name': new_biz_name}).eq('vendor', old_vendor_id).execute()
+        for tbl, col in [('users','vendor'),('contract_info','vendor'),('schedule_data','vendor'),
+                         ('schedules','vendor'),('customer_info','vendor'),('biz_customers','vendor'),('school_master','vendor')]:
             try:
-                sb.table(tbl).update(
-                    {col: new_biz_name}
-                ).eq(col, old_vendor_id).execute()
-            except Exception:
+                sb.table(tbl).update({col: new_biz_name}).eq(col, old_vendor_id).execute()
+            except:
                 pass
         return True
-    except Exception:
+    except:
         return False
 
-
-# ──────────────────────────────────────────
-# 거래처
-# ──────────────────────────────────────────
 
 def load_customers_from_db(vendor):
     rows = db_get('customer_info', {'vendor': vendor})
     if not rows:
         return {}
-    return {
-        r['name']: {
-            '사업자번호': r.get('biz_no', ''),
-            '상호':      r['name'],
-            '대표자':    r.get('rep', ''),
-            '주소':      r.get('addr', ''),
-            '업태':      r.get('biz_type', ''),
-            '종목':      r.get('biz_item', ''),
-            '이메일':    r.get('email', ''),
-            '구분':      r.get('cust_type', '학교'),
-        }
-        for r in rows
-    }
+    return {r['name']: {'사업자번호': r.get('biz_no',''),'상호': r['name'],'대표자': r.get('rep',''),
+            '주소': r.get('addr',''),'업태': r.get('biz_type',''),'종목': r.get('biz_item',''),
+            '이메일': r.get('email',''),'구분': r.get('cust_type','학교')} for r in rows}
 
 
 def save_customer_to_db(vendor, name, info):
-    return db_upsert('customer_info', {
-        'vendor':    vendor,
-        'name':      name,
-        'biz_no':    info.get('사업자번호', ''),
-        'rep':       info.get('대표자', ''),
-        'addr':      info.get('주소', ''),
-        'biz_type':  info.get('업태', ''),
-        'biz_item':  info.get('종목', ''),
-        'email':     info.get('이메일', ''),
-        'cust_type': info.get('구분', '학교'),
-    })
+    return db_upsert('customer_info', {'vendor': vendor,'name': name,'biz_no': info.get('사업자번호',''),
+        'rep': info.get('대표자',''),'addr': info.get('주소',''),'biz_type': info.get('업태',''),
+        'biz_item': info.get('종목',''),'email': info.get('이메일',''),'cust_type': info.get('구분','학교')})
 
 
 def delete_customer_from_db(vendor, name):
     return db_delete('customer_info', {'vendor': vendor, 'name': name})
 
 
-# ──────────────────────────────────────────
-# 수거일정
-# ──────────────────────────────────────────
-
 def save_schedule(vendor, month, weekdays, schools, items, driver=''):
-    return db_upsert('schedules', {
-        'vendor':     vendor,
-        'month':      month,
-        'weekdays':   json.dumps(weekdays, ensure_ascii=False),
-        'schools':    json.dumps(schools,  ensure_ascii=False),
-        'items':      json.dumps(items,    ensure_ascii=False),
-        'driver':     driver,
-        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-    })
+    return db_upsert('schedules', {'vendor': vendor,'month': month,
+        'weekdays': json.dumps(weekdays, ensure_ascii=False),
+        'schools': json.dumps(schools, ensure_ascii=False),
+        'items': json.dumps(items, ensure_ascii=False),
+        'driver': driver,'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
 
 
 def load_schedule(vendor, month):
@@ -223,12 +146,10 @@ def load_schedule(vendor, month):
     if not rows:
         return None
     r = rows[0]
-    return {
-        '요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
-        '학교': json.loads(r['schools'])  if r.get('schools')  else [],
-        '품목': json.loads(r['items'])    if r.get('items')    else [],
-        '기사': r.get('driver', ''),
-    }
+    return {'요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
+            '학교': json.loads(r['schools']) if r.get('schools') else [],
+            '품목': json.loads(r['items']) if r.get('items') else [],
+            '기사': r.get('driver', '')}
 
 
 def load_all_schedules(vendor):
@@ -238,16 +159,14 @@ def load_all_schedules(vendor):
     try:
         res = sb.table('schedules').select("*").eq('vendor', vendor).execute()
         rows = res.data or []
-    except Exception:
+    except:
         return {}
     result = {}
     for r in rows:
-        result[r['month']] = {
-            '요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
-            '학교': json.loads(r['schools'])  if r.get('schools')  else [],
-            '품목': json.loads(r['items'])    if r.get('items')    else [],
-            '기사': r.get('driver', ''),
-        }
+        result[r['month']] = {'요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
+            '학교': json.loads(r['schools']) if r.get('schools') else [],
+            '품목': json.loads(r['items']) if r.get('items') else [],
+            '기사': r.get('driver', '')}
     return result
 
 
