@@ -77,16 +77,17 @@ def save_login_cookie(user):
 
 
 def logout():
-    # 쿠키 삭제
-    cookies = get_cookie_manager()
-    if cookies:
-        try:
+    # 쿠키 삭제 - ready 체크 없이 직접 처리
+    try:
+        from streamlit_cookies_manager import EncryptedCookieManager
+        cookies = EncryptedCookieManager(prefix="zeroda_", password="zeroda_secret_key_2024")
+        if cookies.ready():
             cookies["user_data"] = ""
             cookies.save()
-        except Exception:
-            pass
-    for key in ['user', 'page', 'current_menu']:
-        st.session_state.pop(key, None)
+    except Exception:
+        pass
+    # 세션 전체 초기화
+    st.session_state.clear()
     st.rerun()
 
 
