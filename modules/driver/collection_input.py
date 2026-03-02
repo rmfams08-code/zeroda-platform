@@ -1,124 +1,123 @@
-# zeroda_platform/modules/driver/collection_input.py
-# ==========================================
-# 수거기사 - 수거 실적 입력 (모바일 최적화)
-# ==========================================
-
+# modules/driver/collection_input.py
 import streamlit as st
+import pandas as pd
 from datetime import date, datetime
-from database.db_manager import (
-    db_get, db_upsert, load_schedule,
-    get_schools_by_vendor, get_vendor_display_name
-)
+from database.db_manager import db_insert, db_get, get_schools_by_vendor
+from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
-def render_collection_input(user: dict):
-    st.markdown("## 📝 수거 실적 입력")
+def render_collection_input(user):
+    driver_name = user.get('name', '')
+    vendor      = user.get('vendor', '')
 
-    vendor = user.get('vendor', '')
-    name   = user.get('name', '')
+    st.markdown(f"## 수거 입력")
 
-    today    = date.today()
-    today_wd = {0:'월',1:'화',2:'수',3:'목',4:'금',5:'토',6:'일'}[today.weekday()]
-
-    # 오늘 일정 기반 학교 목록 우선
-    sched          = load_schedule(vendor, today.month)
-    sched_schools  = []
-    if sched and today_wd in sched.get('요일', []):
-        sched_schools = sched.get('학교', [])
-
-    all_schools = get_schools_by_vendor(vendor)
-    school_options = sched_schools if sched_schools else all_schools
-
-    if not school_options:
-        st.warning("배정된 학교가 없습니다.")
+    schools = get_schools_by_vendor(vendor)
+    if not schools:
+        st.warning("담당 학교가 없습니다. 관리자에게 문의하세요.")
         return
 
-    # ── 입력 폼 ──
-    st.markdown(f"**{today.strftime('%Y년 %m월 %d일')} ({today_wd}요일)**")
+    # ── 입력 폼 ───────────────────────────
+    with st.container():
+        col1, col2 = st.columns(2)
+        with col1:
+            school       = st.selectbox("학교 선택 *", schools, key="drv_school")
+            collect_date = st.date_input("수거일 *", value=date.today(), key="drv_date")
+            item_type    = st.selectbox("품목 *", ["음식물", "재활용", "일반"], key="drv_item")
+        with col2:
+            weight     = st.number_input("수거량 (kg) *", min_value=0.0, step=0.1, key="drv_weight")
+            unit_price = st.number_input("단가 (원)", min_value=0, step=1, key="drv_price")
+            collect_time = st.text_input("수거 시간", value=datetime.now().strftime("%H:%M"), key="drv_time")
 
-    school   = st.selectbox("학교 선택 *", school_options, key="drv_school")
-    date_sel = st.date_input("수거 날짜", value=today, key="drv_date")
+        memo = st.text_area("메모 (선택)", placeholder="특이사항 입력...", height=80, key="drv_memo")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        food_kg = st.number_input("음식물 (kg)", min_value=0.0,
-                                   step=0.1, key="drv_food")
-        biz_kg  = st.number_input("사업장 (kg)", min_value=0.0,
-                                   step=0.1, key="drv_biz")
-    with col2:
-        recycle_kg = st.number_input("재활용 (kg)", min_value=0.0,
-                                      step=0.1, key="drv_recycle")
-        time_v     = st.text_input("수거 시간",
-                                    value=datetime.now().strftime('%H:%M'),
-                                    key="drv_time")
+        # 예상 정산금액 미리보기
+        if weight > 0 and unit_price > 0:
+            amount = weight * unit_price
+            st.info(f"💰 예상 정산금액: {weight:.1f}kg × {unit_price:,}원 = **{amount:,.0f}원**")
 
-    # 계약 단가 조회
-    price_rows  = db_get('contract_data', {'vendor': vendor})
-    price_dict  = {r['item']: int(r['price']) for r in price_rows}
-    food_price  = price_dict.get('음식물',   162)
-    biz_price   = price_dict.get('사업장',   200)
-
-    food_amt = int(food_kg * food_price)
-    biz_amt  = int(biz_kg  * biz_price)
-    total    = food_amt + biz_amt
-
-    if food_kg > 0 or biz_kg > 0:
-        st.markdown(f"""
-        <div style="background:#e8f4fd;border-radius:8px;padding:12px;margin:8px 0;">
-            <div style="font-weight:700;color:#1a73e8;">예상 정산금액</div>
-            <div>음식물: {food_kg:.1f}kg × {food_price:,}원 = {food_amt:,}원</div>
-            <div>사업장: {biz_kg:.1f}kg × {biz_price:,}원 = {biz_amt:,}원</div>
-            <div style="font-weight:900;font-size:18px;color:#1a73e8;">합계: {total:,}원</div>
-        </div>""", unsafe_allow_html=True)
-
-    memo = st.text_area("메모 (선택)", key="drv_memo", placeholder="특이사항 입력...")
-
-    if st.button("✅ 수거 완료 등록", type="primary",
-                 use_container_width=True, key="btn_drv_save"):
-        if food_kg <= 0 and recycle_kg <= 0 and biz_kg <= 0:
-            st.error("수거량을 1개 이상 입력하세요.")
-            return
-
-        date_str = str(date_sel)
-        supply   = int(food_amt / 1.1)
-        vat      = food_amt - supply
-
-        ok = db_upsert('real_collection', {
-            '날짜':        date_str,
-            '학교명':      school,
-            '음식물(kg)':  food_kg,
-            '단가(원)':    food_price,
-            '공급가':      supply,
-            '재활용(kg)':  recycle_kg,
-            '사업장(kg)':  biz_kg,
-            '월':          date_sel.month,
-            '년도':        str(date_sel.year),
-            '수거업체':    vendor,
-            '수거기사':    name,
-            '수거시간':    time_v,
-            '재활용방법':  memo,
-        })
-        if ok:
-            st.success(f"✅ {school} 수거 완료 등록!")
-            st.balloons()
-        else:
-            st.error("저장 실패. 다시 시도하세요.")
-
-    # ── 오늘 입력 현황 ──
     st.divider()
+
+    # ── 버튼 2개: 임시저장 / 수거완료+본사전송 ──
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("📋 임시 저장", use_container_width=True):
+            if not _validate(school, weight):
+                return
+            row_id = _save(vendor, school, collect_date, collect_time,
+                           item_type, weight, unit_price, driver_name, memo,
+                           status='draft')
+            if row_id:
+                st.success(f"임시 저장 완료 (ID: {row_id})")
+            else:
+                st.error("저장 실패 - 관리자에게 문의하세요.")
+
+    with col2:
+        if st.button("✅ 수거완료 / 본사 전송", type="primary", use_container_width=True):
+            if not _validate(school, weight):
+                return
+            row_id = _save(vendor, school, collect_date, collect_time,
+                           item_type, weight, unit_price, driver_name, memo,
+                           status='submitted')
+            if row_id:
+                st.success(f"✅ 본사 전송 완료! (ID: {row_id})")
+                st.balloons()
+            else:
+                st.error("전송 실패 - 관리자에게 문의하세요.")
+
+    st.divider()
+
+    # ── 오늘 입력 현황 ────────────────────
     st.markdown("### 오늘 입력 현황")
-    today_str  = str(today)
-    today_rows = db_get('real_collection')
-    today_rows = [r for r in today_rows
-                  if r.get('날짜') == today_str
-                  and r.get('수거기사') == name]
+    today = str(date.today())
+    today_rows = [r for r in db_get('real_collection')
+                  if r.get('driver') == driver_name
+                  and str(r.get('collect_date', '')) == today]
 
     if not today_rows:
         st.info("오늘 입력된 수거 실적이 없습니다.")
-        return
+    else:
+        df = pd.DataFrame(today_rows)
+        show = [c for c in ['school_name','item_type','weight','status','memo'] if c in df.columns]
+        # 상태 한글 표시
+        if 'status' in df.columns:
+            df['status'] = df['status'].map({'draft': '📋 임시저장', 'submitted': '✅ 전송완료'}).fillna(df['status'])
+        st.dataframe(df[show], use_container_width=True, hide_index=True)
 
-    for r in today_rows:
-        kg = float(r.get('음식물(kg)', 0) or 0)
-        st.markdown(
-            f"✅ **{r.get('학교명','')}** — {kg:.1f}kg "
-            f"({r.get('수거시간','')})")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("오늘 수거량", f"{df['weight'].sum() if 'weight' in df.columns else 0:,.1f} kg")
+        with c2:
+            submitted = len([r for r in today_rows if r.get('status') == 'submitted'])
+            st.metric("전송 완료", f"{submitted}건")
+
+
+def _validate(school, weight):
+    if not school or school == '학교 없음':
+        st.error("학교를 선택하세요.")
+        return False
+    if weight <= 0:
+        st.error("수거량을 입력하세요.")
+        return False
+    return True
+
+
+def _save(vendor, school, collect_date, collect_time,
+          item_type, weight, unit_price, driver, memo, status):
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    data = {
+        'vendor':        vendor,
+        'school_name':   school,
+        'collect_date':  str(collect_date),
+        'item_type':     item_type,
+        'weight':        weight,
+        'unit_price':    unit_price,
+        'amount':        weight * unit_price,
+        'driver':        driver,
+        'memo':          memo,
+        'status':        status,
+        'submitted_at':  now if status == 'submitted' else '',
+        'created_at':    now,
+    }
+    return db_insert('real_collection', data)

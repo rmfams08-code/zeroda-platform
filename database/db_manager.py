@@ -31,19 +31,42 @@ def db_get(table, where_dict=None):
 
 
 def db_upsert(table, data):
-    """INSERT OR REPLACE"""
+    """INSERT OR REPLACE - id 없으면 새 행 삽입"""
     try:
         conn = _conn()
         c = conn.cursor()
-        keys = ', '.join(data.keys())
+        keys = ', '.join(f'"{k}"' for k in data.keys())
         placeholders = ', '.join(['?' for _ in data])
-        sql = f"INSERT OR REPLACE INTO {table} ({keys}) VALUES ({placeholders})"
+        sql = f'INSERT OR REPLACE INTO {table} ({keys}) VALUES ({placeholders})'
         c.execute(sql, list(data.values()))
         conn.commit()
         conn.close()
         return True
     except Exception as e:
+        import traceback
+        print(f"[db_upsert ERROR] table={table}, error={e}")
+        traceback.print_exc()
         return False
+
+
+def db_insert(table, data):
+    """순수 INSERT - 항상 새 행 추가 (수거 입력용)"""
+    try:
+        conn = _conn()
+        c = conn.cursor()
+        keys = ', '.join(f'"{k}"' for k in data.keys())
+        placeholders = ', '.join(['?' for _ in data])
+        sql = f'INSERT INTO {table} ({keys}) VALUES ({placeholders})'
+        c.execute(sql, list(data.values()))
+        row_id = c.lastrowid
+        conn.commit()
+        conn.close()
+        return row_id  # 저장된 행 ID 반환
+    except Exception as e:
+        import traceback
+        print(f"[db_insert ERROR] table={table}, error={e}")
+        traceback.print_exc()
+        return None
 
 
 def db_delete(table, where_dict):
