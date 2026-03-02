@@ -109,8 +109,18 @@ def get_school_student_count(school_name):
 
 
 def get_schools_by_vendor(vendor):
+    """업체ID 또는 업체명으로 학교 목록 조회"""
     rows = db_get('school_master', {'vendor': vendor})
-    return [r['school_name'] for r in rows]
+    if rows:
+        return [r['school_name'] for r in rows]
+    # 업체명으로 재시도 (vendor_info에서 ID 역조회)
+    vendor_rows = db_get('vendor_info')
+    for v in vendor_rows:
+        if v.get('biz_name') == vendor:
+            rows2 = db_get('school_master', {'vendor': v['vendor']})
+            if rows2:
+                return [r['school_name'] for r in rows2]
+    return []
 
 
 def get_schools_by_edu_office(edu_office):
@@ -123,8 +133,23 @@ def assign_school_to_vendor(school_name, vendor):
 
 
 def get_all_vendors():
+    """업체 ID 목록 반환 (DB 저장용)"""
     rows = db_get('vendor_info')
-    return [r.get('biz_name') or r['vendor'] for r in rows]
+    return [r['vendor'] for r in rows]
+
+
+def get_vendor_options():
+    """업체 선택용 딕셔너리 {표시명: ID} 반환 (UI 선택용)"""
+    rows = db_get('vendor_info')
+    return {f"{r.get('biz_name') or r['vendor']} ({r['vendor']})": r['vendor'] for r in rows}
+
+
+def get_vendor_name(vendor_id):
+    """업체ID → 업체명 변환"""
+    rows = db_get('vendor_info', {'vendor': vendor_id})
+    if rows:
+        return rows[0].get('biz_name') or vendor_id
+    return vendor_id
 
 
 def get_vendor_display_name(vendor_id):

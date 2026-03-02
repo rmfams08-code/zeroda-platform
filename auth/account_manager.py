@@ -8,7 +8,7 @@ import hashlib
 import sqlite3
 from datetime import datetime
 from config.settings import DB_PATH, ROLES, ROLE_ICONS
-from database.db_manager import db_get, db_upsert, db_delete, get_all_vendors, get_all_schools
+from database.db_manager import db_get, db_upsert, db_delete, get_all_vendors, get_vendor_options, get_vendor_name, get_all_schools
 
 
 # ──────────────────────────────────────────
@@ -160,11 +160,14 @@ def render_account_management():
         role = st.session_state.get('new_role', 'admin')
 
         if role in ('vendor_admin', 'driver'):
-            vendors = get_all_vendors()
-            if vendors:
-                new_vendor = st.selectbox("소속 업체 *", vendors, key="new_vendor_sel")
+            vendor_opts = get_vendor_options()  # {표시명: ID}
+            if vendor_opts:
+                sel_label  = st.selectbox("소속 업체 *", list(vendor_opts.keys()), key="new_vendor_sel")
+                new_vendor = vendor_opts[sel_label]  # ID만 저장
+                st.caption(f"저장될 업체 ID: `{new_vendor}`")
             else:
-                new_vendor = st.text_input("소속 업체 *", key="new_vendor_txt")
+                new_vendor = st.text_input("소속 업체 ID *", key="new_vendor_txt",
+                                           placeholder="업체를 먼저 등록하세요")
 
         elif role in ('school_admin', 'school_nutrition'):
             schools = get_all_schools()
@@ -219,7 +222,19 @@ def render_account_management():
         col1, col2 = st.columns(2)
         with col1:
             edit_name = st.text_input("이름", value=user.get('name',''), key="edit_name")
-            edit_vendor = st.text_input("소속 업체", value=user.get('vendor',''), key="edit_vendor")
+            # 업체 선택 - ID 기준
+            vendor_opts = get_vendor_options()  # {표시명: ID}
+            current_vendor = user.get('vendor', '')
+            if vendor_opts:
+                # 현재 vendor 값이 ID인지 명인지 모두 대응
+                current_ids = list(vendor_opts.values())
+                default_idx = current_ids.index(current_vendor) if current_vendor in current_ids else 0
+                sel_label   = st.selectbox("소속 업체", list(vendor_opts.keys()),
+                                           index=default_idx, key="edit_vendor_sel")
+                edit_vendor = vendor_opts[sel_label]
+                st.caption(f"저장될 업체 ID: `{edit_vendor}`")
+            else:
+                edit_vendor = st.text_input("소속 업체 ID", value=current_vendor, key="edit_vendor")
         with col2:
             edit_pw  = st.text_input("새 비밀번호 (변경 시만 입력)", type="password", key="edit_pw")
             edit_active = st.checkbox("활성 계정", value=bool(int(user.get('is_active', 1))), key="edit_active")
