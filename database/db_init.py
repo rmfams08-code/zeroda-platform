@@ -74,6 +74,8 @@ def init_db():
         amount REAL DEFAULT 0,
         driver TEXT DEFAULT '',
         memo TEXT DEFAULT '',
+        status TEXT DEFAULT 'draft',
+        submitted_at TEXT,
         created_at TEXT,
         날짜 TEXT,
         학교명 TEXT,

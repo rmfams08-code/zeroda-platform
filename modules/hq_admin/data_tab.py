@@ -1,133 +1,108 @@
-# zeroda_platform/modules/hq_admin/data_tab.py
-# ==========================================
-# 본사 관리자 - 수거 데이터 탭
-# ==========================================
-
+# modules/hq_admin/data_tab.py
 import streamlit as st
 import pandas as pd
+from database.db_manager import db_get, db_upsert, get_all_schools, get_all_vendors
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
-from database.db_manager import db_get, db_upsert, db_delete, get_all_schools, get_all_vendors
 
 
 def render_data_tab():
-    st.markdown("## 📋 수거 데이터 관리")
+    st.markdown("## 수거 데이터")
 
-    tab_real, tab_sim, tab_upload = st.tabs(["실제 수거", "시뮬레이션", "데이터 업로드"])
+    tab1, tab2, tab3 = st.tabs(["전송 대기 (미확인)", "전체 수거 내역", "시뮬레이션"])
 
-    # ── 실제 수거 데이터 ──────────────────────
-    with tab_real:
-        _render_real_data()
+    with tab1:
+        _render_pending()
 
-    # ── 시뮬레이션 데이터 ────────────────────
-    with tab_sim:
-        _render_sim_data()
+    with tab2:
+        _render_collection_table('real_collection', "실제 수거")
 
-    # ── 데이터 업로드 ────────────────────────
-    with tab_upload:
-        _render_upload()
+    with tab3:
+        _render_collection_table('sim_collection', "시뮬레이션")
 
 
-def _render_real_data():
-    st.markdown("### 실제 수거 데이터")
+def _render_pending():
+    """기사가 전송한 미확인 데이터"""
+    rows = [r for r in db_get('real_collection') if r.get('status') == 'submitted']
 
-    col1, col2, col3 = st.columns(3)
+    if not rows:
+        st.success("미확인 전송 데이터가 없습니다.")
+        return
+
+    st.warning(f"⚠️ 기사 전송 데이터 {len(rows)}건 확인 필요")
+
+    df = pd.DataFrame(rows)
+    show = [c for c in ['id','collect_date','school_name','vendor','item_type','weight','driver','submitted_at','memo'] if c in df.columns]
+    st.dataframe(df[show].sort_values('submitted_at', ascending=False) if 'submitted_at' in df.columns else df[show],
+                 use_container_width=True, hide_index=True)
+
+    st.divider()
+    col1, col2 = st.columns(2)
+
     with col1:
-        year  = st.selectbox("년도", list(range(2023, CURRENT_YEAR + 1)),
-                             index=2, key="real_year")
-    with col2:
-        month = st.selectbox("월", ['전체'] + list(range(1, 13)), key="real_month")
-    with col3:
-        vendors = ['전체'] + get_all_vendors()
-        vendor  = st.selectbox("업체", vendors, key="real_vendor")
-
-    rows = db_get('real_collection')
-
-    # 필터
-    if month != '전체':
-        rows = [r for r in rows if int(r.get('월', 0) or 0) == int(month)]
-    if vendor != '전체':
-        rows = [r for r in rows if r.get('수거업체') == vendor]
-    rows = [r for r in rows if str(r.get('년도', '')) == str(year)]
-
-    if not rows:
-        st.info("조건에 맞는 데이터가 없습니다.")
-        return
-
-    df = pd.DataFrame(rows)
-    display_cols = ['날짜', '학교명', '음식물(kg)', '단가(원)', '공급가',
-                    '수거업체', '수거기사', '수거시간']
-    display_cols = [c for c in display_cols if c in df.columns]
-    st.dataframe(df[display_cols], use_container_width=True)
-
-    # 집계
-    total_kg  = df['음식물(kg)'].astype(float).sum() if '음식물(kg)' in df.columns else 0
-    total_amt = df['공급가'].astype(float).sum()     if '공급가'    in df.columns else 0
-    c1, c2, c3 = st.columns(3)
-    c1.metric("총 수거량",  f"{total_kg:,.1f} kg")
-    c2.metric("총 공급가액", f"{total_amt:,.0f} 원")
-    c3.metric("수거 건수",  f"{len(rows):,} 건")
-
-    # 엑셀 다운로드
-    try:
-        from services.excel_generator import generate_collection_excel
-        if st.button("📥 엑셀 다운로드", key="dl_real"):
-            data = df[display_cols].to_dict('records')
-            xl = generate_collection_excel('전체', year,
-                                           month if month != '전체' else 0, data)
-            if xl:
-                st.download_button("💾 저장", xl,
-                    file_name=f"{year}_{month}_수거일보.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    except Exception:
-        pass
-
-
-def _render_sim_data():
-    st.markdown("### 시뮬레이션 데이터")
-
-    rows = db_get('sim_collection')
-    if not rows:
-        st.info("시뮬레이션 데이터가 없습니다.")
-        return
-
-    df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True)
-    st.caption(f"총 {len(rows)}행")
-
-
-def _render_upload():
-    st.markdown("### 📤 수거 데이터 업로드")
-    st.info("CSV 또는 엑셀 파일을 업로드하면 DB에 자동 저장됩니다.")
-
-    uploaded = st.file_uploader("파일 선택 (.csv, .xlsx)",
-                                type=['csv', 'xlsx'], key="upload_file")
-    if not uploaded:
-        return
-
-    try:
-        if uploaded.name.endswith('.csv'):
-            df = pd.read_csv(uploaded)
-        else:
-            df = pd.read_excel(uploaded)
-
-        st.dataframe(df.head(10))
-        st.caption(f"미리보기: 상위 10행 / 전체 {len(df)}행")
-
-        target = st.selectbox("저장 테이블",
-                              ['real_collection', 'sim_collection'],
-                              key="upload_target")
-
-        if st.button("DB에 저장", type="primary", key="btn_upload"):
+        if st.button("✅ 전체 확인 처리", type="primary", use_container_width=True):
             import sqlite3
             from config.settings import DB_PATH
-            conn = sqlite3.connect(DB_PATH)
             try:
-                df.to_sql(target, conn, if_exists='append', index=False)
+                conn = sqlite3.connect(DB_PATH)
+                conn.execute("UPDATE real_collection SET status='confirmed' WHERE status='submitted'")
                 conn.commit()
-                st.success(f"{len(df)}행 저장 완료")
-            except Exception as e:
-                st.error(f"저장 실패: {e}")
-            finally:
                 conn.close()
-    except Exception as e:
-        st.error(f"파일 읽기 실패: {e}")
+                st.success(f"{len(rows)}건 확인 완료!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"오류: {e}")
+
+    with col2:
+        if 'id' in df.columns:
+            sel_id = st.number_input("특정 ID 반려", min_value=1, step=1, key="reject_id")
+            if st.button("반려 처리", use_container_width=True):
+                import sqlite3
+                from config.settings import DB_PATH
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute("UPDATE real_collection SET status='rejected' WHERE id=?", (sel_id,))
+                    conn.commit()
+                    conn.close()
+                    st.warning(f"ID {sel_id} 반려 처리됨")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"오류: {e}")
+
+
+def _render_collection_table(table, label):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        vendors = ['전체'] + get_all_vendors()
+        vendor_filter = st.selectbox("업체", vendors, key=f"v_{table}")
+    with col2:
+        schools = ['전체'] + get_all_schools()
+        school_filter = st.selectbox("학교", schools, key=f"s_{table}")
+    with col3:
+        status_filter = st.selectbox("상태", ['전체','draft','submitted','confirmed','rejected'], key=f"st_{table}")
+
+    rows = db_get(table)
+    if not rows:
+        st.info(f"{label} 데이터가 없습니다.")
+        return
+
+    df = pd.DataFrame(rows)
+    if vendor_filter != '전체' and 'vendor' in df.columns:
+        df = df[df['vendor'] == vendor_filter]
+    if school_filter != '전체' and 'school_name' in df.columns:
+        df = df[df['school_name'] == school_filter]
+    if status_filter != '전체' and 'status' in df.columns:
+        df = df[df['status'] == status_filter]
+
+    # 상태 한글 표시
+    if 'status' in df.columns:
+        status_map = {
+            'draft':     '📋 임시저장',
+            'submitted': '📤 전송완료',
+            'confirmed': '✅ 확인완료',
+            'rejected':  '❌ 반려',
+        }
+        df['status'] = df['status'].map(status_map).fillna(df['status'])
+
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    if 'weight' in df.columns:
+        st.metric("합계", f"{df['weight'].sum():,.1f} kg")
