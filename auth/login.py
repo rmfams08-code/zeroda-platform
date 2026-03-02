@@ -1,6 +1,7 @@
 # zeroda_platform/auth/login.py
 import streamlit as st
 import hashlib
+import json
 from datetime import datetime
 from config.settings import ROLES, ROLE_ICONS, COMMON_CSS
 from database.db_manager import db_get
@@ -20,6 +21,17 @@ def verify_password(plain: str, hashed: str) -> bool:
     return False
 
 
+def get_cookie_manager():
+    try:
+        from streamlit_cookies_manager import EncryptedCookieManager
+        cookies = EncryptedCookieManager(prefix="zeroda_", password="zeroda_secret_key_2024")
+        if not cookies.ready():
+            st.stop()
+        return cookies
+    except Exception:
+        return None
+
+
 def authenticate(user_id: str, password: str):
     rows = db_get('users', {'user_id': user_id})
     if not rows:
@@ -37,11 +49,43 @@ def get_current_user():
 
 
 def is_logged_in():
-    return 'user' in st.session_state and st.session_state.user is not None
+    # 세션 확인
+    if 'user' in st.session_state and st.session_state.user is not None:
+        return True
+    # 쿠키에서 복원
+    cookies = get_cookie_manager()
+    if cookies:
+        try:
+            user_json = cookies.get("user_data")
+            if user_json:
+                user = json.loads(user_json)
+                st.session_state.user = user
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def save_login_cookie(user):
+    cookies = get_cookie_manager()
+    if cookies:
+        try:
+            cookies["user_data"] = json.dumps(user)
+            cookies.save()
+        except Exception:
+            pass
 
 
 def logout():
-    for key in ['user', 'page']:
+    # 쿠키 삭제
+    cookies = get_cookie_manager()
+    if cookies:
+        try:
+            cookies["user_data"] = ""
+            cookies.save()
+        except Exception:
+            pass
+    for key in ['user', 'page', 'current_menu']:
         st.session_state.pop(key, None)
     st.rerun()
 
@@ -60,8 +104,8 @@ def render_login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("### 🔐 로그인")
-        user_id  = st.text_input("아이디",   key="login_id",  placeholder="아이디를 입력하세요")
-        password = st.text_input("비밀번호", key="login_pw",  type="password", placeholder="비밀번호를 입력하세요")
+        user_id  = st.text_input("아이디", key="login_id", placeholder="아이디를 입력하세요")
+        password = st.text_input("비밀번호", key="login_pw", type="password", placeholder="비밀번호를 입력하세요")
 
         if st.button("로그인", type="primary", use_container_width=True):
             if not user_id or not password:
@@ -71,6 +115,7 @@ def render_login_page():
             if success:
                 st.session_state.user = user
                 st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                save_login_cookie(user)
                 st.rerun()
             else:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
