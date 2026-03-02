@@ -10,11 +10,11 @@ from email.header import Header
 def _get_smtp_config():
     try:
         import streamlit as st
-        user = st.secrets.get("NAVER_SMTP_USER", "")
-        pw   = st.secrets.get("NAVER_SMTP_APP_PW", "")
+        user = st.secrets.get("WORKS_SMTP_USER", "") or st.secrets.get("NAVER_SMTP_USER", "")
+        pw   = st.secrets.get("WORKS_SMTP_APP_PW", "") or st.secrets.get("NAVER_SMTP_APP_PW", "")
     except Exception:
-        user = os.environ.get("NAVER_SMTP_USER", "")
-        pw   = os.environ.get("NAVER_SMTP_APP_PW", "")
+        user = os.environ.get("WORKS_SMTP_USER", "") or os.environ.get("NAVER_SMTP_USER", "")
+        pw   = os.environ.get("WORKS_SMTP_APP_PW", "") or os.environ.get("NAVER_SMTP_APP_PW", "")
     return user, pw
 
 
@@ -50,17 +50,16 @@ def send_statement_email(to_email: str, subject: str, body: str,
                             filename=('utf-8', '', filename))
         msg.attach(pdf_part)
 
-        # 네이버 SMTP 발송
-        with smtplib.SMTP('smtp.naver.com', 587) as server:
+        # 네이버웍스 SMTP 발송 (SSL 465)
+        with smtplib.SMTP_SSL('smtp.worksmobile.com', 465) as server:
             server.ehlo()
-            server.starttls()
             server.login(smtp_user, smtp_pw)
             server.sendmail(smtp_user, [to_email], msg.as_string())
 
         return True, f"✅ {to_email} 으로 발송 완료"
 
     except smtplib.SMTPAuthenticationError:
-        return False, "❌ SMTP 인증 실패 - 네이버 앱 비밀번호를 확인하세요."
+        return False, "❌ SMTP 인증 실패 - 네이버웍스 앱 비밀번호와 이메일 주소를 확인하세요."
     except smtplib.SMTPRecipientsRefused:
         return False, f"❌ 수신 이메일 오류: {to_email}"
     except smtplib.SMTPException as e:
