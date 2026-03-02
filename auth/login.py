@@ -23,18 +23,26 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def authenticate(user_id: str, password: str):
-    rows = db_get('users', {'user_id': user_id})
-    if not rows:
-        st.warning(f"[디버그] user_id={user_id} 조회 결과 없음")
+    try:
+        from supabase import create_client
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        sb = create_client(url, key)
+        res = sb.table('users').select("*").eq('user_id', user_id).execute()
+        rows = res.data
+        st.info(f"[디버그] 조회결과: {rows}")
+        if not rows:
+            st.error("[디버그] 데이터 없음")
+            return False, None
+        user = rows[0]
+        pw_hash = user.get('pw_hash', '')
+        st.info(f"[디버그] pw_hash={pw_hash}, 입력={password}")
+        if not verify_password(password, pw_hash):
+            return False, None
+        return True, user
+    except Exception as e:
+        st.error(f"[디버그] 오류: {e}")
         return False, None
-    user = rows[0]
-    if int(user.get('is_active', 1)) == 0:
-        return False, None
-    pw_hash = user.get('pw_hash', '')
-    st.info(f"[디버그] pw_hash={pw_hash}, 입력={password}")
-    if not verify_password(password, pw_hash):
-        return False, None
-    return True, user
 
 
 def get_current_user():
