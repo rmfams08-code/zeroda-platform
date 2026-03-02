@@ -99,11 +99,12 @@ if role == 'admin':
 
 elif role == 'vendor_admin':
     menu = [
-        ("대시보드",   "dashboard"),
-        ("수거 데이터", "collection"),
-        ("수거일정",    "schedule"),
-        ("거래처 관리", "customer"),
-        ("일반업장",    "biz"),
+        ("대시보드",    "dashboard"),
+        ("수거 데이터",  "collection"),
+        ("수거일정",     "schedule"),
+        ("거래처 관리",  "customer"),
+        ("일반업장",     "biz"),
+        ("거래명세서 발송", "statement"),
     ]
     page = render_sidebar(menu)
 
@@ -122,6 +123,9 @@ elif role == 'vendor_admin':
     elif page == "biz":
         from modules.vendor_admin.biz_tab import render_biz_tab
         render_biz_tab(vendor)
+    elif page == "statement":
+        from modules.vendor_admin.statement_tab import render_statement_tab
+        render_statement_tab(vendor)
 
 elif role == 'driver':
     menu = [
