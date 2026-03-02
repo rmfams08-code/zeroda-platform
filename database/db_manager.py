@@ -109,17 +109,50 @@ def get_school_student_count(school_name):
 
 
 def get_schools_by_vendor(vendor):
-    """업체ID 또는 업체명으로 학교 목록 조회"""
+    """
+    업체 담당 학교 목록 조회 - 3단계 순서로 시도
+    1. school_master 테이블 (정식 등록)
+    2. schedules 테이블 (수거일정에 등록된 학교)
+    3. customer_info 테이블 (거래처로 등록된 학교)
+    """
+    import json
+
+    # 1단계: school_master
     rows = db_get('school_master', {'vendor': vendor})
     if rows:
         return [r['school_name'] for r in rows]
-    # 업체명으로 재시도 (vendor_info에서 ID 역조회)
+
+    # 업체명→ID 역조회 후 school_master 재시도
     vendor_rows = db_get('vendor_info')
+    vendor_id = vendor
     for v in vendor_rows:
         if v.get('biz_name') == vendor:
-            rows2 = db_get('school_master', {'vendor': v['vendor']})
+            vendor_id = v['vendor']
+            rows2 = db_get('school_master', {'vendor': vendor_id})
             if rows2:
                 return [r['school_name'] for r in rows2]
+
+    # 2단계: schedules 테이블에서 학교 추출
+    schedule_rows = db_get('schedules', {'vendor': vendor_id})
+    if not schedule_rows:
+        schedule_rows = db_get('schedules', {'vendor': vendor})
+    schools = set()
+    for r in schedule_rows:
+        try:
+            school_list = json.loads(r.get('schools', '[]'))
+            schools.update(school_list)
+        except Exception:
+            pass
+    if schools:
+        return sorted(list(schools))
+
+    # 3단계: customer_info 테이블에서 학교 추출
+    customer_rows = db_get('customer_info', {'vendor': vendor_id})
+    if not customer_rows:
+        customer_rows = db_get('customer_info', {'vendor': vendor})
+    if customer_rows:
+        return [r['school_name'] for r in customer_rows if r.get('school_name')]
+
     return []
 
 
