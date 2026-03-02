@@ -65,6 +65,16 @@ def init_db():
 
     CREATE TABLE IF NOT EXISTS real_collection (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vendor TEXT DEFAULT '',
+        school_name TEXT DEFAULT '',
+        collect_date TEXT,
+        item_type TEXT DEFAULT '',
+        weight REAL DEFAULT 0,
+        unit_price REAL DEFAULT 0,
+        amount REAL DEFAULT 0,
+        driver TEXT DEFAULT '',
+        memo TEXT DEFAULT '',
+        created_at TEXT,
         날짜 TEXT,
         학교명 TEXT,
         "음식물(kg)" REAL DEFAULT 0,
@@ -74,14 +84,7 @@ def init_db():
         재활용업체 TEXT DEFAULT '',
         월 INTEGER,
         년도 INTEGER,
-        월별파일 TEXT DEFAULT '',
-        vendor TEXT DEFAULT '',
-        collect_date TEXT,
-        item_type TEXT,
-        weight REAL DEFAULT 0,
-        driver TEXT DEFAULT '',
-        memo TEXT DEFAULT '',
-        created_at TEXT
+        월별파일 TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS sim_collection (
