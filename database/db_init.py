@@ -4,6 +4,46 @@ import os
 from config.settings import DB_PATH
 
 
+def migrate_vendor_names():
+    """
+    기존 users 테이블의 vendor 필드가 업체명으로 저장된 경우 업체ID로 교정
+    예: '하영자원' → 'hy'
+    앱 시작 시 자동 실행
+    """
+    import sqlite3
+    from config.settings import DB_PATH
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # vendor_info에서 biz_name → vendor ID 매핑 구성
+        vendors = c.execute("SELECT vendor, biz_name FROM vendor_info").fetchall()
+        name_to_id = {v['biz_name']: v['vendor'] for v in vendors if v['biz_name']}
+
+        if not name_to_id:
+            conn.close()
+            return
+
+        # users 테이블에서 업체명으로 저장된 vendor 교정
+        users = c.execute("SELECT user_id, vendor FROM users").fetchall()
+        fixed = 0
+        for u in users:
+            vendor_val = u['vendor'] or ''
+            if vendor_val in name_to_id:
+                correct_id = name_to_id[vendor_val]
+                c.execute("UPDATE users SET vendor=? WHERE user_id=?",
+                          (correct_id, u['user_id']))
+                fixed += 1
+
+        if fixed > 0:
+            conn.commit()
+            print(f"[migrate] vendor 필드 교정: {fixed}개 계정")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_vendor_names] {e}")
+
+
 def init_db():
     """SQLite DB 초기화 - 테이블 생성"""
     conn = sqlite3.connect(DB_PATH)
