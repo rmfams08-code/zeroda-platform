@@ -13,36 +13,23 @@ def hash_password(pw: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     if not plain or not hashed:
         return False
-    # 평문 비교 (우선)
     if plain.strip() == hashed.strip():
         return True
-    # sha256 해시 비교
     if hash_password(plain.strip()) == hashed.strip():
         return True
     return False
 
 
 def authenticate(user_id: str, password: str):
-    try:
-        from supabase import create_client
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        sb = create_client(url, key)
-        res = sb.table('users').select("*").eq('user_id', user_id).execute()
-        rows = res.data
-        st.info(f"[디버그] 조회결과: {rows}")
-        if not rows:
-            st.error("[디버그] 데이터 없음")
-            return False, None
-        user = rows[0]
-        pw_hash = user.get('pw_hash', '')
-        st.info(f"[디버그] pw_hash={pw_hash}, 입력={password}")
-        if not verify_password(password, pw_hash):
-            return False, None
-        return True, user
-    except Exception as e:
-        st.error(f"[디버그] 오류: {e}")
+    rows = db_get('users', {'user_id': user_id})
+    if not rows:
         return False, None
+    user = rows[0]
+    if int(user.get('is_active', 1)) == 0:
+        return False, None
+    if not verify_password(password, user.get('pw_hash', '')):
+        return False, None
+    return True, user
 
 
 def get_current_user():
@@ -63,16 +50,16 @@ def render_login_page():
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
 
     st.markdown("""
-    <div class="landing-header">
-        <div class="brand">ZERODA</div>
-        <h1>제로다 폐기물데이터플랫폼</h1>
-        <div class="subtitle">하영자원 | 경기도 화성시</div>
+    <div style="text-align:center;padding:40px 0 20px;">
+        <div style="font-size:48px;font-weight:900;color:#1a73e8;">ZERODA</div>
+        <h1 style="font-size:24px;font-weight:700;">제로다 폐기물데이터플랫폼</h1>
+        <div style="color:#5f6368;">하영자원 | 경기도 화성시</div>
     </div>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("### 로그인")
+        st.markdown("### 🔐 로그인")
         user_id  = st.text_input("아이디",   key="login_id",  placeholder="아이디를 입력하세요")
         password = st.text_input("비밀번호", key="login_pw",  type="password", placeholder="비밀번호를 입력하세요")
 
@@ -80,7 +67,6 @@ def render_login_page():
             if not user_id or not password:
                 st.warning("아이디와 비밀번호를 모두 입력하세요.")
                 return
-
             success, user = authenticate(user_id, password)
             if success:
                 st.session_state.user = user

@@ -1,64 +1,78 @@
 # zeroda_platform/database/db_manager.py
+import sqlite3
 import json
-import streamlit as st
 from datetime import datetime
+from config.settings import DB_PATH
 
 
-def get_supabase():
-    """캐시 없이 매번 새로 연결"""
-    try:
-        from supabase import create_client
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except Exception as e:
-        st.error(f"Supabase 연결 실패: {e}")
-        return None
+def _conn():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def db_get(table, where_dict=None):
-    sb = get_supabase()
-    if not sb:
-        return []
+    """SELECT"""
     try:
-        query = sb.table(table).select("*")
+        conn = _conn()
+        c = conn.cursor()
+        sql = f"SELECT * FROM {table}"
+        params = []
         if where_dict:
-            for k, v in where_dict.items():
-                query = query.eq(k, v)
-        res = query.execute()
-        return res.data or []
+            conditions = [f"{k} = ?" for k in where_dict]
+            sql += " WHERE " + " AND ".join(conditions)
+            params = list(where_dict.values())
+        c.execute(sql, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return rows
     except Exception as e:
-        st.error(f"db_get 오류: {e}")
         return []
 
 
 def db_upsert(table, data):
-    sb = get_supabase()
-    if not sb:
-        return False
+    """INSERT OR REPLACE"""
     try:
-        sb.table(table).upsert(data).execute()
+        conn = _conn()
+        c = conn.cursor()
+        keys = ', '.join(data.keys())
+        placeholders = ', '.join(['?' for _ in data])
+        sql = f"INSERT OR REPLACE INTO {table} ({keys}) VALUES ({placeholders})"
+        c.execute(sql, list(data.values()))
+        conn.commit()
+        conn.close()
         return True
-    except Exception:
+    except Exception as e:
         return False
 
 
 def db_delete(table, where_dict):
-    sb = get_supabase()
-    if not sb:
-        return False
+    """DELETE"""
     try:
-        query = sb.table(table).delete()
-        for k, v in where_dict.items():
-            query = query.eq(k, v)
-        query.execute()
+        conn = _conn()
+        c = conn.cursor()
+        conditions = [f"{k} = ?" for k in where_dict]
+        sql = f"DELETE FROM {table} WHERE " + " AND ".join(conditions)
+        c.execute(sql, list(where_dict.values()))
+        conn.commit()
+        conn.close()
         return True
     except Exception:
         return False
 
 
 def db_execute(sql, params=None):
-    return []
+    """직접 SQL 실행"""
+    try:
+        conn = _conn()
+        c = conn.cursor()
+        c.execute(sql, params or [])
+        rows = [dict(r) for r in c.fetchall()]
+        conn.commit()
+        conn.close()
+        return rows
+    except Exception:
+        return []
 
 
 def get_all_schools():
@@ -98,17 +112,18 @@ def get_vendor_display_name(vendor_id):
 
 
 def update_vendor_name(old_vendor_id, new_biz_name):
-    sb = get_supabase()
-    if not sb:
-        return False
     try:
-        sb.table('vendor_info').update({'biz_name': new_biz_name}).eq('vendor', old_vendor_id).execute()
+        conn = _conn()
+        c = conn.cursor()
+        c.execute("UPDATE vendor_info SET biz_name=? WHERE vendor=?", (new_biz_name, old_vendor_id))
         for tbl, col in [('users','vendor'),('contract_info','vendor'),('schedule_data','vendor'),
                          ('schedules','vendor'),('customer_info','vendor'),('biz_customers','vendor'),('school_master','vendor')]:
             try:
-                sb.table(tbl).update({col: new_biz_name}).eq(col, old_vendor_id).execute()
+                c.execute(f"UPDATE {tbl} SET {col}=? WHERE {col}=?", (new_biz_name, old_vendor_id))
             except:
                 pass
+        conn.commit()
+        conn.close()
         return True
     except:
         return False
@@ -153,14 +168,7 @@ def load_schedule(vendor, month):
 
 
 def load_all_schedules(vendor):
-    sb = get_supabase()
-    if not sb:
-        return {}
-    try:
-        res = sb.table('schedules').select("*").eq('vendor', vendor).execute()
-        rows = res.data or []
-    except:
-        return {}
+    rows = db_get('schedules', {'vendor': vendor})
     result = {}
     for r in rows:
         result[r['month']] = {'요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
