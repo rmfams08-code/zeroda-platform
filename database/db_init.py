@@ -38,7 +38,8 @@ def init_db():
         rep TEXT DEFAULT '',
         biz_no TEXT DEFAULT '',
         address TEXT DEFAULT '',
-        contact TEXT DEFAULT ''
+        contact TEXT DEFAULT '',
+        email TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS contract_info (
