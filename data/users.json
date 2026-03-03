@@ -21,5 +21,18 @@
     "created_at": "2026-03-03 02:20:11",
     "updated_at": "2026-03-03 02:20:11",
     "id": 2
+  },
+  {
+    "user_id": "hy1",
+    "pw_hash": "d4d021632a0eb3da72aa1844879675f281068c56668af7ff2e64cf801f0d5fae",
+    "role": "driver",
+    "name": "하영기사1",
+    "vendor": "hy",
+    "schools": "",
+    "edu_office": "",
+    "is_active": 1,
+    "created_at": "2026-03-03 02:21:10",
+    "updated_at": "2026-03-03 02:21:10",
+    "id": 3
   }
 ]
