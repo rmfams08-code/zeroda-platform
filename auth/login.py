@@ -23,11 +23,8 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def get_cookie_manager():
     try:
-        from streamlit_cookies_manager import EncryptedCookieManager
-        cookies = EncryptedCookieManager(prefix="zeroda_", password="zeroda_secret_key_2024")
-        if not cookies.ready():
-            st.stop()
-        return cookies
+        import extra_streamlit_components as stx
+        return stx.CookieManager(key="zeroda_cookie_mgr")
     except Exception:
         return None
 
@@ -56,7 +53,7 @@ def is_logged_in():
     cookies = get_cookie_manager()
     if cookies:
         try:
-            user_json = cookies.get("user_data")
+            user_json = cookies.get("zeroda_user")
             if user_json:
                 user = json.loads(user_json)
                 st.session_state.user = user
@@ -70,20 +67,17 @@ def save_login_cookie(user):
     cookies = get_cookie_manager()
     if cookies:
         try:
-            cookies["user_data"] = json.dumps(user)
-            cookies.save()
+            cookies.set("zeroda_user", json.dumps(user), key="set_user_cookie")
         except Exception:
             pass
 
 
 def logout():
-    # 쿠키 삭제 - ready 체크 없이 직접 처리
+    # 쿠키 삭제
     try:
-        from streamlit_cookies_manager import EncryptedCookieManager
-        cookies = EncryptedCookieManager(prefix="zeroda_", password="zeroda_secret_key_2024")
-        if cookies.ready():
-            cookies["user_data"] = ""
-            cookies.save()
+        cookies = get_cookie_manager()
+        if cookies:
+            cookies.delete("zeroda_user", key="del_user_cookie")
     except Exception:
         pass
     # 세션 전체 초기화
