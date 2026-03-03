@@ -145,18 +145,9 @@ elif role == 'vendor_admin':
         render_safety_tab(vendor)
 
 elif role == 'driver':
-    menu = [
-        ("오늘 일정", "dashboard"),
-        ("수거 입력", "input"),
-    ]
-    page = render_sidebar(menu)
-
-    if page == "dashboard":
-        from modules.driver.dashboard import render_dashboard
-        render_dashboard(user)
-    elif page == "input":
-        from modules.driver.collection_input import render_collection_input
-        render_collection_input(user)
+    # 기사 앱은 탭 통합 단일 페이지
+    from modules.driver.dashboard import render_dashboard
+    render_dashboard(user)
 
 elif role in ('school_admin', 'school_nutrition'):
     menu = [("대시보드", "dashboard")]
