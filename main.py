@@ -22,6 +22,9 @@ def startup():
     migrate_vendor_names()  # vendor 필드 업체명→ID 자동 교정
     return True
 
+# 임시 테스트 - 확인 후 삭제
+exec(open('test_github.py').read())
+st.stop()
 startup()
 
 # 공통 CSS 적용
