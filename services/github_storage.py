@@ -106,9 +106,15 @@ def _put_file(table: str, rows: list, sha=None):
 # ──────────────────────────────────────────────────
 
 @st.cache_data(ttl=30)   # 30초 캐시 - 실시간성 유지
-def github_get(table: str, where_dict: dict = None):
-    """GitHub에서 테이블 데이터 읽기"""
+def _github_get_cached(table: str):
+    """GitHub에서 테이블 전체 데이터 읽기 (캐시 적용)"""
     rows, _ = _get_file(table)
+    return rows or []
+
+
+def github_get(table: str, where_dict: dict = None):
+    """GitHub에서 테이블 데이터 읽기 (where 필터는 캐시 밖에서 처리)"""
+    rows = _github_get_cached(table)
     if where_dict and rows:
         for k, v in where_dict.items():
             rows = [r for r in rows if str(r.get(k, '')) == str(v)]
@@ -129,7 +135,7 @@ def github_insert(table: str, data: dict):
     success = _put_file(table, rows, sha)
     if success:
         # 캐시 무효화
-        github_get.clear()
+        _github_get_cached.clear()
         return data['id']
     return None
 
@@ -157,7 +163,7 @@ def github_upsert(table: str, data: dict):
 
     success = _put_file(table, rows, sha)
     if success:
-        github_get.clear()
+        _github_get_cached.clear()
         return True
     return False
 
@@ -174,7 +180,7 @@ def github_delete(table: str, where_dict: dict):
 
     success = _put_file(table, new_rows, sha)
     if success:
-        github_get.clear()
+        _github_get_cached.clear()
         return True
     return False
 
