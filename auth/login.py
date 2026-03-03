@@ -30,7 +30,18 @@ def get_cookie_manager():
 
 
 def authenticate(user_id: str, password: str):
-    rows = db_get('users', {'user_id': user_id})
+    # 1) GitHub 직접 시도
+    from services.github_storage import is_github_available, _get_file
+    if is_github_available():
+        rows, _ = _get_file('users')
+        rows = [r for r in (rows or []) if r.get('user_id') == user_id]
+    else:
+        rows = db_get('users', {'user_id': user_id})
+
+    # 2) GitHub에 없으면 SQLite 폴백
+    if not rows:
+        rows = db_get('users', {'user_id': user_id})
+
     if not rows:
         return False, None
     user = rows[0]
@@ -114,6 +125,15 @@ def render_login_page():
                 st.rerun()
             else:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+                # 임시 디버그
+                from services.github_storage import is_github_available, _get_file
+                with st.expander("🔍 디버그 (임시)"):
+                    st.write(f"GitHub 연결: {is_github_available()}")
+                    rows, _ = _get_file('users')
+                    st.write(f"users.json 행 수: {len(rows) if rows else 0}")
+                    if rows:
+                        st.write(f"첫번째 user_id: {rows[0].get('user_id','없음')}")
+                        st.write(f"pw_hash 앞 10자: {rows[0].get('pw_hash','없음')[:10]}")
 
     st.markdown("---")
     st.markdown("#### 접속 가능 역할")
