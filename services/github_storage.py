@@ -52,14 +52,16 @@ def _get_file(table: str):
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            content = base64.b64decode(data['content']).decode('utf-8')
+            # GitHub API는 content에 줄바꿈 포함 - 제거 필요
+            raw = data['content'].replace('\n', '').replace(' ', '')
+            content = base64.b64decode(raw).decode('utf-8')
             rows = json.loads(content)
             return rows, data['sha']
     except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return [], None   # 파일 없음 (첫 생성)
+        print(f"[github_storage] HTTP {e.code}: {e.reason} / url={url}")
         return [], None
-    except Exception:
+    except Exception as e:
+        print(f"[github_storage] _get_file error: {type(e).__name__}: {e}")
         return [], None
 
 
