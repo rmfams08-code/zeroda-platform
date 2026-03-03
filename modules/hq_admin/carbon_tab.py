@@ -61,8 +61,9 @@ def _render_overview():
     # 품목별 기여도
     st.markdown("#### 품목별 탄소감축 기여도")
     by_item = result['by_item']
+    item_kg_map = {'음식물': result['food_kg'], '재활용': result['recycle_kg'], '일반': result['general_kg']}
     df_item = pd.DataFrame([
-        {'품목': k, '탄소감축(kg CO₂)': v, '수거량(kg)': result.get(f"{{'음식물':'food','재활용':'recycle','일반':'general'}[k]}_kg", 0)}
+        {'품목': k, '탄소감축(kg CO₂)': v, '수거량(kg)': item_kg_map.get(k, 0)}
         for k, v in by_item.items()
     ])
     st.dataframe(df_item, use_container_width=True, hide_index=True)
