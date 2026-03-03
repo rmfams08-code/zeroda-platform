@@ -24,6 +24,10 @@ def startup():
 
 startup()
 
+# 공통 CSS 적용
+from config.components import apply_css
+apply_css()
+
 if not is_logged_in():
     render_login_page()
     st.stop()
@@ -76,6 +80,8 @@ if role == 'admin':
         ("수거일정",      "schedule"),
         ("외주업체 관리", "vendor"),
         ("계정 관리",     "account"),
+        ("안전관리",      "safety"),
+        ("탄소감축 현황", "carbon"),
     ]
     page = render_sidebar(menu)
 
@@ -97,6 +103,12 @@ if role == 'admin':
     elif page == "account":
         from modules.hq_admin.account_mgmt_tab import render_account_mgmt_tab
         render_account_mgmt_tab()
+    elif page == "safety":
+        from modules.hq_admin.safety_tab import render_safety_tab
+        render_safety_tab()
+    elif page == "carbon":
+        from modules.hq_admin.carbon_tab import render_carbon_tab
+        render_carbon_tab()
 
 elif role == 'vendor_admin':
     menu = [
@@ -106,6 +118,7 @@ elif role == 'vendor_admin':
         ("거래처 관리",  "customer"),
         ("일반업장",     "biz"),
         ("거래명세서 발송", "statement"),
+        ("안전관리",     "safety"),
     ]
     page = render_sidebar(menu)
 
@@ -127,6 +140,9 @@ elif role == 'vendor_admin':
     elif page == "statement":
         from modules.vendor_admin.statement_tab import render_statement_tab
         render_statement_tab(vendor)
+    elif page == "safety":
+        from modules.vendor_admin.safety_tab import render_safety_tab
+        render_safety_tab(vendor)
 
 elif role == 'driver':
     menu = [

@@ -57,7 +57,14 @@ def render_statement_tab(vendor):
 
     # ── 수급자(학교) 정보 ─────────────────
     customers = load_customers_from_db(vendor)
-    biz_info  = customers.get(school, {})
+    # customer_info 테이블 key가 'name' 컬럼 기준
+    biz_info = customers.get(school, {})
+    if not biz_info:
+        # school_name으로도 시도
+        for k, v in customers.items():
+            if k == school or v.get('상호') == school:
+                biz_info = v
+                break
 
     st.markdown("#### 수급자 정보 (학교)")
     col1, col2 = st.columns(2)
@@ -175,13 +182,11 @@ def render_statement_tab(vendor):
         if st.button("이메일 발송", type="primary", use_container_width=True):
             if not to_email:
                 st.error("수신 이메일을 입력하세요.")
-            elif not rows:
-                st.error("수거 데이터가 없어 발송할 수 없습니다.")
             else:
-                with st.spinner("PDF 생성 중..."):
+                with st.spinner("PDF 생성 및 발송 중..."):
                     try:
                         pdf_bytes = generate_statement_pdf(
-                            vendor, school, year, month, rows, biz_info, vinfo
+                            vendor, school, year, month, rows or [], biz_info, vinfo
                         )
                         filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                         success, msg = send_statement_email(
@@ -191,6 +196,10 @@ def render_statement_tab(vendor):
                             st.success(msg)
                             st.balloons()
                         else:
+                            # SMTP 설정 안내 포함
                             st.error(msg)
+                            if "SMTP 설정" in msg or "인증" in msg:
+                                st.info("💡 Streamlit Cloud → Manage App → Secrets 에서\n"                                        "NAVER_SMTP_USER, NAVER_SMTP_APP_PW 를 등록하세요.")
                     except Exception as e:
                         st.error(f"발송 중 오류: {e}")
+                        st.info("💡 Streamlit Cloud Secrets에 SMTP 설정이 필요합니다.")
