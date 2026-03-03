@@ -3,6 +3,10 @@ import sqlite3
 import json
 from datetime import datetime
 from config.settings import DB_PATH
+from services.github_storage import (
+    github_get, github_insert, github_upsert, github_delete,
+    is_github_available, SHARED_TABLES
+)
 
 
 def _conn():
@@ -11,8 +15,16 @@ def _conn():
     return conn
 
 
+def _use_github(table: str) -> bool:
+    """해당 테이블을 GitHub으로 처리할지 여부"""
+    return table in SHARED_TABLES and is_github_available()
+
+
 def db_get(table, where_dict=None):
-    """SELECT"""
+    """SELECT - GitHub 우선, 폴백 SQLite"""
+    if _use_github(table):
+        return github_get(table, where_dict)
+    # SQLite 폴백
     try:
         conn = _conn()
         c = conn.cursor()
@@ -26,12 +38,14 @@ def db_get(table, where_dict=None):
         rows = [dict(r) for r in c.fetchall()]
         conn.close()
         return rows
-    except Exception as e:
+    except Exception:
         return []
 
 
 def db_upsert(table, data):
-    """INSERT OR REPLACE - id 없으면 새 행 삽입"""
+    """INSERT OR REPLACE - GitHub 우선, 폴백 SQLite"""
+    if _use_github(table):
+        return github_upsert(table, data)
     try:
         conn = _conn()
         c = conn.cursor()
@@ -50,7 +64,9 @@ def db_upsert(table, data):
 
 
 def db_insert(table, data):
-    """순수 INSERT - 항상 새 행 추가 (수거 입력용)"""
+    """순수 INSERT - GitHub 우선, 폴백 SQLite"""
+    if _use_github(table):
+        return github_insert(table, data)
     try:
         conn = _conn()
         c = conn.cursor()
@@ -61,7 +77,7 @@ def db_insert(table, data):
         row_id = c.lastrowid
         conn.commit()
         conn.close()
-        return row_id  # 저장된 행 ID 반환
+        return row_id
     except Exception as e:
         import traceback
         print(f"[db_insert ERROR] table={table}, error={e}")
@@ -70,7 +86,9 @@ def db_insert(table, data):
 
 
 def db_delete(table, where_dict):
-    """DELETE"""
+    """DELETE - GitHub 우선, 폴백 SQLite"""
+    if _use_github(table):
+        return github_delete(table, where_dict)
     try:
         conn = _conn()
         c = conn.cursor()
