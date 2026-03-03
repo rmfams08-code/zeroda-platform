@@ -193,6 +193,47 @@ def init_db():
     );
     """)
 
+    # 안전관리 테이블
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS safety_education (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor TEXT, driver TEXT, edu_date TEXT,
+            edu_type TEXT, edu_hours INTEGER DEFAULT 0,
+            instructor TEXT DEFAULT '', result TEXT DEFAULT '이수',
+            memo TEXT DEFAULT '', created_at TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS safety_checklist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor TEXT, driver TEXT, check_date TEXT,
+            vehicle_no TEXT DEFAULT '', check_items TEXT DEFAULT '{}',
+            total_ok INTEGER DEFAULT 0, total_fail INTEGER DEFAULT 0,
+            inspector TEXT DEFAULT '', memo TEXT DEFAULT '', created_at TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS accident_report (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor TEXT, driver TEXT, occur_date TEXT,
+            occur_location TEXT DEFAULT '', accident_type TEXT DEFAULT '기타',
+            severity TEXT DEFAULT '경상', description TEXT DEFAULT '',
+            action_taken TEXT DEFAULT '', status TEXT DEFAULT '신고완료',
+            created_at TEXT
+        )
+    """)
+
+    # 탄소감축량 테이블
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS carbon_reduction (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            school_name TEXT, vendor TEXT, year INTEGER, month INTEGER,
+            food_waste_kg REAL DEFAULT 0, recycle_kg REAL DEFAULT 0,
+            general_kg REAL DEFAULT 0, carbon_reduced REAL DEFAULT 0,
+            tree_equivalent REAL DEFAULT 0, created_at TEXT
+        )
+    """)
+
     # 기본 admin 계정 생성
     import hashlib
     admin_pw = hashlib.sha256("admin123".encode()).hexdigest()

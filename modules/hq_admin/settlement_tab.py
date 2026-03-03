@@ -1,224 +1,197 @@
-# zeroda_platform/modules/hq_admin/settlement_tab.py
-# ==========================================
-# 본사 관리자 - 정산 탭
-# ==========================================
-
+# modules/hq_admin/settlement_tab.py
 import streamlit as st
 import pandas as pd
-from config.settings import CURRENT_YEAR, CURRENT_MONTH
 from database.db_manager import db_get, get_all_vendors, get_all_schools
+from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
 def render_settlement_tab():
-    st.markdown("## 💰 정산 관리")
+    st.markdown("## 정산 관리")
 
-    tab_month, tab_school, tab_send = st.tabs(
-        ["월별 정산", "학교별 정산", "정산서 발송"])
+    tab1, tab2 = st.tabs(["📊 정산 현황", "📧 정산서 발송"])
 
-    with tab_month:
-        _render_monthly_settlement()
-    with tab_school:
-        _render_school_settlement()
-    with tab_send:
+    with tab1:
+        _render_summary()
+
+    with tab2:
         _render_send_settlement()
 
 
-def _get_settlement_data(year, month, vendor=None):
-    """정산 데이터 집계"""
-    rows = db_get('real_collection')
-    rows = [r for r in rows
-            if int(r.get('월', 0) or 0) == month
-            and str(r.get('년도', '')) == str(year)]
-    if vendor and vendor != '전체':
-        rows = [r for r in rows if r.get('수거업체') == vendor]
-
-    school_data = {}
-    for r in rows:
-        school = r.get('학교명', '미상')
-        kg     = float(r.get('음식물(kg)', 0) or 0)
-        price  = float(r.get('단가(원)', 162) or 162)
-        amt    = int(kg * price)
-        vendor_name = r.get('수거업체', '')
-
-        if school not in school_data:
-            school_data[school] = {
-                '학교명': school, '수거량': 0,
-                '단가': int(price), '금액': 0, '업체': vendor_name
-            }
-        school_data[school]['수거량'] += kg
-        school_data[school]['금액']   += amt
-
-    return list(school_data.values())
-
-
-def _render_monthly_settlement():
-    st.markdown("### 월별 정산 현황")
-
+def _render_summary():
     col1, col2, col3 = st.columns(3)
     with col1:
-        year  = st.selectbox("년도", list(range(2023, CURRENT_YEAR + 1)),
-                             index=2, key="sett_year")
+        year = st.selectbox("연도", [2024, 2025, 2026],
+                            index=[2024,2025,2026].index(CURRENT_YEAR) if CURRENT_YEAR in [2024,2025,2026] else 1,
+                            key="set_year")
     with col2:
         month = st.selectbox("월", list(range(1, 13)),
-                             index=CURRENT_MONTH - 1, key="sett_month")
+                             index=CURRENT_MONTH - 1, key="set_month")
     with col3:
         vendors = ['전체'] + get_all_vendors()
-        vendor  = st.selectbox("업체", vendors, key="sett_vendor")
-
-    data = _get_settlement_data(year, month, vendor)
-    if not data:
-        st.info("정산 데이터가 없습니다.")
-        return
-
-    df = pd.DataFrame(data)
-    df['공급가액'] = (df['금액'] / 1.1).astype(int)
-    df['부가세']   = df['금액'] - df['공급가액']
-
-    st.dataframe(
-        df[['학교명', '수거량', '단가', '공급가액', '부가세', '금액', '업체']],
-        use_container_width=True
-    )
-
-    total_amt = df['금액'].sum()
-    total_sup = df['공급가액'].sum()
-    total_vat = df['부가세'].sum()
-    total_kg  = df['수거량'].sum()
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("총 수거량",  f"{total_kg:,.1f} kg")
-    c2.metric("공급가액 합계", f"{total_sup:,} 원")
-    c3.metric("부가세 합계",  f"{total_vat:,} 원")
-    c4.metric("합계금액",    f"{total_amt:,} 원")
-
-    # 엑셀/홈택스 다운로드
-    col_xl, col_ht = st.columns(2)
-    with col_xl:
-        if st.button("📥 정산 엑셀", key="dl_sett_xl"):
-            from services.excel_generator import generate_settlement_excel
-            xl = generate_settlement_excel(vendor, year, month, data)
-            if xl:
-                st.download_button("💾 저장", xl,
-                    file_name=f"{year}{month:02d}_정산서.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    with col_ht:
-        if st.button("📥 홈택스 양식", key="dl_hometax"):
-            from services.excel_generator import generate_hometax_excel
-            xl = generate_hometax_excel(vendor, year, month, data)
-            if xl:
-                st.download_button("💾 저장", xl,
-                    file_name=f"{year}{month:02d}_홈택스.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-
-def _render_school_settlement():
-    st.markdown("### 학교별 정산서")
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        year   = st.selectbox("년도", list(range(2023, CURRENT_YEAR + 1)),
-                              index=2, key="sch_sett_year")
-    with col2:
-        month  = st.selectbox("월", list(range(1, 13)),
-                              index=CURRENT_MONTH - 1, key="sch_sett_month")
-    with col3:
-        schools = get_all_schools()
-        school  = st.selectbox("학교", schools, key="sch_sett_school") if schools else None
-
-    if not school:
-        st.info("학교 마스터 데이터가 없습니다.")
-        return
+        vendor = st.selectbox("업체", vendors, key="set_vendor")
 
     rows = db_get('real_collection')
-    rows = [r for r in rows
-            if r.get('학교명') == school
-            and int(r.get('월', 0) or 0) == month
-            and str(r.get('년도', '')) == str(year)]
-
     if not rows:
-        st.info(f"{school} {year}년 {month}월 데이터가 없습니다.")
+        st.info("수거 데이터가 없습니다.")
         return
 
     df = pd.DataFrame(rows)
-    display_cols = ['날짜', '음식물(kg)', '단가(원)', '공급가', '수거업체']
-    display_cols = [c for c in display_cols if c in df.columns]
-    st.dataframe(df[display_cols], use_container_width=True)
 
-    total_kg  = df['음식물(kg)'].astype(float).sum() if '음식물(kg)' in df.columns else 0
-    total_amt = df['공급가'].astype(float).sum()     if '공급가'    in df.columns else 0
+    # 필터
+    if 'collect_date' in df.columns:
+        df['collect_date'] = pd.to_datetime(df['collect_date'], errors='coerce')
+        df = df[df['collect_date'].dt.year == year]
+        df = df[df['collect_date'].dt.month == month]
+    if vendor != '전체' and 'vendor' in df.columns:
+        df = df[df['vendor'] == vendor]
 
-    c1, c2 = st.columns(2)
-    c1.metric("총 수거량", f"{total_kg:,.1f} kg")
-    c2.metric("총 금액",   f"{total_amt:,.0f} 원")
+    if df.empty:
+        st.info("해당 기간 데이터가 없습니다.")
+        return
 
-    if st.button("📄 PDF 정산서 생성", key="gen_pdf"):
-        from services.pdf_generator import generate_collection_report_pdf
-        pdf = generate_collection_report_pdf(school, year, month, rows)
-        if pdf:
-            st.download_button("💾 PDF 저장", pdf,
-                file_name=f"{year}{month:02d}_{school}_정산서.pdf",
-                mime="application/pdf")
-        else:
-            st.error("PDF 생성 실패 (reportlab 설치 확인)")
+    st.markdown(f"### {year}년 {month}월 정산")
+
+    # 요약 메트릭
+    total_weight = df['weight'].sum() if 'weight' in df.columns else 0
+    total_amount = (df['weight'] * df['unit_price']).sum() \
+        if ('weight' in df.columns and 'unit_price' in df.columns) else 0
+    vat = total_amount * 0.1
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("총 수거량", f"{total_weight:,.1f} kg")
+    with c2:
+        st.metric("공급가액", f"{total_amount:,.0f} 원")
+    with c3:
+        st.metric("합계(VAT포함)", f"{total_amount + vat:,.0f} 원")
+
+    # 학교별 집계
+    if 'school_name' in df.columns and 'weight' in df.columns:
+        st.markdown("#### 학교별 수거 현황")
+        summary = df.groupby('school_name').agg(
+            수거량=('weight', 'sum'),
+            수거횟수=('weight', 'count')
+        ).reset_index()
+        summary.columns = ['학교명', '수거량(kg)', '수거횟수']
+        summary = summary.sort_values('수거량(kg)', ascending=False)
+        st.dataframe(summary, use_container_width=True, hide_index=True)
+
+    # 상태별 현황
+    if 'status' in df.columns:
+        st.markdown("#### 수거 상태 현황")
+        status_map = {
+            'draft':     '📋 임시저장',
+            'submitted': '📤 전송완료',
+            'confirmed': '✅ 확인완료',
+            'rejected':  '❌ 반려',
+        }
+        df['status_label'] = df['status'].map(status_map).fillna(df['status'])
+        status_counts = df['status_label'].value_counts().reset_index()
+        status_counts.columns = ['상태', '건수']
+        st.dataframe(status_counts, use_container_width=True, hide_index=True)
 
 
 def _render_send_settlement():
-    st.markdown("### 📧 정산서 이메일 발송")
+    st.markdown("### 정산서 이메일 발송")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        year  = st.selectbox("년도", list(range(2023, CURRENT_YEAR + 1)),
-                             index=2, key="send_year")
+        year = st.selectbox("연도", [2024, 2025, 2026],
+                            index=[2024,2025,2026].index(CURRENT_YEAR) if CURRENT_YEAR in [2024,2025,2026] else 1,
+                            key="send_year")
     with col2:
         month = st.selectbox("월", list(range(1, 13)),
                              index=CURRENT_MONTH - 1, key="send_month")
+    with col3:
+        vendors = get_all_vendors()
+        if not vendors:
+            st.warning("등록된 업체가 없습니다.")
+            return
+        vendor = st.selectbox("업체 선택", vendors, key="send_vendor")
 
-    # 학교별 이메일 목록
-    customer_rows = db_get('customer_info')
-    school_emails = {
-        r['name']: r.get('email', '')
-        for r in customer_rows if r.get('email')
-    }
+    month_str = str(month).zfill(2)
+    rows = [r for r in db_get('real_collection')
+            if r.get('vendor') == vendor
+            and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
-    if not school_emails:
-        st.warning("등록된 학교 이메일이 없습니다. 거래처 관리에서 이메일을 등록하세요.")
+    if not rows:
+        st.warning("해당 기간 수거 데이터가 없습니다.")
         return
 
-    st.markdown(f"이메일 등록 학교: **{len(school_emails)}개**")
+    # 학교 선택
+    schools = list(set(r.get('school_name', '') for r in rows if r.get('school_name')))
+    school = st.selectbox("학교 선택", ['전체'] + sorted(schools), key="send_school")
 
-    if st.button("📨 전체 일괄 발송", type="primary", key="send_all"):
-        from services.pdf_generator   import generate_collection_report_pdf
-        from services.excel_generator import generate_settlement_excel
-        from services.email_service   import send_bulk_settlement_emails
+    if school != '전체':
+        rows = [r for r in rows if r.get('school_name') == school]
 
-        recipients = []
-        data_all = _get_settlement_data(year, month)
+    df = pd.DataFrame(rows)
+    show = [c for c in ['collect_date','school_name','item_type','weight','status'] if c in df.columns]
+    st.dataframe(df[show], use_container_width=True, hide_index=True)
 
-        for school, email in school_emails.items():
-            s_rows = db_get('real_collection')
-            s_rows = [r for r in s_rows
-                      if r.get('학교명') == school
-                      and int(r.get('월', 0) or 0) == month
-                      and str(r.get('년도', '')) == str(year)]
-            if not s_rows:
-                continue
+    total_weight = sum(float(r.get('weight', 0)) for r in rows)
+    total_amount = sum(float(r.get('weight', 0)) * float(r.get('unit_price', 0)) for r in rows)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("총 수거량", f"{total_weight:,.1f} kg")
+    with c2:
+        st.metric("공급가액", f"{total_amount:,.0f} 원")
 
-            s_data = [d for d in data_all if d['학교명'] == school]
-            pdf    = generate_collection_report_pdf(school, year, month, s_rows)
-            xl     = generate_settlement_excel(school, year, month, s_data)
+    st.divider()
 
-            recipients.append({
-                'email': email, 'school': school,
-                'year': year, 'month': month,
-                'pdf': pdf, 'excel': xl
-            })
+    # 수신처 이메일
+    to_email = st.text_input("수신 이메일", key="send_email",
+                              placeholder="school@email.com")
+    subject = st.text_input("제목",
+                             value=f"[하영자원] {year}년 {month}월 정산서 - {school if school != '전체' else '전체'}",
+                             key="send_subject")
+    body = st.text_area("본문",
+                         value=f"안녕하세요.\n\n{year}년 {month}월 정산서를 첨부하여 발송드립니다.\n\n감사합니다.",
+                         height=120, key="send_body")
 
-        if recipients:
-            with st.spinner(f"{len(recipients)}개 학교 발송 중..."):
-                result = send_bulk_settlement_emails(recipients)
-            st.success(f"✅ 성공: {len(result['성공'])}건")
-            if result['실패']:
-                st.error(f"❌ 실패: {len(result['실패'])}건")
-                for f in result['실패']:
-                    st.caption(f"  • {f['school']}: {f['error']}")
-        else:
-            st.warning("발송 대상 데이터가 없습니다.")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("📥 PDF 다운로드", use_container_width=True, key="dl_pdf"):
+            try:
+                from services.pdf_generator import generate_statement_pdf
+                vendor_rows = db_get('vendor_info', {'vendor': vendor})
+                vinfo = vendor_rows[0] if vendor_rows else {}
+                pdf = generate_statement_pdf(
+                    vendor, school if school != '전체' else '전체',
+                    year, month, rows, {}, vinfo
+                )
+                filename = f"정산서_{vendor}_{year}{month_str}.pdf"
+                st.download_button("PDF 다운로드", data=pdf,
+                                   file_name=filename, mime="application/pdf",
+                                   use_container_width=True)
+                st.success("PDF 생성 완료!")
+            except Exception as e:
+                st.error(f"PDF 생성 실패: {e}")
+
+    with col2:
+        if st.button("📧 이메일 발송", type="primary", use_container_width=True, key="send_btn"):
+            if not to_email:
+                st.error("수신 이메일을 입력하세요.")
+            else:
+                try:
+                    from services.pdf_generator import generate_statement_pdf
+                    from services.email_service import send_statement_email
+                    vendor_rows = db_get('vendor_info', {'vendor': vendor})
+                    vinfo = vendor_rows[0] if vendor_rows else {}
+                    pdf = generate_statement_pdf(
+                        vendor, school if school != '전체' else '전체',
+                        year, month, rows, {}, vinfo
+                    )
+                    filename = f"정산서_{vendor}_{year}{month_str}.pdf"
+                    with st.spinner("발송 중..."):
+                        success, msg = send_statement_email(
+                            to_email, subject, body, pdf, filename
+                        )
+                    if success:
+                        st.success(msg)
+                        st.balloons()
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error(f"발송 실패: {e}")
