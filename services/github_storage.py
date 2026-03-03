@@ -107,7 +107,7 @@ def _put_file(table: str, rows: list, sha=None):
 # 공개 API (db_manager에서 호출)
 # ──────────────────────────────────────────────────
 
-@st.cache_data(ttl=30)   # 30초 캐시 - 실시간성 유지
+@st.cache_data(ttl=10)   # 30초 캐시 - 실시간성 유지
 def _github_get_cached(table: str):
     """GitHub에서 테이블 전체 데이터 읽기 (캐시 적용)"""
     rows, _ = _get_file(table)

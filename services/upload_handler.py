@@ -92,11 +92,115 @@ def save_to_db(df: pd.DataFrame, table: str,
     DataFrame → DB 저장
     duplicate_action: 'skip' or 'overwrite'
     Returns: {'success': N, 'skip': N, 'fail': N, 'errors': [...]}
+
+    ★ GitHub 사용 시 배치 저장 (API 2회) / SQLite는 기존 방식 유지
     """
+    from services.github_storage import is_github_available
+    if is_github_available():
+        return _save_to_db_bulk(df, table, duplicate_action, default_vendor)
+    else:
+        return _save_to_db_sqlite(df, table, duplicate_action, default_vendor)
+
+
+# ── GitHub 배치 저장 (API 2회: 읽기1 + 쓰기1) ──────────────────
+def _save_to_db_bulk(df, table, duplicate_action, default_vendor):
+    """전체 행을 메모리에서 처리 후 GitHub에 한번에 저장"""
+    from services.github_storage import _get_file, _put_file, _github_get_cached
+
     result = {'success': 0, 'skip': 0, 'fail': 0, 'errors': []}
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-    # 기존 데이터 (중복 체크용)
+    # 1) 기존 데이터 한번만 읽기
+    existing_rows, sha = _get_file(table)
+    if existing_rows is None:
+        existing_rows = []
+
+    # 중복 체크용 키셋
+    existing_keys = set()
+    if duplicate_action == 'skip':
+        for r in existing_rows:
+            key = (str(r.get('collect_date', '')),
+                   str(r.get('school_name', '')),
+                   str(r.get('vendor', '')))
+            existing_keys.add(key)
+
+    # auto increment 시작값
+    max_id = max((r.get('id', 0) for r in existing_rows), default=0)
+
+    # 2) 전체 행 메모리에서 처리
+    new_rows = list(existing_rows)
+
+    for _, row in df.iterrows():
+        try:
+            collect_date = str(row.get('collect_date', row.get('날짜', ''))).strip()
+            school_name  = str(row.get('school_name',  row.get('학교명', ''))).strip()
+            vendor_val   = str(row.get('vendor', row.get('재활용업체', default_vendor))).strip()
+            if not vendor_val or vendor_val == 'nan':
+                vendor_val = default_vendor
+
+            # 중복 체크
+            key = (collect_date, school_name, vendor_val)
+            if duplicate_action == 'skip' and key in existing_keys:
+                result['skip'] += 1
+                continue
+
+            weight     = float(row.get('weight',     row.get('음식물(kg)', 0)) or 0)
+            unit_price = float(row.get('unit_price', row.get('단가(원)',   0)) or 0)
+            amount     = float(row.get('amount',     row.get('공급가',     weight * unit_price)) or 0)
+            if amount == 0 and weight > 0 and unit_price > 0:
+                amount = weight * unit_price
+
+            max_id += 1
+            data = {
+                'id':           max_id,
+                'vendor':       vendor_val,
+                'school_name':  school_name,
+                'collect_date': collect_date,
+                'item_type':    str(row.get('item_type', row.get('재활용방법', '음식물'))).strip(),
+                'weight':       weight,
+                'unit_price':   unit_price,
+                'amount':       amount,
+                'driver':       str(row.get('driver', '')).strip(),
+                'memo':         str(row.get('memo', '')).strip(),
+                'status':       'confirmed',
+                'created_at':   now,
+                # 한글 원본 컬럼도 함께 저장
+                '날짜':         collect_date,
+                '학교명':       school_name,
+                '음식물(kg)':   weight,
+                '단가(원)':     unit_price,
+                '공급가':       amount,
+                '재활용방법':   str(row.get('item_type', row.get('재활용방법', ''))).strip(),
+                '재활용업체':   vendor_val,
+                '월':           int(row.get('month_num', row.get('월', 0)) or 0),
+                '년도':         int(row.get('year_num',  row.get('년도', 0)) or 0),
+            }
+            new_rows.append(data)
+            existing_keys.add(key)
+            result['success'] += 1
+
+        except Exception as e:
+            result['fail'] += 1
+            result['errors'].append(f"오류: {str(e)[:80]}")
+
+    # 3) GitHub에 한번에 저장 (API 1회)
+    if result['success'] > 0:
+        ok = _put_file(table, new_rows, sha)
+        if ok:
+            _github_get_cached.clear()
+        else:
+            result['errors'].append("GitHub 저장 실패 - 네트워크 오류")
+            result['fail'] += result['success']
+            result['success'] = 0
+
+    return result
+
+
+# ── SQLite 기존 방식 (로컬 환경) ───────────────────────────────
+def _save_to_db_sqlite(df, table, duplicate_action, default_vendor):
+    result = {'success': 0, 'skip': 0, 'fail': 0, 'errors': []}
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     existing = db_get(table)
     existing_keys = set()
     if duplicate_action == 'skip':
@@ -108,14 +212,12 @@ def save_to_db(df: pd.DataFrame, table: str,
 
     for _, row in df.iterrows():
         try:
-            # 기본값 세팅
             collect_date = str(row.get('collect_date', row.get('날짜', ''))).strip()
             school_name  = str(row.get('school_name',  row.get('학교명', ''))).strip()
             vendor_val   = str(row.get('vendor', row.get('재활용업체', default_vendor))).strip()
             if not vendor_val or vendor_val == 'nan':
                 vendor_val = default_vendor
 
-            # 중복 체크
             key = (collect_date, school_name, vendor_val)
             if duplicate_action == 'skip' and key in existing_keys:
                 result['skip'] += 1
@@ -139,7 +241,6 @@ def save_to_db(df: pd.DataFrame, table: str,
                 'memo':         str(row.get('memo', '')).strip(),
                 'status':       'confirmed',
                 'created_at':   now,
-                # 한글 원본 컬럼도 함께 저장
                 '날짜':         collect_date,
                 '학교명':       school_name,
                 '음식물(kg)':   weight,
