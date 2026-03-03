@@ -8,5 +8,18 @@
     "vendor": "",
     "is_active": 1,
     "created_at": "2026-01-01 00:00:00"
+  },
+  {
+    "user_id": "hy",
+    "pw_hash": "d4d021632a0eb3da72aa1844879675f281068c56668af7ff2e64cf801f0d5fae",
+    "role": "vendor_admin",
+    "name": "하영자원",
+    "vendor": "hy",
+    "schools": "",
+    "edu_office": "",
+    "is_active": 1,
+    "created_at": "2026-03-03 02:20:11",
+    "updated_at": "2026-03-03 02:20:11",
+    "id": 2
   }
 ]
