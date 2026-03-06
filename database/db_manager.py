@@ -267,14 +267,29 @@ def load_schedule(vendor, month):
 
 
 def load_all_schedules(vendor):
-    rows = db_get('schedules', {'vendor': vendor})
-    result = {}
-    for r in rows:
-        result[r['month']] = {'요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
-            '학교': json.loads(r['schools']) if r.get('schools') else [],
-            '품목': json.loads(r['items']) if r.get('items') else [],
-            '기사': r.get('driver', '')}
-    return result
+    try:
+        rows = db_get('schedules', {'vendor': vendor})
+        if not isinstance(rows, list):
+            rows = []
+        result = {}
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            month_key = r.get('month', '')
+            if not month_key:
+                continue
+            try:
+                result[month_key] = {
+                    '요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
+                    '학교': json.loads(r['schools'])  if r.get('schools')  else [],
+                    '품목': json.loads(r['items'])    if r.get('items')    else [],
+                    '기사': r.get('driver', ''),
+                }
+            except Exception:
+                result[month_key] = {'요일': [], '학교': [], '품목': [], '기사': ''}
+        return result
+    except Exception:
+        return {}
 
 
 def delete_schedule(vendor, month):
