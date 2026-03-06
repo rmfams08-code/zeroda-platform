@@ -10,5 +10,17 @@
     "email": "rmfams@naver.com",
     "cust_type": "학교",
     "id": 1
+  },
+  {
+    "vendor": "hy",
+    "name": "서초고등학교",
+    "biz_no": "210-83-00086",
+    "rep": "학교장",
+    "addr": "서울특별시 서초구 반포대로27길 29",
+    "biz_type": "부동산",
+    "biz_item": "임대",
+    "email": "dbsghk508@sen.go.kr",
+    "cust_type": "학교",
+    "id": 2
   }
 ]
