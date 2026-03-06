@@ -22,6 +22,8 @@ def render_schedule_tab():
         else:
             vendor = st.selectbox("업체 선택", vendors, key="hq_sch_view_vendor")
             schedules = load_all_schedules(vendor)
+            if not isinstance(schedules, dict):
+                schedules = {}
 
             if not schedules:
                 st.info(f"{vendor} 의 일정이 없습니다.")
@@ -83,7 +85,27 @@ def render_schedule_tab():
 
                 items  = st.multiselect("수거 품목", ["음식물","재활용","일반"],
                                         key="hq_sch_reg_items")
-                driver = st.text_input("담당 기사", key="hq_sch_reg_driver")
+
+                # 기사 목록: users 테이블에서 role=driver 조회
+                driver_rows = [r for r in db_get('users')
+                               if r.get('role') == 'driver'
+                               and r.get('vendor') == vendor]
+                if not driver_rows:
+                    # 업체 필터 없이 전체 기사 목록
+                    driver_rows = [r for r in db_get('users')
+                                   if r.get('role') == 'driver']
+                driver_names = [r.get('name') or r.get('user_id', '') for r in driver_rows]
+                driver_names = [d for d in driver_names if d]
+
+                if driver_names:
+                    driver = st.selectbox("담당 기사", ["(선택 안 함)"] + driver_names,
+                                          key="hq_sch_reg_driver")
+                    if driver == "(선택 안 함)":
+                        driver = ""
+                else:
+                    driver = st.text_input("담당 기사 (직접 입력)",
+                                           placeholder="등록된 기사가 없습니다",
+                                           key="hq_sch_reg_driver")
 
             # 미리보기
             if weekdays or sel_schools or items:
@@ -114,6 +136,8 @@ def render_schedule_tab():
             with col_d:
                 # 기존 일정 삭제
                 schedules = load_all_schedules(vendor)
+                if not isinstance(schedules, dict):
+                    schedules = {}
                 if schedules:
                     del_month = st.selectbox("삭제할 월 선택",
                                               list(schedules.keys()),
