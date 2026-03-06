@@ -4,6 +4,26 @@ import os
 from config.settings import DB_PATH
 
 
+def migrate_school_alias():
+    """
+    school_master 테이블에 alias 컬럼이 없으면 추가 (기존 DB 마이그레이션)
+    앱 시작 시 자동 실행
+    """
+    import sqlite3
+    from config.settings import DB_PATH
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(school_master)").fetchall()]
+        if 'alias' not in cols:
+            c.execute("ALTER TABLE school_master ADD COLUMN alias TEXT DEFAULT ''")
+            conn.commit()
+            print("[migrate] school_master alias 컬럼 추가")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_school_alias] {e}")
+
+
 def migrate_vendor_names():
     """
     기존 users 테이블의 vendor 필드가 업체명으로 저장된 경우 업체ID로 교정
@@ -69,7 +89,8 @@ def init_db():
         edu_office TEXT DEFAULT '',
         student_count INTEGER DEFAULT 0,
         address TEXT DEFAULT '',
-        contact TEXT DEFAULT ''
+        contact TEXT DEFAULT '',
+        alias TEXT DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS vendor_info (
@@ -234,7 +255,7 @@ def init_db():
         )
     """)
 
-    # 기본 admin 계정 생성
+    # 기본 admin 계정 생성 (SQLite)
     import hashlib
     admin_pw = hashlib.sha256("admin123".encode()).hexdigest()
     c.execute("""
@@ -244,6 +265,27 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    # 기본 admin 계정 생성 (GitHub)
+    try:
+        from services.github_storage import github_get, github_insert, is_github_available
+        import hashlib
+        if is_github_available():
+            existing = github_get('users', {'user_id': 'admin'})
+            if not existing:
+                from datetime import datetime
+                admin_pw = hashlib.sha256("admin123".encode()).hexdigest()
+                github_insert('users', {
+                    'user_id':    'admin',
+                    'pw_hash':    admin_pw,
+                    'role':       'admin',
+                    'name':       '관리자',
+                    'vendor':     '',
+                    'is_active':  1,
+                    'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                })
+    except Exception as e:
+        print(f"[init_db] GitHub admin 계정 생성 실패: {e}")
 
 
 def migrate_csv_to_db():

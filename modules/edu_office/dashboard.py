@@ -1,7 +1,7 @@
 # modules/edu_office/dashboard.py
 import streamlit as st
 import pandas as pd
-from database.db_manager import db_get, get_all_schools, get_all_vendors
+from database.db_manager import db_get, get_all_schools, get_all_vendors, filter_rows_by_school
 from services.carbon_calculator import calculate_from_rows
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
@@ -81,7 +81,7 @@ def _render_by_school():
     with col3:
         month = st.selectbox("월", ['전체'] + list(range(1, 13)), key="edu_month")
 
-    rows = [r for r in db_get('real_collection') if r.get('school_name') == school]
+    rows = filter_rows_by_school(db_get('real_collection'), school)
 
     if month != '전체':
         month_str = str(month).zfill(2)
