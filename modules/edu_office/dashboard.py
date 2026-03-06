@@ -9,6 +9,17 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 def render_dashboard(user):
     st.markdown("## 교육청 - 학교 수거 현황")
 
+    # 새로고침 버튼
+    col_r, _ = st.columns([1, 5])
+    with col_r:
+        if st.button("🔄 새로고침", key="edu_dash_refresh"):
+            try:
+                from services.github_storage import _github_get_cached
+                _github_get_cached.clear()
+            except Exception:
+                pass
+            st.rerun()
+
     tab1, tab2, tab3, tab4 = st.tabs(["전체 현황", "학교별 조회", "업체별 현황", "🌿 탄소감축 현황"])
 
     with tab1:
