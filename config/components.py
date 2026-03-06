@@ -99,3 +99,46 @@ def progress_bar(label: str, value: float, max_value: float, color: str = '#1a73
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+
+# ── STEP2 공통 헬퍼 ───────────────────────────────────────────────────────────
+
+def refresh_button(key: str = 'refresh'):
+    """
+    새로고침 버튼 + GitHub 캐시 무효화
+    사용: refresh_button(key='my_refresh')
+    """
+    col_r, _ = st.columns([1, 5])
+    with col_r:
+        if st.button("🔄 새로고침", key=key):
+            try:
+                from services.github_storage import _github_get_cached
+                _github_get_cached.clear()
+            except Exception:
+                pass
+            st.rerun()
+
+
+STATUS_LABEL_MAP = {
+    'draft':     '📋 임시저장',
+    'submitted': '✅ 전송완료',
+    'confirmed': '✔️ 확인완료',
+    'rejected':  '❌ 반려',
+}
+
+
+def status_label(status: str) -> str:
+    """
+    status 값을 한글 레이블로 변환
+    사용: status_label(row.get('status', ''))
+    """
+    return STATUS_LABEL_MAP.get(status, status)
+
+
+def filter_by_month(rows: list, year: int, month: int) -> list:
+    """
+    rows 리스트를 연도/월로 필터링 (collect_date 기준)
+    사용: rows = filter_by_month(all_rows, year, month)
+    """
+    month_str = f"{year}-{str(month).zfill(2)}"
+    return [r for r in rows if str(r.get('collect_date', '')).startswith(month_str)]

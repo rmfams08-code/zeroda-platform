@@ -1,7 +1,7 @@
 # modules/school/dashboard.py
 import streamlit as st
 import pandas as pd
-from database.db_manager import db_get
+from database.db_manager import db_get, filter_rows_by_school
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
@@ -54,7 +54,7 @@ def _render_monthly(school):
         month = st.selectbox("기준 월", list(range(1, 13)),
                               index=CURRENT_MONTH - 1, key="sch_m_month")
 
-    rows = [r for r in db_get('real_collection') if r.get('school_name') == school]
+    rows = filter_rows_by_school(db_get('real_collection'), school)
     if not rows:
         st.info("수거 데이터가 없습니다.")
         return
@@ -99,9 +99,8 @@ def _render_detail(school):
         month = st.selectbox("월", list(range(1, 13)), index=CURRENT_MONTH-1, key="sch_month")
 
     month_str = str(month).zfill(2)
-    rows = [r for r in db_get('real_collection')
-            if r.get('school_name') == school
-            and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
+    rows = [r for r in filter_rows_by_school(db_get('real_collection'), school)
+            if str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
     if not rows:
         st.info("해당 기간 수거 내역이 없습니다.")
@@ -132,9 +131,8 @@ def _render_settlement(school):
         month = st.selectbox("월", list(range(1, 13)), index=CURRENT_MONTH-1, key="sch_set_month")
 
     month_str = str(month).zfill(2)
-    rows = [r for r in db_get('real_collection')
-            if r.get('school_name') == school
-            and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
+    rows = [r for r in filter_rows_by_school(db_get('real_collection'), school)
+            if str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
     if not rows:
         st.info("해당 기간 정산 데이터가 없습니다.")

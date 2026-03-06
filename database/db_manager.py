@@ -121,6 +121,53 @@ def get_all_schools():
     return sorted([r['school_name'] for r in rows])
 
 
+def match_school_name(target: str, candidate: str) -> bool:
+    """
+    학교명 별칭 매칭 헬퍼.
+    target   : users.schools 또는 UI에서 선택된 학교명 (예: "서초고")
+    candidate: real_collection 등 데이터에 저장된 학교명 (예: "서초고등학교")
+    반환: 동일하거나 별칭 관계이면 True
+
+    매칭 순서:
+    1. 완전 일치
+    2. school_master alias 컬럼에 target이 포함 (쉼표 구분)
+    3. target이 candidate에 포함되거나 candidate가 target에 포함
+    """
+    if not target or not candidate:
+        return False
+    if target == candidate:
+        return True
+    # school_master alias 조회
+    rows = db_get('school_master', {'school_name': candidate})
+    if not rows:
+        # candidate가 alias인 경우 역방향도 시도
+        rows = db_get('school_master', {'school_name': target})
+        if rows:
+            alias_str = rows[0].get('alias', '') or ''
+            aliases = [a.strip() for a in alias_str.split(',') if a.strip()]
+            if candidate in aliases:
+                return True
+    else:
+        alias_str = rows[0].get('alias', '') or ''
+        aliases = [a.strip() for a in alias_str.split(',') if a.strip()]
+        if target in aliases:
+            return True
+    # 포함 관계 (짧은 쪽이 긴 쪽에 포함되는지)
+    if target in candidate or candidate in target:
+        return True
+    return False
+
+
+def filter_rows_by_school(rows: list, school: str) -> list:
+    """
+    real_collection 등의 row 리스트를 학교명(별칭 포함)으로 필터링
+    기존 r.get('school_name') == school 대체용
+    """
+    return [r for r in rows if match_school_name(school, r.get('school_name', ''))]
+
+
+
+
 def get_school_student_count(school_name):
     rows = db_get('school_master', {'school_name': school_name})
     return rows[0]['student_count'] if rows else 0
