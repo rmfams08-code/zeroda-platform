@@ -275,8 +275,8 @@ def load_all_schedules(vendor):
         for r in rows:
             if not isinstance(r, dict):
                 continue
-            month_key = r.get('month', '')
-            if not month_key:
+            month_key = str(r.get('month', ''))  # 정수/문자열 통일
+            if not month_key or month_key == 'None':
                 continue
             try:
                 result[month_key] = {
