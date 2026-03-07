@@ -62,5 +62,21 @@
     "submitted_at": "2026-03-07 12:13:22",
     "created_at": "2026-03-07 12:13:22",
     "id": 4
+  },
+  {
+    "vendor": "hy",
+    "school_name": "서초고등학교",
+    "collect_date": "2026-03-07",
+    "collect_time": "12:12",
+    "item_type": "음식물",
+    "weight": 200.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-07 12:14:05",
+    "created_at": "2026-03-07 12:14:05",
+    "id": 5
   }
 ]
