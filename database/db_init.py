@@ -4,6 +4,29 @@ import os
 from config.settings import DB_PATH
 
 
+def migrate_customer_price():
+    """
+    customer_info 테이블에 단가 컬럼이 없으면 추가 (기존 DB 마이그레이션)
+    앱 시작 시 자동 실행
+    """
+    import sqlite3
+    from config.settings import DB_PATH
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(customer_info)").fetchall()]
+        added = 0
+        for col, default in [('price_food', 0), ('price_recycle', 0), ('price_general', 0)]:
+            if col not in cols:
+                c.execute(f"ALTER TABLE customer_info ADD COLUMN {col} REAL DEFAULT {default}")
+                added += 1
+        if added:
+            conn.commit()
+            print(f"[migrate] customer_info 단가 컬럼 {added}개 추가")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_customer_price] {e}")
+
 def migrate_school_alias():
     """
     school_master 테이블에 alias 컬럼이 없으면 추가 (기존 DB 마이그레이션)
@@ -172,7 +195,10 @@ def init_db():
         biz_type TEXT DEFAULT '',
         biz_item TEXT DEFAULT '',
         email TEXT DEFAULT '',
-        cust_type TEXT DEFAULT '학교'
+        cust_type TEXT DEFAULT '학교',
+        price_food REAL DEFAULT 0,
+        price_recycle REAL DEFAULT 0,
+        price_general REAL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS biz_customers (
