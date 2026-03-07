@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db, filter_rows_by_school
+from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db, filter_rows_by_school, get_unit_price
 from services.pdf_generator import generate_statement_pdf
 from services.excel_generator import generate_collection_excel
 from services.email_service import send_statement_email
@@ -43,7 +43,11 @@ def render_statement_tab(vendor):
         show_cols = [c for c in ['collect_date', 'item_type', 'weight', 'driver', 'memo'] if c in df.columns]
         st.dataframe(df[show_cols], use_container_width=True)
         total_weight = sum(float(r.get('weight', 0)) for r in rows)
-        total_amount = sum(float(r.get('weight', 0)) * float(r.get('unit_price', 0)) for r in rows)
+        total_amount = sum(
+            float(r.get('weight', 0)) *
+            (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
+            for r in rows
+        )
         c1, c2 = st.columns(2)
         with c1:
             st.metric("총 수거량", f"{total_weight:,.1f} kg")
