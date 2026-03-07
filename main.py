@@ -5,7 +5,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 from config.settings import ROLES, ROLE_ICONS
-from database.db_init import init_db, migrate_csv_to_db, migrate_vendor_names, migrate_school_alias, migrate_customer_price
+from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
+                               migrate_school_alias, migrate_customer_price,
+                               migrate_safety_tables)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -22,6 +24,7 @@ def startup():
     migrate_vendor_names()  # vendor 필드 업체명→ID 자동 교정
     migrate_school_alias()  # school_master alias 컬럼 자동 추가
     migrate_customer_price()  # customer_info 단가 컬럼 자동 추가
+    migrate_safety_tables()   # 안전관리 평가 테이블 자동 생성 (FEAT-02)
     return True
 
 startup()
