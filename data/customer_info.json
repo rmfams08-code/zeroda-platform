@@ -22,5 +22,20 @@
     "email": "dbsghk508@sen.go.kr",
     "cust_type": "학교",
     "id": 2
+  },
+  {
+    "vendor": "hy",
+    "name": "가상대학교",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "rmfams@naver.com",
+    "cust_type": "학교",
+    "price_food": 180.0,
+    "price_recycle": 60.0,
+    "price_general": 350.0,
+    "id": 3
   }
 ]
