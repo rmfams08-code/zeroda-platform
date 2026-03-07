@@ -121,54 +121,61 @@ def get_all_schools():
     return sorted([r['school_name'] for r in rows])
 
 
-def match_school_name(target: str, candidate: str) -> bool:
+def _build_alias_map(school_master_rows: list) -> dict:
     """
-    학교명 별칭 매칭 헬퍼.
-    target   : users.schools 또는 UI에서 선택된 학교명 (예: "서초고")
-    candidate: real_collection 등 데이터에 저장된 학교명 (예: "서초고등학교")
-    반환: 동일하거나 별칭 관계이면 True
+    school_master rows → alias_map 생성
+    {school_name: [alias1, alias2, ...], ...}
+    역방향(alias → school_name) 도 포함해 양방향 매칭 가능하게 구성
+    """
+    alias_map = {}
+    for r in school_master_rows:
+        sn = r.get('school_name', '')
+        if not sn:
+            continue
+        aliases = [a.strip() for a in (r.get('alias', '') or '').split(',') if a.strip()]
+        alias_map[sn] = aliases
+        for a in aliases:
+            if a not in alias_map:
+                alias_map[a] = [sn] + [x for x in aliases if x != a]
+    return alias_map
 
-    매칭 순서:
+
+def _match_with_alias(target: str, candidate: str, alias_map: dict) -> bool:
+    """
+    alias_map 기반 학교명 매칭.
     1. 완전 일치
-    2. school_master alias 컬럼에 target이 포함 (쉼표 구분)
-    3. target이 candidate에 포함되거나 candidate가 target에 포함
+    2. target의 별칭 목록에 candidate 포함
+    3. candidate의 별칭 목록에 target 포함
+    4. 포함 관계 (짧은 쪽이 긴 쪽에 포함)
     """
     if not target or not candidate:
         return False
     if target == candidate:
         return True
-    # school_master alias 조회
-    rows = db_get('school_master', {'school_name': candidate})
-    if not rows:
-        # candidate가 alias인 경우 역방향도 시도
-        rows = db_get('school_master', {'school_name': target})
-        if rows:
-            alias_str = rows[0].get('alias', '') or ''
-            aliases = [a.strip() for a in alias_str.split(',') if a.strip()]
-            if candidate in aliases:
-                return True
-    else:
-        alias_str = rows[0].get('alias', '') or ''
-        aliases = [a.strip() for a in alias_str.split(',') if a.strip()]
-        if target in aliases:
+    for alias in alias_map.get(target, []):
+        if alias == candidate:
             return True
-    # 포함 관계 (짧은 쪽이 긴 쪽에 포함되는지)
+    for alias in alias_map.get(candidate, []):
+        if alias == target:
+            return True
     if target in candidate or candidate in target:
         return True
     return False
 
 
-def filter_rows_by_school(rows: list, school: str) -> list:
+def filter_rows_by_school(rows: list, school: str, school_master_rows: list = None) -> list:
     """
-    real_collection 등의 row 리스트를 학교명(별칭 포함)으로 필터링
+    real_collection 등의 row 리스트를 학교명(별칭 포함)으로 필터링.
+    school_master_rows를 외부에서 전달하면 db_get 중복 호출 방지.
     기존 r.get('school_name') == school 대체용
     """
-    return [r for r in rows if match_school_name(school, r.get('school_name', ''))]
+    if school_master_rows is None:
+        school_master_rows = db_get('school_master')
+    alias_map = _build_alias_map(school_master_rows)
+    return [r for r in rows if _match_with_alias(school, r.get('school_name', ''), alias_map)]
 
 
-
-
-def get_school_student_count(school_name):
+def get_school_student_count(school_name):def get_school_student_count(school_name):
     rows = db_get('school_master', {'school_name': school_name})
     return rows[0]['student_count'] if rows else 0
 
@@ -279,19 +286,64 @@ def load_customers_from_db(vendor):
     rows = db_get('customer_info', {'vendor': vendor})
     if not rows:
         return {}
-    return {r['name']: {'사업자번호': r.get('biz_no',''),'상호': r['name'],'대표자': r.get('rep',''),
-            '주소': r.get('addr',''),'업태': r.get('biz_type',''),'종목': r.get('biz_item',''),
-            '이메일': r.get('email',''),'구분': r.get('cust_type','학교')} for r in rows}
+    return {r['name']: {
+        '사업자번호': r.get('biz_no', ''), '상호': r['name'], '대표자': r.get('rep', ''),
+        '주소': r.get('addr', ''), '업태': r.get('biz_type', ''), '종목': r.get('biz_item', ''),
+        '이메일': r.get('email', ''), '구분': r.get('cust_type', '학교'),
+        'price_food':    float(r.get('price_food', 0) or 0),
+        'price_recycle': float(r.get('price_recycle', 0) or 0),
+        'price_general': float(r.get('price_general', 0) or 0),
+    } for r in rows}
 
 
 def save_customer_to_db(vendor, name, info):
-    return db_upsert('customer_info', {'vendor': vendor,'name': name,'biz_no': info.get('사업자번호',''),
-        'rep': info.get('대표자',''),'addr': info.get('주소',''),'biz_type': info.get('업태',''),
-        'biz_item': info.get('종목',''),'email': info.get('이메일',''),'cust_type': info.get('구분','학교')})
+    return db_upsert('customer_info', {
+        'vendor': vendor, 'name': name,
+        'biz_no':    info.get('사업자번호', ''),
+        'rep':       info.get('대표자', ''),
+        'addr':      info.get('주소', ''),
+        'biz_type':  info.get('업태', ''),
+        'biz_item':  info.get('종목', ''),
+        'email':     info.get('이메일', ''),
+        'cust_type': info.get('구분', '학교'),
+        'price_food':    float(info.get('price_food', 0) or 0),
+        'price_recycle': float(info.get('price_recycle', 0) or 0),
+        'price_general': float(info.get('price_general', 0) or 0),
+    })
 
 
 def delete_customer_from_db(vendor, name):
     return db_delete('customer_info', {'vendor': vendor, 'name': name})
+
+
+# 품목 코드 → customer_info 컬럼 매핑
+_ITEM_PRICE_COL = {
+    'food_waste':  'price_food',
+    '음식물':      'price_food',
+    '음식물쓰레기': 'price_food',
+    'recycle':     'price_recycle',
+    '재활용':      'price_recycle',
+    'general':     'price_general',
+    '사업장':      'price_general',
+    '사업장폐기물': 'price_general',
+}
+
+
+def get_unit_price(vendor: str, school: str, item_type: str) -> float:
+    """
+    거래처(학교)의 품목별 단가 조회.
+    item_type: 'food_waste' | 'recycle' | 'general' 또는 한글 품목명
+    매칭 실패 시 0.0 반환
+    """
+    col = _ITEM_PRICE_COL.get(item_type, '')
+    if not col:
+        return 0.0
+    rows = db_get('customer_info', {'vendor': vendor, 'name': school})
+    if rows:
+        return float(rows[0].get(col, 0) or 0)
+    return 0.0
+
+
 
 
 def save_schedule(vendor, month, weekdays, schools, items, driver=''):

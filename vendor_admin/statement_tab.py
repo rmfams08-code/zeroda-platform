@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db
+from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db, filter_rows_by_school, get_unit_price
 from services.pdf_generator import generate_statement_pdf
 from services.excel_generator import generate_collection_excel
 from services.email_service import send_statement_email
@@ -32,9 +32,8 @@ def render_statement_tab(vendor):
     # ── 수거 데이터 조회 ──────────────────
     month_str = str(month).zfill(2)
     all_rows = db_get('real_collection')
-    rows = [r for r in all_rows
+    rows = [r for r in filter_rows_by_school(all_rows, school)
             if r.get('vendor') == vendor
-            and r.get('school_name') == school
             and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
     st.markdown(f"### {year}년 {month}월 · {school}")
@@ -44,7 +43,11 @@ def render_statement_tab(vendor):
         show_cols = [c for c in ['collect_date', 'item_type', 'weight', 'driver', 'memo'] if c in df.columns]
         st.dataframe(df[show_cols], use_container_width=True)
         total_weight = sum(float(r.get('weight', 0)) for r in rows)
-        total_amount = sum(float(r.get('weight', 0)) * float(r.get('unit_price', 0)) for r in rows)
+        total_amount = sum(
+            float(r.get('weight', 0)) *
+            (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
+            for r in rows
+        )
         c1, c2 = st.columns(2)
         with c1:
             st.metric("총 수거량", f"{total_weight:,.1f} kg")
@@ -112,7 +115,7 @@ def render_statement_tab(vendor):
     subject = st.text_input(
         "제목",
         value=f"[{vendor}] {year}년 {month}월 거래명세서 - {school}",
-        key="stmt_subject"
+        key=f"stmt_subject_{school}_{year}_{month}"
     )
     body = st.text_area(
         "본문",
@@ -127,7 +130,7 @@ def render_statement_tab(vendor):
 {vinfo.get('biz_name', vendor)} 드림
 연락처: {v_contact}""",
         height=150,
-        key="stmt_body"
+        key=f"stmt_body_{school}_{year}_{month}"
     )
 
     st.divider()
