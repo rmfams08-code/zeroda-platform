@@ -1,105 +1,119 @@
-# zeroda_platform/modules/hq_admin/dashboard.py
-# ==========================================
-# 본사 관리자 메인 대시보드
-# ==========================================
-
+# modules/hq_admin/dashboard.py
 import streamlit as st
-from datetime import datetime
-from config.settings import COMMON_CSS, CO2_FACTOR, TREE_FACTOR, CURRENT_YEAR, CURRENT_MONTH
-from database.db_manager import db_get, get_all_vendors, get_all_schools
+import pandas as pd
+from database.db_manager import db_get, get_all_schools, get_all_vendors
+from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
 def render_dashboard():
-    st.markdown(COMMON_CSS, unsafe_allow_html=True)
-    st.markdown("## 🏢 본사 관리자 대시보드")
+    st.markdown("## 대시보드 - 본사 관리자")
 
-    year  = st.session_state.get('selected_year',  CURRENT_YEAR)
-    month = st.session_state.get('selected_month', CURRENT_MONTH)
+    # 새로고침 버튼
+    col_r, _ = st.columns([1, 5])
+    with col_r:
+        if st.button("🔄 새로고침", key="hq_dash_refresh"):
+            try:
+                from services.github_storage import _github_get_cached
+                _github_get_cached.clear()
+            except Exception:
+                pass
+            st.rerun()
 
-    col_y, col_m, _ = st.columns([1, 1, 4])
-    with col_y:
-        year  = st.selectbox("년도", list(range(2023, CURRENT_YEAR + 1)),
-                             index=list(range(2023, CURRENT_YEAR + 1)).index(year),
-                             key="dash_year")
-    with col_m:
-        month = st.selectbox("월", list(range(1, 13)), index=month - 1, key="dash_month")
+    # 연도/월 필터
+    col1, col2 = st.columns(2)
+    with col1:
+        year  = st.selectbox("연도", [2024, 2025, 2026],
+                              index=[2024,2025,2026].index(CURRENT_YEAR)
+                              if CURRENT_YEAR in [2024,2025,2026] else 2,
+                              key="hq_dash_year")
+    with col2:
+        month = st.selectbox("월", list(range(1, 13)),
+                              index=CURRENT_MONTH - 1, key="hq_dash_month")
 
-    st.session_state['selected_year']  = year
-    st.session_state['selected_month'] = month
+    month_str = f"{year}-{str(month).zfill(2)}"
 
-    # ── 수거 데이터 집계 ──
-    rows = db_get('real_collection')
-    df_month = [r for r in rows
-                if int(r.get('월', 0) or 0) == month
-                and str(r.get('년도', '')) == str(year)]
+    # 통계 카드
+    schools  = get_all_schools()
+    vendors  = get_all_vendors()
+    col_data = db_get('real_collection')
+    users    = db_get('users')
 
-    total_food    = sum(float(r.get('음식물(kg)', 0) or 0) for r in df_month)
-    total_recycle = sum(float(r.get('재활용(kg)', 0) or 0) for r in df_month)
-    total_biz     = sum(float(r.get('사업장(kg)', 0) or 0) for r in df_month)
-    total_all     = total_food + total_recycle + total_biz
-    co2_saved     = round(total_all * CO2_FACTOR, 1)
-    trees         = round(co2_saved / TREE_FACTOR, 1)
+    # 이번 달 필터
+    month_data = [r for r in col_data
+                  if str(r.get('collect_date', '')).startswith(month_str)]
 
-    # ── KPI 카드 ──
+    food_kg    = sum(float(r.get('weight', 0)) for r in month_data
+                     if '음식물' in str(r.get('item_type', '')))
+    recycle_kg = sum(float(r.get('weight', 0)) for r in month_data
+                     if '재활용' in str(r.get('item_type', '')))
+    general_kg = sum(float(r.get('weight', 0)) for r in month_data
+                     if '일반' in str(r.get('item_type', ''))
+                     or ('음식물' not in str(r.get('item_type', ''))
+                         and '재활용' not in str(r.get('item_type', ''))))
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(f"""<div class="custom-card">
-            <div class="metric-title">🍱 음식물 수거량</div>
-            <div class="metric-value-food">{total_food:,.1f} kg</div>
-        </div>""", unsafe_allow_html=True)
+        st.metric("🍱 음식물 수거량", f"{food_kg:,.1f} kg")
     with c2:
-        st.markdown(f"""<div class="custom-card custom-card-green">
-            <div class="metric-title">♻️ 재활용 수거량</div>
-            <div class="metric-value-recycle">{total_recycle:,.1f} kg</div>
-        </div>""", unsafe_allow_html=True)
+        st.metric("♻️ 재활용 수거량", f"{recycle_kg:,.1f} kg")
     with c3:
-        st.markdown(f"""<div class="custom-card custom-card-purple">
-            <div class="metric-title">🏭 사업장 수거량</div>
-            <div class="metric-value-biz">{total_biz:,.1f} kg</div>
-        </div>""", unsafe_allow_html=True)
+        st.metric("🏭 사업장 수거량", f"{general_kg:,.1f} kg")
     with c4:
-        st.markdown(f"""<div class="custom-card custom-card-orange">
-            <div class="metric-title">🌿 CO₂ 감축</div>
-            <div class="metric-value-total">{co2_saved:,} kg</div>
-        </div>""", unsafe_allow_html=True)
+        try:
+            from services.carbon_calculator import calculate_carbon_reduction
+            carbon, _ = calculate_carbon_reduction(food_kg, recycle_kg, general_kg)
+        except Exception:
+            carbon = 0.0
+        st.metric("🌿 CO₂ 감축", f"{carbon:,.1f} kg")
 
-    # ── 업체별 수거 현황 ──
-    st.markdown("### 📊 업체별 수거 현황")
-    vendors = get_all_vendors()
-    if vendors and df_month:
-        cols = st.columns(min(len(vendors), 4))
-        for i, vendor in enumerate(vendors):
-            v_rows = [r for r in df_month if r.get('수거업체') == vendor]
-            v_kg   = sum(float(r.get('음식물(kg)', 0) or 0) for r in v_rows)
-            with cols[i % 4]:
-                st.metric(label=vendor, value=f"{v_kg:,.1f} kg",
-                          delta=f"{len(v_rows)}건")
+    st.divider()
+
+    # 업체별 수거 현황
+    st.markdown("### 🏢 업체별 수거 현황")
+    if month_data:
+        df = pd.DataFrame(month_data)
+        if 'vendor' in df.columns and 'weight' in df.columns:
+            summary = df.groupby('vendor')['weight'].sum().reset_index()
+            summary.columns = ['업체', '수거량(kg)']
+            st.dataframe(summary, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"{year}년 {month}월 수거 데이터가 없습니다.")
     else:
         st.info(f"{year}년 {month}월 수거 데이터가 없습니다.")
 
-    # ── 학교별 수거량 TOP 5 ──
-    st.markdown("### 🏫 학교별 수거량 TOP 5")
-    if df_month:
-        school_kg = {}
-        for r in df_month:
-            s  = r.get('학교명', '미상')
-            kg = float(r.get('음식물(kg)', 0) or 0)
-            school_kg[s] = school_kg.get(s, 0) + kg
+    st.divider()
 
-        top5 = sorted(school_kg.items(), key=lambda x: x[1], reverse=True)[:5]
-        for rank, (school, kg) in enumerate(top5, 1):
-            pct = (kg / total_food * 100) if total_food > 0 else 0
-            st.markdown(f"**{rank}위 {school}** — {kg:,.1f} kg ({pct:.1f}%)")
-            st.progress(pct / 100)
+    # 학교별 수거량 TOP 5
+    st.markdown("### 🏫 학교별 수거량 TOP 5")
+    if month_data:
+        df = pd.DataFrame(month_data)
+        if 'school_name' in df.columns and 'weight' in df.columns:
+            top5 = df.groupby('school_name')['weight'].sum().nlargest(5).reset_index()
+            top5.columns = ['학교명', '수거량(kg)']
+            st.dataframe(top5, use_container_width=True, hide_index=True)
+        else:
+            st.info("데이터가 없습니다.")
     else:
         st.info("데이터가 없습니다.")
 
-    # ── 환경 기여 요약 ──
+    st.divider()
+
+    # 환경 기여 현황
     st.markdown("### 🌱 환경 기여 현황")
-    ec1, ec2, ec3 = st.columns(3)
-    with ec1:
-        st.metric("총 수거량", f"{total_all:,.1f} kg")
-    with ec2:
-        st.metric("CO₂ 감축량", f"{co2_saved:,} kg")
-    with ec3:
-        st.metric("소나무 동등 효과", f"{trees:,} 그루")
+    total_weight = sum(float(r.get('weight', 0)) for r in month_data)
+    try:
+        from services.carbon_calculator import calculate_carbon_reduction, calculate_from_rows
+        result = calculate_from_rows(month_data)
+        carbon_total = result.get('carbon_reduced', 0)
+        trees        = result.get('tree_equivalent', 0)
+    except Exception:
+        carbon_total = 0.0
+        trees        = 0.0
+
+    e1, e2, e3 = st.columns(3)
+    with e1:
+        st.metric("총 수거량", f"{total_weight:,.1f} kg")
+    with e2:
+        st.metric("CO₂ 감축량", f"{carbon_total:,.1f} kg")
+    with e3:
+        st.metric("소나무 동등 효과", f"{trees:,.1f} 그루")

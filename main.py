@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 from config.settings import ROLES, ROLE_ICONS
-from database.db_init import init_db, migrate_csv_to_db, migrate_vendor_names, migrate_school_alias
+from database.db_init import init_db, migrate_csv_to_db, migrate_vendor_names, migrate_school_alias, migrate_customer_price
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -21,6 +21,7 @@ def startup():
     migrate_csv_to_db()
     migrate_vendor_names()  # vendor 필드 업체명→ID 자동 교정
     migrate_school_alias()  # school_master alias 컬럼 자동 추가
+    migrate_customer_price()  # customer_info 단가 컬럼 자동 추가
     return True
 
 startup()
@@ -79,6 +80,7 @@ if role == 'admin':
         ("수거 데이터",   "data"),
         ("정산 관리",     "settlement"),
         ("수거일정",      "schedule"),
+        ("거래처 관리",   "customer"),
         ("외주업체 관리", "vendor"),
         ("계정 관리",     "account"),
         ("안전관리",      "safety"),
@@ -98,6 +100,18 @@ if role == 'admin':
     elif page == "schedule":
         from modules.hq_admin.schedule_tab import render_schedule_tab
         render_schedule_tab()
+    elif page == "customer":
+        import streamlit as st
+        from modules.vendor_admin.customer_tab import render_customer_tab
+        from database.db_manager import db_get
+        vendors = db_get('vendor_info')
+        if vendors:
+            vendor_opts = {v.get('biz_name', v['vendor']): v['vendor'] for v in vendors}
+            sel_label = st.selectbox("업체 선택", list(vendor_opts.keys()), key="hq_cust_vendor")
+            render_customer_tab(vendor=vendor_opts[sel_label])
+        else:
+            import streamlit as st
+            st.info("등록된 업체가 없습니다.")
     elif page == "vendor":
         from modules.hq_admin.vendor_mgmt_tab import render_vendor_mgmt_tab
         render_vendor_mgmt_tab()

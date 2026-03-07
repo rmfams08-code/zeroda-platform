@@ -1,7 +1,7 @@
 # modules/hq_admin/settlement_tab.py
 import streamlit as st
 import pandas as pd
-from database.db_manager import db_get, get_all_vendors, get_all_schools
+from database.db_manager import db_get, get_all_vendors, get_all_schools, filter_rows_by_school
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
@@ -123,7 +123,7 @@ def _render_send_settlement():
     school = st.selectbox("학교 선택", ['전체'] + sorted(schools), key="send_school")
 
     if school != '전체':
-        rows = [r for r in rows if r.get('school_name') == school]
+        rows = filter_rows_by_school(rows, school)
 
     df = pd.DataFrame(rows)
     show = [c for c in ['collect_date','school_name','item_type','weight','status'] if c in df.columns]

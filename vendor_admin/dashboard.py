@@ -1,109 +1,88 @@
-# zeroda_platform/modules/vendor_admin/dashboard.py
-# ==========================================
-# 외주업체 관리자 대시보드
-# ==========================================
-
+# modules/vendor_admin/dashboard.py
 import streamlit as st
-from datetime import datetime, date
-from config.settings import COMMON_CSS, CO2_FACTOR, TREE_FACTOR, CURRENT_YEAR, CURRENT_MONTH
-from database.db_manager import (
-    db_get, get_schools_by_vendor, load_schedule, get_vendor_display_name
-)
+import pandas as pd
+from database.db_manager import db_get, get_schools_by_vendor
+from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
-def render_dashboard(vendor: str):
-    st.markdown(COMMON_CSS, unsafe_allow_html=True)
+def render_dashboard(vendor):
+    st.markdown(f"## 대시보드 - {vendor}")
 
-    biz_name = get_vendor_display_name(vendor)
-    st.markdown(f"## 🤝 {biz_name} 관리자 대시보드")
+    # 새로고침 버튼
+    col_r, _ = st.columns([1, 5])
+    with col_r:
+        if st.button("🔄 새로고침", key="va_dash_refresh"):
+            try:
+                from services.github_storage import _github_get_cached
+                _github_get_cached.clear()
+            except Exception:
+                pass
+            st.rerun()
 
-    year  = st.session_state.get('v_year',  CURRENT_YEAR)
-    month = st.session_state.get('v_month', CURRENT_MONTH)
-
-    col_y, col_m, _ = st.columns([1, 1, 4])
-    with col_y:
-        year  = st.selectbox("년도", list(range(2023, CURRENT_YEAR + 1)),
-                             index=list(range(2023, CURRENT_YEAR + 1)).index(year),
-                             key="v_dash_year")
-    with col_m:
+    # 연도/월 필터
+    col1, col2 = st.columns(2)
+    with col1:
+        year  = st.selectbox("연도", [2024, 2025, 2026],
+                              index=[2024,2025,2026].index(CURRENT_YEAR)
+                              if CURRENT_YEAR in [2024,2025,2026] else 2,
+                              key="va_dash_year")
+    with col2:
         month = st.selectbox("월", list(range(1, 13)),
-                             index=month - 1, key="v_dash_month")
+                              index=CURRENT_MONTH - 1, key="va_dash_month")
 
-    st.session_state['v_year']  = year
-    st.session_state['v_month'] = month
+    month_str = f"{year}-{str(month).zfill(2)}"
 
-    # ── 수거 데이터 집계 ──
-    rows = db_get('real_collection')
-    rows = [r for r in rows
-            if r.get('수거업체') == vendor
-            and int(r.get('월', 0) or 0) == month
-            and str(r.get('년도', '')) == str(year)]
+    schools  = get_schools_by_vendor(vendor)
+    col_data = [r for r in db_get('real_collection') if r.get('vendor') == vendor]
 
-    total_food    = sum(float(r.get('음식물(kg)', 0) or 0) for r in rows)
-    total_recycle = sum(float(r.get('재활용(kg)', 0) or 0) for r in rows)
-    total_biz     = sum(float(r.get('사업장(kg)', 0) or 0) for r in rows)
-    co2_saved     = round((total_food + total_recycle + total_biz) * CO2_FACTOR, 1)
+    # 이번 달 필터
+    month_data = [r for r in col_data
+                  if str(r.get('collect_date', '')).startswith(month_str)]
 
-    # ── KPI 카드 ──
+    food_kg    = sum(float(r.get('weight', 0)) for r in month_data
+                     if '음식물' in str(r.get('item_type', '')))
+    recycle_kg = sum(float(r.get('weight', 0)) for r in month_data
+                     if '재활용' in str(r.get('item_type', '')))
+    general_kg = sum(float(r.get('weight', 0)) for r in month_data
+                     if '일반' in str(r.get('item_type', '')))
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(f"""<div class="custom-card">
-            <div class="metric-title">🍱 음식물 수거량</div>
-            <div class="metric-value-food">{total_food:,.1f} kg</div>
-        </div>""", unsafe_allow_html=True)
+        st.metric("🍱 음식물 수거량", f"{food_kg:,.1f} kg")
     with c2:
-        st.markdown(f"""<div class="custom-card custom-card-green">
-            <div class="metric-title">♻️ 재활용 수거량</div>
-            <div class="metric-value-recycle">{total_recycle:,.1f} kg</div>
-        </div>""", unsafe_allow_html=True)
+        st.metric("♻️ 재활용 수거량", f"{recycle_kg:,.1f} kg")
     with c3:
-        st.markdown(f"""<div class="custom-card custom-card-purple">
-            <div class="metric-title">🏭 사업장 수거량</div>
-            <div class="metric-value-biz">{total_biz:,.1f} kg</div>
-        </div>""", unsafe_allow_html=True)
+        st.metric("🏭 사업장 수거량", f"{general_kg:,.1f} kg")
     with c4:
-        st.markdown(f"""<div class="custom-card custom-card-orange">
-            <div class="metric-title">🌿 CO₂ 감축</div>
-            <div class="metric-value-total">{co2_saved:,} kg</div>
-        </div>""", unsafe_allow_html=True)
+        total_kg = sum(float(r.get('weight', 0)) for r in month_data)
+        st.metric("📦 총 수거량", f"{total_kg:,.1f} kg")
 
-    # ── 담당 학교 현황 ──
-    st.markdown("### 🏫 담당 학교 수거 현황")
-    schools = get_schools_by_vendor(vendor)
-    if not schools:
-        st.info("배정된 학교가 없습니다.")
-        return
+    st.divider()
 
-    school_data = {}
-    for r in rows:
-        s  = r.get('학교명', '')
-        kg = float(r.get('음식물(kg)', 0) or 0)
-        school_data[s] = school_data.get(s, 0) + kg
-
-    cols = st.columns(min(len(schools), 4))
-    for i, school in enumerate(schools):
-        kg = school_data.get(school, 0)
-        with cols[i % 4]:
-            color = '#34a853' if kg > 0 else '#ea4335'
-            st.markdown(f"""
-            <div style="background:#f8f9fa;border-radius:8px;padding:12px;
-                        margin-bottom:8px;border-left:4px solid {color};">
-                <div style="font-weight:700;font-size:13px;">{school}</div>
-                <div style="font-size:18px;font-weight:900;color:{color};">
-                    {kg:,.1f} kg</div>
-            </div>""", unsafe_allow_html=True)
-
-    # ── 오늘 수거 일정 미리보기 ──
-    st.markdown("### 📅 오늘 수거 일정")
-    today = date.today()
-    weekday_map = {0:'월',1:'화',2:'수',3:'목',4:'금',5:'토',6:'일'}
-    today_wd = weekday_map[today.weekday()]
-
-    sched = load_schedule(vendor, today.month)
-    if sched and today_wd in sched.get('요일', []):
-        today_schools = sched.get('학교', [])
-        st.success(f"오늘({today_wd}요일) 수거 학교: {len(today_schools)}개")
-        for s in today_schools:
-            st.markdown(f"• {s}")
+    # 학교별 수거 현황
+    st.markdown(f"### 🏫 학교별 수거 현황 ({year}년 {month}월)")
+    if month_data:
+        df = pd.DataFrame(month_data)
+        if 'school_name' in df.columns and 'weight' in df.columns:
+            summary = df.groupby('school_name')['weight'].sum().reset_index()
+            summary.columns = ['학교명', '수거량(kg)']
+            st.dataframe(summary, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"{year}년 {month}월 수거 데이터가 없습니다.")
     else:
-        st.info(f"오늘({today_wd}요일)은 수거 일정이 없습니다.")
+        st.info(f"{year}년 {month}월 수거 데이터가 없습니다.")
+
+    st.divider()
+
+    # 담당 학교 목록
+    st.markdown("### 담당 학교 목록")
+    if schools:
+        cols = st.columns(4)
+        for i, s in enumerate(schools):
+            with cols[i % 4]:
+                st.markdown(f"""
+                <div style="background:#f8f9fa;border-radius:8px;padding:10px;margin:4px;text-align:center;font-size:13px;">
+                {s}
+                </div>""", unsafe_allow_html=True)
+    else:
+        st.info("담당 학교가 없습니다.")
