@@ -175,7 +175,7 @@ def filter_rows_by_school(rows: list, school: str, school_master_rows: list = No
     return [r for r in rows if _match_with_alias(school, r.get('school_name', ''), alias_map)]
 
 
-def get_school_student_count(school_name):def get_school_student_count(school_name):
+def get_school_student_count(school_name):
     rows = db_get('school_master', {'school_name': school_name})
     return rows[0]['student_count'] if rows else 0
 
