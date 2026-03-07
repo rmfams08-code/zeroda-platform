@@ -393,3 +393,138 @@ def load_all_schedules(vendor):
 
 def delete_schedule(vendor, month):
     return db_delete('schedules', {'vendor': vendor, 'month': month})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FEAT-02: 안전관리 평가 함수 (추가 - 기존 코드 유지)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def add_violation(vendor: str, driver: str, violation_date: str,
+                  violation_type: str = '기타', location: str = '',
+                  fine_amount: int = 0, memo: str = '') -> bool:
+    """스쿨존 위반 기록 추가"""
+    return db_insert('school_zone_violations', {
+        'vendor':         vendor,
+        'driver':         driver,
+        'violation_date': violation_date,
+        'violation_type': violation_type,
+        'location':       location,
+        'fine_amount':    fine_amount,
+        'memo':           memo,
+        'created_at':     datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    }) is not None
+
+
+def calculate_safety_score(vendor: str, year_month: str) -> dict:
+    """
+    업체의 월별 안전관리 점수 계산 후 safety_scores 테이블에 저장.
+
+    평가 기준:
+      - 스쿨존 위반: 40점 만점, 1건당 -8점
+      - 차량점검 이행률: 30점 만점, 이행률(%) × 30
+      - 교육이수율: 30점 만점, 이수율(%) × 30
+
+    등급:
+      S(90~100), A(75~89), B(60~74), C(40~59), D(0~39)
+
+    반환: {'vendor', 'year_month', 'violation_score', 'checklist_score',
+            'education_score', 'total_score', 'grade'}
+    """
+    year, month = year_month.split('-')
+    month_prefix = f"{year}-{month}"
+
+    # ── 1) 스쿨존 위반 점수 (40점 만점) ─────────────────────────────────
+    violations = [r for r in db_get('school_zone_violations', {'vendor': vendor})
+                  if str(r.get('violation_date', '')).startswith(month_prefix)]
+    violation_count  = len(violations)
+    violation_score  = max(0.0, 40.0 - violation_count * 8.0)
+
+    # ── 2) 차량점검 이행률 점수 (30점 만점) ─────────────────────────────
+    # 해당 월 드라이버 수 기준: users 테이블에서 role=driver, vendor=vendor
+    driver_rows = [r for r in db_get('users')
+                   if r.get('role') == 'driver' and r.get('vendor') == vendor]
+    driver_count = max(len(driver_rows), 1)  # 0 나눔 방지
+
+    checklist_rows = [r for r in db_get('safety_checklist', {'vendor': vendor})
+                      if str(r.get('check_date', '')).startswith(month_prefix)]
+    checked_drivers = len(set(r.get('driver', '') for r in checklist_rows if r.get('driver')))
+    checklist_rate   = min(checked_drivers / driver_count, 1.0)
+    checklist_score  = round(checklist_rate * 30.0, 1)
+
+    # ── 3) 교육이수율 점수 (30점 만점) ──────────────────────────────────
+    edu_rows = [r for r in db_get('safety_education', {'vendor': vendor})
+                if str(r.get('edu_date', '')).startswith(month_prefix)]
+    educated_drivers = len(set(r.get('driver', '') for r in edu_rows if r.get('driver')))
+    edu_rate         = min(educated_drivers / driver_count, 1.0)
+    education_score  = round(edu_rate * 30.0, 1)
+
+    # ── 총점 & 등급 ──────────────────────────────────────────────────────
+    total_score = round(violation_score + checklist_score + education_score, 1)
+    if total_score >= 90:
+        grade = 'S'
+    elif total_score >= 75:
+        grade = 'A'
+    elif total_score >= 60:
+        grade = 'B'
+    elif total_score >= 40:
+        grade = 'C'
+    else:
+        grade = 'D'
+
+    result = {
+        'vendor':           vendor,
+        'year_month':       year_month,
+        'violation_score':  violation_score,
+        'checklist_score':  checklist_score,
+        'education_score':  education_score,
+        'total_score':      total_score,
+        'grade':            grade,
+        'updated_at':       datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+    }
+
+    # safety_scores 테이블에 저장 (UNIQUE(vendor, year_month) → upsert)
+    try:
+        conn = _conn()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO safety_scores
+                (vendor, year_month, violation_score, checklist_score,
+                 education_score, total_score, grade, updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(vendor, year_month) DO UPDATE SET
+                violation_score=excluded.violation_score,
+                checklist_score=excluded.checklist_score,
+                education_score=excluded.education_score,
+                total_score=excluded.total_score,
+                grade=excluded.grade,
+                updated_at=excluded.updated_at
+        """, (vendor, year_month, violation_score, checklist_score,
+              education_score, total_score, grade,
+              result['updated_at']))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[calculate_safety_score] DB 저장 오류: {e}")
+
+    return result
+
+
+def get_safety_scores(vendor: str = None, year_month: str = None) -> list:
+    """
+    안전관리 평가 결과 조회.
+    vendor/year_month 미입력 시 전체 반환.
+    """
+    where = {}
+    if vendor:
+        where['vendor'] = vendor
+    if year_month:
+        where['year_month'] = year_month
+    return db_get('safety_scores', where if where else None)
+
+
+def get_violations(vendor: str = None, year_month: str = None) -> list:
+    """스쿨존 위반 기록 조회"""
+    rows = db_get('school_zone_violations', {'vendor': vendor} if vendor else None)
+    if year_month:
+        rows = [r for r in rows if str(r.get('violation_date', '')).startswith(year_month)]
+    return rows

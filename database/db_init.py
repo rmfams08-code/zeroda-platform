@@ -317,3 +317,56 @@ def init_db():
 def migrate_csv_to_db():
     """CSV 마이그레이션 - 필요 시 구현"""
     pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FEAT-02: 안전관리 평가 테이블 마이그레이션 (추가 - 기존 코드 유지)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def migrate_safety_tables():
+    """
+    안전관리 평가용 테이블 2개 생성 (없는 경우에만)
+    - school_zone_violations: 스쿨존 위반 기록
+    - safety_scores: 안전관리 평가 결과 캐시
+    앱 시작 시 자동 실행
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # 스쿨존 위반 기록 테이블
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS school_zone_violations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor TEXT NOT NULL,
+                driver TEXT DEFAULT '',
+                violation_date TEXT NOT NULL,
+                violation_type TEXT DEFAULT '기타',
+                location TEXT DEFAULT '',
+                fine_amount INTEGER DEFAULT 0,
+                memo TEXT DEFAULT '',
+                created_at TEXT
+            )
+        """)
+
+        # 안전관리 평가 결과 캐시 테이블
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS safety_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor TEXT NOT NULL,
+                year_month TEXT NOT NULL,
+                violation_score REAL DEFAULT 40.0,
+                checklist_score REAL DEFAULT 0.0,
+                education_score REAL DEFAULT 0.0,
+                total_score REAL DEFAULT 0.0,
+                grade TEXT DEFAULT 'D',
+                updated_at TEXT,
+                UNIQUE(vendor, year_month)
+            )
+        """)
+
+        conn.commit()
+        conn.close()
+        print("[migrate_safety_tables] 안전관리 평가 테이블 준비 완료")
+    except Exception as e:
+        print(f"[migrate_safety_tables] {e}")

@@ -13,14 +13,39 @@ def render_schedule_tab():
     tab1, tab2, tab3 = st.tabs(["📋 일정 조회", "✏️ 일정 등록/수정", "📅 오늘 수거 현황"])
 
     # ══════════════════════════════════════════════
-    # 탭1: 일정 조회 (기존 유지)
+    # 탭1: 일정 조회 (기존 유지 + 일별 필터 추가)
     # ══════════════════════════════════════════════
     with tab1:
         vendors = get_all_vendors()
         if not vendors:
             st.info("등록된 업체가 없습니다.")
         else:
-            vendor = st.selectbox("업체 선택", vendors, key="hq_sch_view_vendor")
+            # ── 필터 영역 ──────────────────────────────────────────────────
+            fc1, fc2, fc3, fc4 = st.columns(4)
+            with fc1:
+                vendor = st.selectbox("업체 선택", vendors, key="hq_sch_view_vendor")
+            with fc2:
+                filter_year = st.selectbox(
+                    "연도 필터", ['전체', 2024, 2025, 2026],
+                    key="hq_sch_view_year"
+                )
+            with fc3:
+                filter_month = st.selectbox(
+                    "월 필터", ['전체'] + list(range(1, 13)),
+                    key="hq_sch_view_month"
+                )
+            with fc4:
+                # 일 옵션: 월이 선택된 경우 해당 월 최대 일수 계산
+                if filter_year != '전체' and filter_month != '전체':
+                    import calendar
+                    max_day = calendar.monthrange(int(filter_year), int(filter_month))[1]
+                else:
+                    max_day = 31
+                filter_day = st.selectbox(
+                    "일 필터", ['전체'] + list(range(1, max_day + 1)),
+                    key="hq_sch_view_day"
+                )
+
             schedules = load_all_schedules(vendor)
             if not isinstance(schedules, dict):
                 schedules = {}
@@ -28,19 +53,47 @@ def render_schedule_tab():
             if not schedules:
                 st.info(f"{vendor} 의 일정이 없습니다.")
             else:
-                st.markdown(f"**총 {len(schedules)}개월 일정 등록됨**")
-                for month, info in sorted(schedules.items()):
-                    with st.expander(f"📅 {month} 일정"):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write(f"**수거 요일:** {', '.join(info.get('요일', []))}")
-                            st.write(f"**수거 품목:** {', '.join(info.get('품목', []))}")
-                            st.write(f"**담당 기사:** {info.get('기사', '-')}")
-                        with col2:
-                            schools_list = info.get('학교', [])
-                            st.write(f"**담당 학교 ({len(schools_list)}개):**")
-                            for s in schools_list:
-                                st.write(f"  • {s}")
+                # ── 필터 적용 ──────────────────────────────────────────────
+                filtered = {}
+                for month_key, info in schedules.items():
+                    # month_key 형식: "YYYY-MM"
+                    parts = str(month_key).split('-')
+                    sch_year  = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else None
+                    sch_month = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else None
+
+                    if filter_year != '전체' and sch_year != int(filter_year):
+                        continue
+                    if filter_month != '전체' and sch_month != int(filter_month):
+                        continue
+                    # 일 필터: 해당 월 일정 내 수거 날짜 목록 검사
+                    # (일정은 월 단위 저장이므로, 일 필터 선택 시 해당 일이
+                    #  수거 요일 조건에 해당하는지 캘린더 계산으로 확인)
+                    if filter_day != '전체' and sch_year and sch_month:
+                        import calendar, datetime as _dt
+                        target_date = _dt.date(int(sch_year), int(sch_month), int(filter_day))
+                        weekday_kr  = ['월','화','수','목','금','토','일'][target_date.weekday()]
+                        if weekday_kr not in info.get('요일', []):
+                            continue
+
+                    filtered[month_key] = info
+
+                st.markdown(f"**{len(filtered)}건 일정 표시** (전체 {len(schedules)}개월 중)")
+
+                if not filtered:
+                    st.info("선택한 조건에 맞는 일정이 없습니다.")
+                else:
+                    for month, info in sorted(filtered.items()):
+                        with st.expander(f"📅 {month} 일정"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write(f"**수거 요일:** {', '.join(info.get('요일', []))}")
+                                st.write(f"**수거 품목:** {', '.join(info.get('품목', []))}")
+                                st.write(f"**담당 기사:** {info.get('기사', '-')}")
+                            with col2:
+                                schools_list = info.get('학교', [])
+                                st.write(f"**담당 학교 ({len(schools_list)}개):**")
+                                for s in schools_list:
+                                    st.write(f"  • {s}")
 
     # ══════════════════════════════════════════════
     # 탭2: 일정 등록/수정 (신규)
@@ -99,13 +152,13 @@ def render_schedule_tab():
 
                 if driver_names:
                     driver = st.selectbox("담당 기사", ["(선택 안 함)"] + driver_names,
-                                          key="hq_sch_reg_driver")
+                                          key="hq_sch_reg_driver_sel")
                     if driver == "(선택 안 함)":
                         driver = ""
                 else:
                     driver = st.text_input("담당 기사 (직접 입력)",
                                            placeholder="등록된 기사가 없습니다",
-                                           key="hq_sch_reg_driver")
+                                           key="hq_sch_reg_driver_txt")
 
             # 미리보기
             if weekdays or sel_schools or items:
