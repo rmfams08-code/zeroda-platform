@@ -232,5 +232,20 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 16
+  },
+  {
+    "vendor": "hy",
+    "name": "송호고등학교",
+    "biz_no": "4051142991",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "cust_type": "학교",
+    "price_food": 0.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 17
   }
 ]
