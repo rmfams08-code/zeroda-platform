@@ -88,5 +88,20 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 6
+  },
+  {
+    "vendor": "hy",
+    "name": "안산고등학교",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "cust_type": "학교",
+    "price_food": 0.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 7
   }
 ]
