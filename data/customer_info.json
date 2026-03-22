@@ -493,5 +493,20 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 33
+  },
+  {
+    "vendor": "hy",
+    "name": "서울공업고등학교",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "cust_type": "학교",
+    "price_food": 180.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 34
   }
 ]
