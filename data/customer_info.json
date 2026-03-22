@@ -163,5 +163,20 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 11
+  },
+  {
+    "vendor": "hy",
+    "name": "당곡중학교",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "cust_type": "학교",
+    "price_food": 0.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 12
   }
 ]
