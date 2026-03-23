@@ -529,3 +529,101 @@ def get_violations(vendor: str = None, year_month: str = None) -> list:
     if year_month:
         rows = [r for r in rows if str(r.get('violation_date', '')).startswith(year_month)]
     return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 기사 오늘 수거학교 조회 + 외주업체 일정 등록 (추가 - 기존 코드 유지)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_today_schools_for_driver(driver_name):
+    """
+    기사 이름 기준으로 오늘 수거 학교 목록 반환.
+    본사(admin) 및 외주업체(vendor)가 등록한
+    schedules 전체에서 오늘 요일이 포함된 일정 조회.
+    """
+    import json
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    now_kst       = datetime.now(ZoneInfo('Asia/Seoul'))
+    today_month   = now_kst.strftime('%Y-%m')
+    weekday_map   = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
+    today_weekday = weekday_map[now_kst.weekday()]
+
+    try:
+        all_schedules = db_get('schedules')
+        if not all_schedules:
+            return []
+
+        result = []
+        for r in all_schedules:
+            if not isinstance(r, dict):
+                continue
+            # 이번 달 일정만
+            if not str(r.get('month', '')).startswith(today_month):
+                continue
+            # 기사 매칭
+            # - 기사명 지정된 경우: 본인 것만
+            # - 기사명 없는 경우: 전체 포함
+            r_driver = str(r.get('driver', '')).strip()
+            if r_driver and r_driver != driver_name:
+                continue
+            # 오늘 요일 포함 여부
+            try:
+                weekdays = json.loads(r['weekdays']) \
+                    if isinstance(r.get('weekdays'), str) \
+                    else (r.get('weekdays') or [])
+            except Exception:
+                weekdays = []
+            if today_weekday not in weekdays:
+                continue
+            # 학교 목록 추출
+            try:
+                schools = json.loads(r['schools']) \
+                    if isinstance(r.get('schools'), str) \
+                    else (r.get('schools') or [])
+            except Exception:
+                schools = []
+            # 품목 추출
+            try:
+                items = json.loads(r['items']) \
+                    if isinstance(r.get('items'), str) \
+                    else (r.get('items') or [])
+            except Exception:
+                items = []
+
+            for school in schools:
+                result.append({
+                    'school':        school,
+                    'vendor':        r.get('vendor', ''),
+                    'items':         items,
+                    'weekday':       today_weekday,
+                    'registered_by': r.get('registered_by', 'admin'),
+                })
+        return result
+    except Exception as e:
+        print(f"[get_today_schools_for_driver] 오류: {e}")
+        return []
+
+
+def save_schedule_by_vendor(vendor, month, weekdays,
+                            schools, items, driver=''):
+    """
+    외주업체가 본인 업체 일정을 직접 등록/수정.
+    registered_by='vendor' 로 저장하여
+    본사 등록 일정(registered_by='admin')과 구분.
+    """
+    import json
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+    return db_upsert('schedules', {
+        'vendor':        vendor,
+        'month':         month,
+        'weekdays':      json.dumps(weekdays, ensure_ascii=False),
+        'schools':       json.dumps(schools,  ensure_ascii=False),
+        'items':         json.dumps(items,    ensure_ascii=False),
+        'driver':        driver,
+        'registered_by': 'vendor',
+        'created_at':    datetime.now(
+                             ZoneInfo('Asia/Seoul')
+                         ).strftime('%Y-%m-%d %H:%M:%S'),
+    })
