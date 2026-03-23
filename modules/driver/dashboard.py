@@ -92,7 +92,10 @@ def render_dashboard(user: dict):
     with _col_date:
         _sel_date = st.date_input(
             "날짜 선택",
-            value=datetime.now(ZoneInfo('Asia/Seoul')).date(),
+            value=st.session_state.get(
+                "drv_schedule_date",
+                datetime.now(ZoneInfo('Asia/Seoul')).date()
+            ),
             key="drv_schedule_date"
         )
     with _col_today:
@@ -154,6 +157,7 @@ def render_dashboard(user: dict):
                 '학교명':   _sch,
                 '수거품목': ', '.join(_sr_items) if _sr_items else '-',
                 '담당업체': _sr.get('vendor', '-'),
+                '등록구분': '본사' if _sr.get('registered_by', 'admin') == 'admin' else '외주업체',
                 '_items':   _sr_items,   # 수거일지 입력 연동용 (표시 안 함)
             })
 
@@ -173,25 +177,48 @@ def render_dashboard(user: dict):
 
     st.divider()
 
-    # ── 학교별 수거 입력 (일정 연동) ─────────────
-    # 일정에 등록된 학교를 우선 표시, 없으면 업체 소속 학교 폴백
-    _linked_schools = st.session_state.get("drv_today_schools", [])
-    _linked_school_names = list(dict.fromkeys(
-        s['학교명'] for s in _linked_schools if s.get('학교명')
-    ))  # 중복 제거, 순서 유지
-    _vendor_schools = get_schools_by_vendor(vendor)
+    # ── 수거일지 입력 (일정 연동) ─────────────────
+    # 날짜: 일정 탭에서 선택한 날짜 자동 반영
+    collect_date = st.date_input(
+        "수거일",
+        value=st.session_state.get(
+            "drv_schedule_date",
+            datetime.now(ZoneInfo('Asia/Seoul')).date()
+        ),
+        key="drv_collect_date"
+    )
 
-    if _linked_school_names:
-        # 일정 연동 학교 + 업체 소속 중 일정에 없는 학교 병합
-        _extra = [s for s in _vendor_schools if s not in _linked_school_names]
-        schools = _linked_school_names + _extra
-        if _extra:
-            st.caption(f"📋 일정 등록 {len(_linked_school_names)}개교"
-                       f" + 추가 {len(_extra)}개교")
-        else:
-            st.caption(f"📋 일정 등록 {len(_linked_school_names)}개교")
+    # 학교 선택: 일정에 등록된 학교 목록 자동 표시
+    _linked_schools = st.session_state.get("drv_today_schools", [])
+    school_names = [s['학교명'] for s in _linked_schools if s.get('학교명')]
+
+    if school_names:
+        sel_school = st.selectbox(
+            "수거 학교",
+            school_names,
+            key="drv_input_school"
+        )
+        matched = next(
+            (s for s in _linked_schools
+             if s['학교명'] == sel_school), None
+        )
+        if matched:
+            default_items = matched.get('_items', [])
+            st.caption(
+                f"📋 등록 품목: "
+                f"{', '.join(default_items) if default_items else '-'}"
+            )
+        schools = [sel_school]
     else:
-        schools = _vendor_schools
+        sel_school = st.text_input(
+            "수거 학교 (직접 입력)",
+            key="drv_input_school_manual"
+        )
+        st.caption(
+            "⚠️ 오늘 일정에 등록된 학교가 없습니다. "
+            "직접 입력하세요."
+        )
+        schools = [sel_school] if sel_school else []
 
     # 학교별 일정 품목 매핑 (수거 입력 시 품목 자동 표시용)
     _school_items_map = {}
