@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
+import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from database.db_manager import db_insert, db_get, get_schools_by_vendor
@@ -84,8 +85,89 @@ def render_dashboard(user: dict):
     # ══════════════════════════════════════════════
     # 섹션2: 오늘 수거일정
     # ══════════════════════════════════════════════
-    st.markdown("### 📅 오늘 수거일정")
+    st.markdown("### 📅 수거일정")
 
+    # ── 날짜 필터 ──────────────────────────────
+    _col_date, _col_today = st.columns([3, 1])
+    with _col_date:
+        _sel_date = st.date_input(
+            "날짜 선택",
+            value=datetime.now(ZoneInfo('Asia/Seoul')).date(),
+            key="drv_schedule_date"
+        )
+    with _col_today:
+        st.write("")  # 간격 맞춤
+        if st.button("오늘", key="drv_today_btn",
+                     use_container_width=True):
+            st.session_state["drv_schedule_date"] = \
+                datetime.now(ZoneInfo('Asia/Seoul')).date()
+            st.rerun()
+
+    # ── 선택일 요일 계산 ───────────────────────
+    _weekday_map = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
+    _sel_weekday = _weekday_map[_sel_date.weekday()]
+    _sel_month   = _sel_date.strftime('%Y-%m')
+    st.caption(f"📅 {_sel_date} ({_sel_weekday}요일) 수거 일정")
+
+    # ── schedules에서 해당 날짜 일정 필터 ───────
+    _all_schedules = db_get('schedules')
+    if not isinstance(_all_schedules, list):
+        _all_schedules = []
+
+    _sched_schools = []
+    for _sr in _all_schedules:
+        if not isinstance(_sr, dict):
+            continue
+        # 선택 월 일정만
+        if not str(_sr.get('month', '')).startswith(_sel_month):
+            continue
+        # 기사 매칭
+        _sr_driver = str(_sr.get('driver', '')).strip()
+        if _sr_driver and _sr_driver != driver_name:
+            continue
+        # 선택 요일 포함 여부
+        try:
+            _sr_weekdays = json.loads(_sr['weekdays']) \
+                if isinstance(_sr.get('weekdays'), str) \
+                else (_sr.get('weekdays') or [])
+        except Exception:
+            _sr_weekdays = []
+        if _sel_weekday not in _sr_weekdays:
+            continue
+        # 학교 목록 추출
+        try:
+            _sr_schools = json.loads(_sr['schools']) \
+                if isinstance(_sr.get('schools'), str) \
+                else (_sr.get('schools') or [])
+        except Exception:
+            _sr_schools = []
+        # 품목 추출
+        try:
+            _sr_items = json.loads(_sr['items']) \
+                if isinstance(_sr.get('items'), str) \
+                else (_sr.get('items') or [])
+        except Exception:
+            _sr_items = []
+
+        for _sch in _sr_schools:
+            _sched_schools.append({
+                '학교명':   _sch,
+                '수거품목': ', '.join(_sr_items) if _sr_items else '-',
+                '담당업체': _sr.get('vendor', '-'),
+                '등록구분': '본사' if _sr.get('registered_by', 'admin') == 'admin' else '외주업체',
+            })
+
+    # ── 일정 결과 표시 ──────────────────────────
+    if not _sched_schools:
+        st.info(f"{_sel_date} ({_sel_weekday}요일) 수거 일정이 없습니다.")
+    else:
+        st.success(f"총 {len(_sched_schools)}개 학교 수거 예정")
+        _sched_df = pd.DataFrame(_sched_schools)
+        st.dataframe(_sched_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── 학교별 수거 입력 (기존 유지) ─────────────
     schools = get_schools_by_vendor(vendor)
 
     if not schools:
