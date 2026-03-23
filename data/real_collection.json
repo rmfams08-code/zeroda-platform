@@ -174,5 +174,21 @@
     "submitted_at": "2026-03-23 11:50:37",
     "created_at": "2026-03-23 11:50:37",
     "id": 11
+  },
+  {
+    "vendor": "hy",
+    "school_name": "비봉고등학교",
+    "collect_date": "2026-03-23",
+    "collect_time": "21;36",
+    "item_type": "음식물",
+    "weight": 150.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-23 12:30:16",
+    "created_at": "2026-03-23 12:30:16",
+    "id": 12
   }
 ]
