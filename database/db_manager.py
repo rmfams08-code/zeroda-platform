@@ -348,11 +348,23 @@ def get_unit_price(vendor: str, school: str, item_type: str) -> float:
 
 
 def save_schedule(vendor, month, weekdays, schools, items, driver=''):
-    return db_upsert('schedules', {'vendor': vendor,'month': month,
-        'weekdays': json.dumps(weekdays, ensure_ascii=False),
-        'schools': json.dumps(schools, ensure_ascii=False),
-        'items': json.dumps(items, ensure_ascii=False),
-        'driver': driver,'created_at': datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')})
+    data = {
+        'vendor':        vendor,
+        'month':         month,
+        'weekdays':      json.dumps(weekdays, ensure_ascii=False),
+        'schools':       json.dumps(schools,  ensure_ascii=False),
+        'items':         json.dumps(items,    ensure_ascii=False),
+        'driver':        driver,
+        'registered_by': 'admin',
+        'created_at':    datetime.now(
+                             ZoneInfo('Asia/Seoul')
+                         ).strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    try:
+        db_delete('schedules', {'vendor': vendor, 'month': month})
+    except Exception:
+        pass
+    return db_upsert('schedules', data)
 
 
 def load_schedule(vendor, month):
@@ -379,12 +391,25 @@ def load_all_schedules(vendor):
             if not month_key or month_key == 'None':
                 continue
             try:
-                result[month_key] = {
-                    '요일': json.loads(r['weekdays']) if r.get('weekdays') else [],
-                    '학교': json.loads(r['schools'])  if r.get('schools')  else [],
-                    '품목': json.loads(r['items'])    if r.get('items')    else [],
+                new_entry = {
+                    '요일': json.loads(r['weekdays'])
+                            if r.get('weekdays') else [],
+                    '학교': json.loads(r['schools'])
+                            if r.get('schools')  else [],
+                    '품목': json.loads(r['items'])
+                            if r.get('items')    else [],
                     '기사': r.get('driver', ''),
+                    'registered_by': r.get(
+                        'registered_by', 'admin'),
+                    'created_at': r.get('created_at', ''),
                 }
+                existing = result.get(month_key)
+                if existing is None:
+                    result[month_key] = new_entry
+                else:
+                    if str(new_entry['created_at']) > \
+                       str(existing.get('created_at', '')):
+                        result[month_key] = new_entry
             except Exception:
                 result[month_key] = {'요일': [], '학교': [], '품목': [], '기사': ''}
         return result
@@ -539,14 +564,17 @@ def get_today_schools_for_driver(driver_name):
     """
     기사 이름 기준으로 오늘 수거 학교 목록 반환.
     본사(admin) 및 외주업체(vendor)가 등록한
-    schedules 전체에서 오늘 요일이 포함된 일정 조회.
+    schedules 전체에서 오늘 요일 포함 일정 조회.
     """
     import json
     from zoneinfo import ZoneInfo
     from datetime import datetime
     now_kst       = datetime.now(ZoneInfo('Asia/Seoul'))
     today_month   = now_kst.strftime('%Y-%m')
-    weekday_map   = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
+    weekday_map   = {
+        0:'월', 1:'화', 2:'수', 3:'목',
+        4:'금', 5:'토', 6:'일'
+    }
     today_weekday = weekday_map[now_kst.weekday()]
 
     try:
@@ -558,16 +586,12 @@ def get_today_schools_for_driver(driver_name):
         for r in all_schedules:
             if not isinstance(r, dict):
                 continue
-            # 이번 달 일정만
-            if not str(r.get('month', '')).startswith(today_month):
+            if not str(r.get('month', '')).startswith(
+                today_month):
                 continue
-            # 기사 매칭
-            # - 기사명 지정된 경우: 본인 것만
-            # - 기사명 없는 경우: 전체 포함
             r_driver = str(r.get('driver', '')).strip()
             if r_driver and r_driver != driver_name:
                 continue
-            # 오늘 요일 포함 여부
             try:
                 weekdays = json.loads(r['weekdays']) \
                     if isinstance(r.get('weekdays'), str) \
@@ -576,14 +600,12 @@ def get_today_schools_for_driver(driver_name):
                 weekdays = []
             if today_weekday not in weekdays:
                 continue
-            # 학교 목록 추출
             try:
                 schools = json.loads(r['schools']) \
                     if isinstance(r.get('schools'), str) \
                     else (r.get('schools') or [])
             except Exception:
                 schools = []
-            # 품목 추출
             try:
                 items = json.loads(r['items']) \
                     if isinstance(r.get('items'), str) \
@@ -597,11 +619,12 @@ def get_today_schools_for_driver(driver_name):
                     'vendor':        r.get('vendor', ''),
                     'items':         items,
                     'weekday':       today_weekday,
-                    'registered_by': r.get('registered_by', 'admin'),
+                    'registered_by': r.get(
+                        'registered_by', 'admin'),
                 })
         return result
     except Exception as e:
-        print(f"[get_today_schools_for_driver] 오류: {e}")
+        print(f"get_today_schools_for_driver 오류: {e}")
         return []
 
 
@@ -609,21 +632,30 @@ def save_schedule_by_vendor(vendor, month, weekdays,
                             schools, items, driver=''):
     """
     외주업체가 본인 업체 일정을 직접 등록/수정.
-    registered_by='vendor' 로 저장하여
-    본사 등록 일정(registered_by='admin')과 구분.
+    registered_by='vendor' 로 저장.
+    저장 전 기존 동일 vendor+month 행 삭제.
     """
     import json
     from zoneinfo import ZoneInfo
     from datetime import datetime
-    return db_upsert('schedules', {
+    data = {
         'vendor':        vendor,
         'month':         month,
-        'weekdays':      json.dumps(weekdays, ensure_ascii=False),
-        'schools':       json.dumps(schools,  ensure_ascii=False),
-        'items':         json.dumps(items,    ensure_ascii=False),
+        'weekdays':      json.dumps(
+                             weekdays, ensure_ascii=False),
+        'schools':       json.dumps(
+                             schools,  ensure_ascii=False),
+        'items':         json.dumps(
+                             items,    ensure_ascii=False),
         'driver':        driver,
         'registered_by': 'vendor',
         'created_at':    datetime.now(
                              ZoneInfo('Asia/Seoul')
                          ).strftime('%Y-%m-%d %H:%M:%S'),
-    })
+    }
+    try:
+        db_delete('schedules', {'vendor': vendor,
+                                 'month': month})
+    except Exception:
+        pass
+    return db_upsert('schedules', data)
