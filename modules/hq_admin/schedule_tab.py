@@ -265,16 +265,78 @@ def render_schedule_tab():
                     elif not items:
                         st.error("수거 품목을 선택하세요.")
                     else:
-                        ok = save_schedule(vendor, reg_key, weekdays,
-                                           sel_schools, items, driver)
-                        if ok:
-                            if is_daily:
-                                st.success(f"✅ {reg_date.strftime('%Y년 %m월 %d일')} 일별 일정 저장 완료!")
+                        # ── 중복 체크 1: 같은 월 같은 학교 중복 방지 ──────────
+                        _existing_sched = load_all_schedules(vendor)
+                        if not isinstance(_existing_sched, dict):
+                            _existing_sched = {}
+                        _existing_info = _existing_sched.get(reg_key)
+                        _dup_schools = []
+                        if _existing_info:
+                            _existing_schools = _existing_info.get('학교', [])
+                            _dup_schools = [s for s in sel_schools if s in _existing_schools]
+
+                        _block_save = False
+                        if _dup_schools:
+                            st.warning(f"⚠️ 이미 등록된 학교: {', '.join(_dup_schools)} — 덮어쓰기 됩니다")
+                            _overwrite = st.checkbox(
+                                "중복 학교 포함하여 저장하시겠습니까?",
+                                key="hq_sch_overwrite_confirm"
+                            )
+                            if not _overwrite:
+                                _block_save = True
+                                st.info("☑️ 체크박스를 선택하면 저장이 진행됩니다.")
+
+                        # ── 중복 체크 2: 타 업체 같은 요일+학교 중복 안내 ─────
+                        if not _block_save:
+                            _all_vendors = get_all_vendors()
+                            _cross_dup_msgs = []
+                            for _ov in _all_vendors:
+                                if _ov == vendor:
+                                    continue
+                                _ov_scheds = load_all_schedules(_ov)
+                                if not isinstance(_ov_scheds, dict):
+                                    continue
+                                # 같은 reg_key(월/일) 또는 월별↔일별 교차 비교
+                                _check_keys = [reg_key]
+                                # 일별이면 해당 월도 확인, 월별이면 해당 월의 일별도 확인
+                                if is_daily:
+                                    _check_keys.append(reg_key[:7])  # YYYY-MM
+                                else:
+                                    _check_keys.extend(
+                                        [k for k in _ov_scheds if k.startswith(reg_key)]
+                                    )
+                                for _ck in _check_keys:
+                                    _ov_info = _ov_scheds.get(_ck)
+                                    if not _ov_info:
+                                        continue
+                                    _ov_days = set(_ov_info.get('요일', []))
+                                    _ov_schs = set(_ov_info.get('학교', []))
+                                    _common_days = _ov_days & set(weekdays)
+                                    _common_schs = _ov_schs & set(sel_schools)
+                                    if _common_days and _common_schs:
+                                        for _cs in sorted(_common_schs):
+                                            _cross_dup_msgs.append(
+                                                f"{_cs} ({', '.join(sorted(_common_days))}요일) → 업체: {_ov}"
+                                            )
+                            if _cross_dup_msgs:
+                                _unique_msgs = sorted(set(_cross_dup_msgs))
+                                st.info(
+                                    "ℹ️ 아래 학교는 같은 요일에 다른 업체에도 등록되어 있습니다:\n"
+                                    + "\n".join(f"  • {m}" for m in _unique_msgs)
+                                )
+
+                        # ── 저장 실행 (기존 로직 유지) ────────────────────────
+                        if not _block_save:
+                            ok = save_schedule(vendor, reg_key, weekdays,
+                                               sel_schools, items, driver)
+                            if ok:
+                                if is_daily:
+                                    st.success(f"✅ {reg_date.strftime('%Y년 %m월 %d일')} 일별 일정 저장 완료!")
+                                else:
+                                    st.success(f"✅ {reg_year}년 {reg_month}월 일정 저장 완료!")
+                                st.rerun()
                             else:
-                                st.success(f"✅ {reg_year}년 {reg_month}월 일정 저장 완료!")
-                            st.rerun()
-                        else:
-                            st.error("저장 실패")
+                                st.error("저장 실패")
 
             with col_d:
                 schedules = load_all_schedules(vendor)
