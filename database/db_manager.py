@@ -2,6 +2,7 @@
 import sqlite3
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from config.settings import DB_PATH
 from services.github_storage import (
     github_get, github_insert, github_upsert, github_delete,
@@ -351,7 +352,7 @@ def save_schedule(vendor, month, weekdays, schools, items, driver=''):
         'weekdays': json.dumps(weekdays, ensure_ascii=False),
         'schools': json.dumps(schools, ensure_ascii=False),
         'items': json.dumps(items, ensure_ascii=False),
-        'driver': driver,'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+        'driver': driver,'created_at': datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')})
 
 
 def load_schedule(vendor, month):
@@ -411,7 +412,7 @@ def add_violation(vendor: str, driver: str, violation_date: str,
         'location':       location,
         'fine_amount':    fine_amount,
         'memo':           memo,
-        'created_at':     datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'created_at':     datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S'),
     }) is not None
 
 
@@ -479,7 +480,7 @@ def calculate_safety_score(vendor: str, year_month: str) -> dict:
         'education_score':  education_score,
         'total_score':      total_score,
         'grade':            grade,
-        'updated_at':       datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'updated_at':       datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S'),
     }
 
     # safety_scores 테이블에 저장 (UNIQUE(vendor, year_month) → upsert)
