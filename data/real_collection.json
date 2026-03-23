@@ -94,5 +94,21 @@
     "submitted_at": "2026-03-23 10:26:45",
     "created_at": "2026-03-23 10:26:45",
     "id": 6
+  },
+  {
+    "vendor": "hy",
+    "school_name": "안산국제비즈니스고등학교",
+    "collect_date": "2026-03-23",
+    "collect_time": "19:51",
+    "item_type": "음식물",
+    "weight": 270.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-23 10:45:15",
+    "created_at": "2026-03-23 10:45:15",
+    "id": 7
   }
 ]
