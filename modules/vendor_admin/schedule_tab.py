@@ -1,13 +1,18 @@
 # modules/vendor_admin/schedule_tab.py
 import streamlit as st
-from database.db_manager import get_schools_by_vendor, save_schedule, load_all_schedules, delete_schedule
+from database.db_manager import (
+    get_schools_by_vendor, save_schedule, load_all_schedules,
+    delete_schedule, db_get, save_schedule_by_vendor
+)
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
+from zoneinfo import ZoneInfo
+from datetime import datetime
 
 
 def render_schedule_tab(vendor):
     st.markdown("## 수거일정 관리")
 
-    tab1, tab2 = st.tabs(["📋 일정 등록", "📅 일정 조회/삭제"])
+    tab1, tab2, tab3 = st.tabs(["📋 일정 등록", "📅 일정 조회/삭제", "✏️ 일정 등록/수정"])
 
     # ── 등록 탭 (첫 번째로) ───────────────
     with tab1:
@@ -76,3 +81,147 @@ def render_schedule_tab(vendor):
                         delete_schedule(vendor, month_key)
                         st.success(f"{month_key} 일정 삭제 완료")
                         st.rerun()
+
+    # ── 외주업체 일정 등록/수정 탭 ──────────────
+    with tab3:
+        st.markdown("### 수거일정 등록/수정")
+
+        # 연도·월 선택
+        col1, col2 = st.columns(2)
+        with col1:
+            year = st.selectbox(
+                "연도", [2025, 2026],
+                key="vnd_sch_year"
+            )
+        with col2:
+            month = st.selectbox(
+                "월", list(range(1, 13)),
+                key="vnd_sch_month"
+            )
+
+        # 수거 요일 선택
+        weekdays = st.multiselect(
+            "수거 요일",
+            ["월", "화", "수", "목", "금", "토"],
+            key="vnd_sch_days"
+        )
+
+        # 담당 학교 선택 — customer_info에서 vendor 기준 조회
+        customer_rows = db_get('customer_info', {'vendor': vendor})
+        if not customer_rows:
+            customer_rows = []
+        school_list = [
+            r.get('name', '') for r in customer_rows
+            if r.get('name')
+        ]
+        if not school_list:
+            st.warning(
+                f"'{vendor}' 업체에 등록된 학교가 없습니다.\n"
+                "거래처 관리에서 학교를 먼저 등록하세요."
+            )
+            sel_schools = []
+        else:
+            sel_schools = st.multiselect(
+                "담당 학교", school_list,
+                key="vnd_sch_schools"
+            )
+
+        # 수거 품목 선택
+        items = st.multiselect(
+            "수거 품목",
+            ["음식물", "재활용", "일반"],
+            key="vnd_sch_items"
+        )
+
+        # 담당 기사 선택
+        driver_rows = [
+            r for r in db_get('users')
+            if r.get('role') == 'driver'
+            and r.get('vendor') == vendor
+        ]
+        driver_names = [
+            r.get('name') or r.get('user_id', '')
+            for r in driver_rows
+            if r.get('name') or r.get('user_id')
+        ]
+        if driver_names:
+            driver = st.selectbox(
+                "담당 기사",
+                ["(선택 안 함)"] + driver_names,
+                key="vnd_sch_driver_sel"
+            )
+            if driver == "(선택 안 함)":
+                driver = ""
+        else:
+            driver = st.text_input(
+                "담당 기사 (직접 입력)",
+                key="vnd_sch_driver_txt"
+            )
+
+        # 미리보기
+        if weekdays or sel_schools or items:
+            st.info(
+                f"📌 {year}년 {month}월 "
+                f"| 요일: {', '.join(weekdays) if weekdays else '-'} "
+                f"| 학교: {len(sel_schools)}개 "
+                f"| 품목: {', '.join(items) if items else '-'} "
+                f"| 기사: {driver or '-'}"
+            )
+
+        # 저장/삭제 버튼
+        col_s, col_d = st.columns(2)
+        with col_s:
+            if st.button(
+                "💾 일정 저장", type="primary",
+                use_container_width=True,
+                key="vnd_sch_save"
+            ):
+                if not weekdays:
+                    st.error("수거 요일을 선택하세요.")
+                elif not sel_schools:
+                    st.error("수거 학교를 선택하세요.")
+                elif not items:
+                    st.error("수거 품목을 선택하세요.")
+                else:
+                    month_str = f"{year}-{str(month).zfill(2)}"
+                    ok = save_schedule_by_vendor(
+                        vendor, month_str, weekdays,
+                        sel_schools, items, driver
+                    )
+                    if ok:
+                        st.success(
+                            f"✅ {year}년 {month}월 "
+                            "일정 저장 완료!"
+                        )
+                        st.rerun()
+                    else:
+                        st.error("저장 실패")
+
+        with col_d:
+            # 삭제: 본인 업체 일정만, registered_by='vendor'인 것만 삭제 허용
+            schedules = load_all_schedules(vendor)
+            if not isinstance(schedules, dict):
+                schedules = {}
+            deletable = {
+                k: v for k, v in schedules.items()
+                if v.get('registered_by', 'admin') == 'vendor'
+            }
+            if deletable:
+                del_month = st.selectbox(
+                    "삭제할 월 선택",
+                    list(deletable.keys()),
+                    key="vnd_sch_del_month"
+                )
+                if st.button(
+                    "🗑️ 삭제",
+                    use_container_width=True,
+                    key="vnd_sch_del"
+                ):
+                    delete_schedule(vendor, del_month)
+                    st.success(f"{del_month} 일정 삭제 완료")
+                    st.rerun()
+            else:
+                st.caption(
+                    "직접 등록한 일정이 없습니다.\n"
+                    "본사 등록 일정은 삭제할 수 없습니다."
+                )
