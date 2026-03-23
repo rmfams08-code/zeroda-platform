@@ -314,6 +314,40 @@ def init_db():
         print(f"[init_db] GitHub admin 계정 생성 실패: {e}")
 
 
+def migrate_schedules_unique():
+    """schedules 테이블 vendor+month UNIQUE 제약 추가 마이그레이션"""
+    try:
+        conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+        c = conn.cursor()
+        # 1. 기존 schedules 데이터 백업
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS schedules_backup AS
+            SELECT * FROM schedules
+        """)
+        # 2. vendor+month 기준으로 가장 최신 행만 남기기
+        #    (id 기준 내림차순에서 첫 번째)
+        c.execute("""
+            DELETE FROM schedules
+            WHERE id NOT IN (
+                SELECT MAX(id) FROM schedules
+                GROUP BY vendor, month
+            )
+        """)
+        # 3. UNIQUE 인덱스 추가 (없으면 추가)
+        c.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+            idx_schedules_vendor_month
+            ON schedules(vendor, month)
+        """)
+        conn.commit()
+        conn.close()
+        print("[migrate_schedules_unique] schedules UNIQUE 제약 추가 완료")
+        return True
+    except Exception as e:
+        print(f"[migrate_schedules_unique] 오류: {e}")
+        return False
+
+
 def migrate_csv_to_db():
     """CSV 마이그레이션 - 필요 시 구현"""
     pass
