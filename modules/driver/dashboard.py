@@ -3,7 +3,8 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from database.db_manager import db_insert, db_get, get_schools_by_vendor
 from config.settings import COMMON_CSS
 
@@ -24,7 +25,7 @@ def render_dashboard(user: dict):
 
     driver_name = user.get('name', '')
     vendor      = user.get('vendor', '')
-    today       = date.today()
+    today       = datetime.now(ZoneInfo('Asia/Seoul')).date()
     today_str   = str(today)
     today_wd    = WEEKDAY_MAP[today.weekday()]
 
@@ -170,50 +171,124 @@ def render_dashboard(user: dict):
                         if photo:
                             st.success("📸 사진이 첨부되었습니다.")
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        collect_date = st.date_input("수거일 *", value=today,
-                                                      key=f"drv_date_{school}")
-                        item_type    = st.selectbox("품목 *", ["음식물", "재활용", "일반"],
-                                                     key=f"drv_item_{school}")
-                    with col2:
-                        weight       = st.number_input("수거량 (kg) *", min_value=0.0,
-                                                        step=0.1, key=f"drv_weight_{school}")
+                    # ── 날짜별 다중행 수거량 입력 ──────────────────
+                    _dr_key = f"drv_date_rows_{school}"
+                    if _dr_key not in st.session_state:
+                        st.session_state[_dr_key] = [
+                            {"date": today, "weight": 0.0, "item": "음식물"}
+                        ]
+
+                    st.caption("📆 날짜별 수거량 입력 (여러 날짜 입력 가능)")
+                    _items_list = ["음식물", "재활용", "일반"]
+
+                    for _idx, _row in enumerate(st.session_state[_dr_key]):
+                        _rc1, _rc2, _rc3, _rc4 = st.columns([3, 2, 2, 1])
+                        with _rc1:
+                            _new_date = st.date_input(
+                                "수거일" if _idx == 0 else f"수거일 {_idx+1}",
+                                value=_row["date"],
+                                key=f"drv_dr_date_{school}_{_idx}"
+                            )
+                            st.session_state[_dr_key][_idx]["date"] = _new_date
+                        with _rc2:
+                            _new_wt = st.number_input(
+                                "수거량(kg)" if _idx == 0 else f"수거량 {_idx+1}",
+                                min_value=0.0, step=0.5, format="%.1f",
+                                value=_row["weight"],
+                                key=f"drv_dr_wt_{school}_{_idx}"
+                            )
+                            st.session_state[_dr_key][_idx]["weight"] = _new_wt
+                        with _rc3:
+                            _item_idx = _items_list.index(_row["item"]) if _row["item"] in _items_list else 0
+                            _new_item = st.selectbox(
+                                "품목" if _idx == 0 else f"품목 {_idx+1}",
+                                _items_list, index=_item_idx,
+                                key=f"drv_dr_item_{school}_{_idx}"
+                            )
+                            st.session_state[_dr_key][_idx]["item"] = _new_item
+                        with _rc4:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if len(st.session_state[_dr_key]) > 1 and _idx > 0:
+                                if st.button("🗑️", key=f"drv_dr_del_{school}_{_idx}"):
+                                    st.session_state[_dr_key].pop(_idx)
+                                    st.rerun()
+
+                    # 날짜 추가 버튼
+                    if st.button("＋ 날짜 추가", key=f"drv_dr_add_{school}"):
+                        _yesterday = today - timedelta(days=1)
+                        _existing_dates = [r["date"] for r in st.session_state[_dr_key]]
+                        if _yesterday in _existing_dates:
+                            st.warning("⚠️ 이미 추가된 날짜입니다")
+                        else:
+                            st.session_state[_dr_key].append(
+                                {"date": _yesterday, "weight": 0.0, "item": "음식물"}
+                            )
+                            st.rerun()
+
+                    # ── 공통 필드 (기존 유지) ─────────────────────
+                    _fc1, _fc2 = st.columns(2)
+                    with _fc1:
                         unit_price   = st.number_input("단가 (원)", min_value=0, step=1,
                                                         key=f"drv_price_{school}")
-                        collect_time = st.text_input("수거 시간",
-                                                      value=datetime.now().strftime("%H:%M"),
-                                                      key=f"drv_time_{school}")
+                    with _fc2:
+                        collect_time = st.text_input(
+                            "수거 시간",
+                            value=datetime.now(ZoneInfo('Asia/Seoul')).strftime("%H:%M"),
+                            key=f"drv_time_{school}"
+                        )
 
                     memo = st.text_area("메모", placeholder="특이사항 입력...",
                                         height=70, key=f"drv_memo_{school}")
 
-                    if weight > 0 and unit_price > 0:
-                        st.info(f"💰 {weight:.1f}kg × {unit_price:,}원 = **{weight*unit_price:,.0f}원**")
+                    # 합계 미리보기
+                    _total_wt = sum(r["weight"] for r in st.session_state[_dr_key])
+                    if _total_wt > 0:
+                        st.info(f"📊 총 {len(st.session_state[_dr_key])}건, 합계 **{_total_wt:.1f}kg**"
+                                + (f" × {unit_price:,}원 = **{_total_wt*unit_price:,.0f}원**" if unit_price > 0 else ""))
 
+                    # ── 저장 버튼 (행별 반복 저장) ────────────────
                     b1, b2 = st.columns(2)
                     with b1:
                         if st.button("📋 임시저장", use_container_width=True,
                                      key=f"btn_draft_{school}"):
-                            if _validate(school, weight):
-                                row_id = _save(vendor, school, collect_date, collect_time,
-                                               item_type, weight, unit_price, driver_name,
-                                               memo, 'draft')
-                                st.success(f"임시저장 완료 (ID:{row_id})") if row_id else st.error("저장 실패")
+                            _saved = 0
+                            for _row in st.session_state[_dr_key]:
+                                if _row["weight"] <= 0:
+                                    continue
+                                row_id = _save(vendor, school, _row["date"], collect_time,
+                                               _row["item"], _row["weight"], unit_price,
+                                               driver_name, memo, 'draft')
+                                if row_id:
+                                    _saved += 1
+                            if _saved > 0:
+                                st.success(f"임시저장 완료 ({_saved}건)")
+                                st.session_state[_dr_key] = [
+                                    {"date": today, "weight": 0.0, "item": "음식물"}
+                                ]
+                            else:
+                                st.error("저장할 데이터가 없습니다 (수거량 0 제외)")
 
                     with b2:
                         if st.button("✅ 수거완료 · 본사전송", type="primary",
                                      use_container_width=True, key=f"btn_submit_{school}"):
-                            if _validate(school, weight):
-                                row_id = _save(vendor, school, collect_date, collect_time,
-                                               item_type, weight, unit_price, driver_name,
-                                               memo, 'submitted')
+                            _saved = 0
+                            for _row in st.session_state[_dr_key]:
+                                if _row["weight"] <= 0:
+                                    continue
+                                row_id = _save(vendor, school, _row["date"], collect_time,
+                                               _row["item"], _row["weight"], unit_price,
+                                               driver_name, memo, 'submitted')
                                 if row_id:
-                                    st.success(f"✅ 본사 전송 완료! (ID:{row_id})")
-                                    st.balloons()
-                                    st.rerun()
-                                else:
-                                    st.error("전송 실패")
+                                    _saved += 1
+                            if _saved > 0:
+                                st.success(f"✅ 본사 전송 완료! ({_saved}건)")
+                                st.session_state[_dr_key] = [
+                                    {"date": today, "weight": 0.0, "item": "음식물"}
+                                ]
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error("전송할 데이터가 없습니다 (수거량 0 제외)")
 
         # 오늘 입력 현황
         st.divider()
@@ -273,7 +348,7 @@ def render_dashboard(user: dict):
 
     if st.button("🏠 퇴근하기", use_container_width=True,
                  type="primary", key="btn_off"):
-        now_time = datetime.now().strftime('%H시 %M분')
+        now_time = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%H시 %M분')
         st.balloons()
         st.success(f"✅ {driver_name}님, {now_time} 퇴근 처리 완료! 수고하셨습니다. 🎉")
         st.caption("퇴근 기록이 본사에 자동 전송됩니다.")
@@ -292,7 +367,7 @@ def _validate(school, weight):
 
 def _save(vendor, school, collect_date, collect_time,
           item_type, weight, unit_price, driver, memo, status):
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
     return db_insert('real_collection', {
         'vendor':       vendor,
         'school_name':  school,
