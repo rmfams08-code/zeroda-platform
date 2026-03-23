@@ -154,7 +154,7 @@ def render_dashboard(user: dict):
                 '학교명':   _sch,
                 '수거품목': ', '.join(_sr_items) if _sr_items else '-',
                 '담당업체': _sr.get('vendor', '-'),
-                '등록구분': '본사' if _sr.get('registered_by', 'admin') == 'admin' else '외주업체',
+                '_items':   _sr_items,   # 수거일지 입력 연동용 (표시 안 함)
             })
 
     # ── 일정 결과 표시 ──────────────────────────
@@ -162,13 +162,43 @@ def render_dashboard(user: dict):
         st.info(f"{_sel_date} ({_sel_weekday}요일) 수거 일정이 없습니다.")
     else:
         st.success(f"총 {len(_sched_schools)}개 학교 수거 예정")
-        _sched_df = pd.DataFrame(_sched_schools)
-        st.dataframe(_sched_df, use_container_width=True, hide_index=True)
+        _display_df = pd.DataFrame([
+            {k: v for k, v in s.items() if not k.startswith('_')}
+            for s in _sched_schools
+        ])
+        st.dataframe(_display_df, use_container_width=True, hide_index=True)
+
+    # ★ 조회된 학교 목록을 session_state에 저장 → 수거 입력에서 연동
+    st.session_state["drv_today_schools"] = _sched_schools
 
     st.divider()
 
-    # ── 학교별 수거 입력 (기존 유지) ─────────────
-    schools = get_schools_by_vendor(vendor)
+    # ── 학교별 수거 입력 (일정 연동) ─────────────
+    # 일정에 등록된 학교를 우선 표시, 없으면 업체 소속 학교 폴백
+    _linked_schools = st.session_state.get("drv_today_schools", [])
+    _linked_school_names = list(dict.fromkeys(
+        s['학교명'] for s in _linked_schools if s.get('학교명')
+    ))  # 중복 제거, 순서 유지
+    _vendor_schools = get_schools_by_vendor(vendor)
+
+    if _linked_school_names:
+        # 일정 연동 학교 + 업체 소속 중 일정에 없는 학교 병합
+        _extra = [s for s in _vendor_schools if s not in _linked_school_names]
+        schools = _linked_school_names + _extra
+        if _extra:
+            st.caption(f"📋 일정 등록 {len(_linked_school_names)}개교"
+                       f" + 추가 {len(_extra)}개교")
+        else:
+            st.caption(f"📋 일정 등록 {len(_linked_school_names)}개교")
+    else:
+        schools = _vendor_schools
+
+    # 학교별 일정 품목 매핑 (수거 입력 시 품목 자동 표시용)
+    _school_items_map = {}
+    for _ls in _linked_schools:
+        _sn = _ls.get('학교명', '')
+        if _sn and _sn not in _school_items_map:
+            _school_items_map[_sn] = _ls.get('_items', [])
 
     if not schools:
         st.warning("담당 학교가 없습니다. 관리자에게 문의하세요.")
@@ -246,6 +276,11 @@ def render_dashboard(user: dict):
                 # 수거 입력 (인라인 expander)
                 with st.expander(f"📤 {school} 수거량 입력", expanded=False):
 
+                    # 일정 연동 품목 안내
+                    _linked_items = _school_items_map.get(school, [])
+                    if _linked_items:
+                        st.caption(f"📋 등록 품목: {', '.join(_linked_items)}")
+
                     # 현장 증빙 사진
                     with st.expander("📸 현장 증빙 사진 (선택)", expanded=False):
                         photo = st.camera_input("카메라로 촬영하세요",
@@ -255,9 +290,12 @@ def render_dashboard(user: dict):
 
                     # ── 날짜별 다중행 수거량 입력 ──────────────────
                     _dr_key = f"drv_date_rows_{school}"
+                    # 일정 탭에서 선택한 날짜를 기본값으로 사용
+                    _init_date = st.session_state.get("drv_schedule_date", today)
+                    _init_item = _linked_items[0] if _linked_items else "음식물"
                     if _dr_key not in st.session_state:
                         st.session_state[_dr_key] = [
-                            {"date": today, "weight": 0.0, "item": "음식물"}
+                            {"date": _init_date, "weight": 0.0, "item": _init_item}
                         ]
 
                     st.caption("📆 날짜별 수거량 입력 (여러 날짜 입력 가능)")
