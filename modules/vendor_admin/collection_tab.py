@@ -44,6 +44,65 @@ def render_collection_tab(vendor):
             with c2:
                 submitted = len([r for r in rows if r.get('status') == 'submitted'])
                 st.metric("미확인 전송", f"{submitted}건")
+
+            # ── 수거량 수정 UI ─────────────────────────
+            st.divider()
+            st.markdown("#### ✏️ 수거량 수정")
+            st.caption("기사가 입력한 수거량을 수정할 수 있습니다.")
+
+            edit_rows = [r for r in rows
+                         if r.get('status') in ('submitted', 'confirmed')
+                         and str(r.get('vendor', '')) == vendor]
+
+            if not edit_rows:
+                st.info("수정 가능한 수거 데이터가 없습니다.")
+            else:
+                edit_options = [
+                    f"{r.get('collect_date', '')} | "
+                    f"{r.get('school_name', '')} | "
+                    f"{r.get('item_type', '')} | "
+                    f"{r.get('weight', 0)}kg"
+                    for r in edit_rows
+                ]
+
+                _vc1, _vc2, _vc3 = st.columns(3)
+                with _vc1:
+                    sel_idx = st.selectbox(
+                        "수정할 항목 선택",
+                        range(len(edit_options)),
+                        format_func=lambda i: edit_options[i],
+                        key="vnd_col_edit_sel"
+                    )
+                    sel_row = edit_rows[sel_idx]
+                with _vc2:
+                    new_weight = st.number_input(
+                        "수정 수거량 (kg)",
+                        min_value=0.0,
+                        value=float(sel_row.get('weight', 0)),
+                        step=0.5,
+                        format="%.1f",
+                        key="vnd_col_edit_weight"
+                    )
+                with _vc3:
+                    st.write("")
+                    st.write("")
+                    if st.button(
+                        "💾 수거량 수정",
+                        key="vnd_col_edit_save",
+                        use_container_width=True
+                    ):
+                        updated = dict(sel_row)
+                        updated['weight'] = new_weight
+                        unit_price = float(
+                            sel_row.get('unit_price', 0) or 0)
+                        updated['amount'] = round(
+                            new_weight * unit_price, 0)
+                        ok = db_upsert('real_collection', updated)
+                        if ok:
+                            st.success("✅ 수거량 수정 완료")
+                            st.rerun()
+                        else:
+                            st.error("수정 실패")
         else:
             st.info("수거 데이터가 없습니다.")
 
