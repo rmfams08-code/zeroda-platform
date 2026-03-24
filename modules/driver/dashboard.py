@@ -53,7 +53,9 @@ def render_dashboard(user: dict):
 
         checked_count = sum(results.values())
         total_count   = len(SAFETY_CHECKS)
-        st.progress(checked_count / total_count)
+        _safe_ratio = (checked_count / total_count) if total_count > 0 else 0.0
+        _safe_ratio = max(0.0, min(1.0, _safe_ratio))
+        st.progress(_safe_ratio)
         st.caption(f"{checked_count} / {total_count} 항목 완료")
 
         if checked_count == total_count:
@@ -244,8 +246,13 @@ def render_dashboard(user: dict):
         with c2:
             st.metric("완료", f"{len(done_schools)}개")
         with c3:
-            st.metric("남은 학교", f"{len(schools) - len(done_schools)}개")
-        st.progress(len(done_schools) / len(schools) if schools else 0)
+            _remain = max(0, len(schools) - len(done_schools))
+            st.metric("남은 학교", f"{_remain}개")
+        _total = len(schools)
+        _done  = len(done_schools)
+        _ratio = (_done / _total) if _total > 0 else 0.0
+        _ratio = max(0.0, min(1.0, _ratio))
+        st.progress(_ratio)
 
         # 필터 (완료/대기/전체)
         filter_opt = st.radio("필터", ["전체", "대기", "완료"],
