@@ -180,47 +180,11 @@ def render_dashboard(user: dict):
     st.divider()
 
     # ── 수거일지 입력 (일정 연동) ─────────────────
-    # 날짜: 일정 탭에서 선택한 날짜 자동 반영
-    collect_date = st.date_input(
-        "수거일",
-        value=st.session_state.get(
-            "drv_schedule_date",
-            datetime.now(ZoneInfo('Asia/Seoul')).date()
-        ),
-        key="drv_collect_date"
-    )
-
-    # 학교 선택: 일정에 등록된 학교 목록 자동 표시
+    # 학교 목록: 일정에서 조회된 전체 학교 (중복 제거, 순서 유지)
     _linked_schools = st.session_state.get("drv_today_schools", [])
-    school_names = [s['학교명'] for s in _linked_schools if s.get('학교명')]
-
-    if school_names:
-        sel_school = st.selectbox(
-            "수거 학교",
-            school_names,
-            key="drv_input_school"
-        )
-        matched = next(
-            (s for s in _linked_schools
-             if s['학교명'] == sel_school), None
-        )
-        if matched:
-            default_items = matched.get('_items', [])
-            st.caption(
-                f"📋 등록 품목: "
-                f"{', '.join(default_items) if default_items else '-'}"
-            )
-        schools = [sel_school]
-    else:
-        sel_school = st.text_input(
-            "수거 학교 (직접 입력)",
-            key="drv_input_school_manual"
-        )
-        st.caption(
-            "⚠️ 오늘 일정에 등록된 학교가 없습니다. "
-            "직접 입력하세요."
-        )
-        schools = [sel_school] if sel_school else []
+    schools = list(dict.fromkeys(
+        s['학교명'] for s in _linked_schools if s.get('학교명')
+    ))
 
     # 학교별 일정 품목 매핑 (수거 입력 시 품목 자동 표시용)
     _school_items_map = {}
@@ -232,41 +196,34 @@ def render_dashboard(user: dict):
     if not schools:
         st.warning("담당 학교가 없습니다. 관리자에게 문의하세요.")
     else:
-        # 오늘 완료 학교
+        # 선택일 기준 완료 학교 확인
+        _sel_date_str = _sel_date.strftime('%Y-%m-%d')
         today_all  = [r for r in db_get('real_collection')
                       if r.get('driver') == driver_name
-                      and str(r.get('collect_date', '')) == today_str]
+                      and str(r.get('collect_date', '')) == _sel_date_str]
         done_schools = {r.get('school_name') for r in today_all
-                        if r.get('status') == 'submitted'}
+                        if r.get('status') in ('submitted', 'confirmed')}
 
         # 요약 카드
+        _total_cnt  = len(schools)
+        _done_cnt   = len([s for s in schools if s in done_schools])
+        _remain_cnt = max(0, _total_cnt - _done_cnt)
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric("담당 학교", f"{len(schools)}개")
+            st.metric("담당 학교", f"{_total_cnt}개")
         with c2:
-            st.metric("완료", f"{len(done_schools)}개")
+            st.metric("완료", f"{_done_cnt}개")
         with c3:
-            _remain = max(0, len(schools) - len(done_schools))
-            st.metric("남은 학교", f"{_remain}개")
-        _total = len(schools)
-        _done  = len(done_schools)
-        _ratio = (_done / _total) if _total > 0 else 0.0
+            st.metric("남은 학교", f"{_remain_cnt}개")
+        _ratio = (_done_cnt / _total_cnt) if _total_cnt > 0 else 0.0
         _ratio = max(0.0, min(1.0, _ratio))
         st.progress(_ratio)
-
-        # 필터 (완료/대기/전체)
-        filter_opt = st.radio("필터", ["전체", "대기", "완료"],
-                               horizontal=True, key="drv_filter")
 
         st.divider()
 
         # 학교별 카드
         for school in schools:
             done   = school in done_schools
-            if filter_opt == "대기" and done:
-                continue
-            if filter_opt == "완료" and not done:
-                continue
 
             color  = "#34a853" if done else "#ea4335"
             status = "✅ 완료"  if done else "⏳ 대기"
