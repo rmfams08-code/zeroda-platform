@@ -79,15 +79,47 @@ def _render_pending():
 
 
 def _render_collection_table(table, label):
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    from zoneinfo import ZoneInfo
+    from datetime import datetime
+
+    # ── 필터 행 1: 업체 + 월별 ──────────────
+    _fc1, _fc2 = st.columns(2)
+    with _fc1:
         vendors = ['전체'] + get_all_vendors()
         vendor_filter = st.selectbox("업체", vendors, key=f"v_{table}")
-    with col2:
-        schools = ['전체'] + get_all_schools()
-        school_filter = st.selectbox("학교", schools, key=f"s_{table}")
-    with col3:
-        status_filter = st.selectbox("상태", ['전체','draft','submitted','confirmed','rejected'], key=f"st_{table}")
+    with _fc2:
+        now_kst = datetime.now(ZoneInfo('Asia/Seoul'))
+        month_options = []
+        for i in range(12):
+            y = now_kst.year
+            m = now_kst.month - i
+            while m <= 0:
+                m += 12
+                y -= 1
+            month_options.append(f"{y}-{str(m).zfill(2)}")
+        month_options = ["전체"] + month_options
+        sel_month = st.selectbox(
+            "월별",
+            month_options,
+            key=f"hq_data_month_{table}"
+        )
+
+    # ── 필터 행 2: 학교/거래처 (업체 연동) ────
+    if vendor_filter != '전체':
+        customer_rows = db_get('customer_info', {'vendor': vendor_filter})
+        if not customer_rows:
+            customer_rows = []
+        school_options = ["전체"] + [
+            r.get('name', '') for r in customer_rows
+            if r.get('name')
+        ]
+    else:
+        school_options = ['전체'] + get_all_schools()
+    sel_school = st.selectbox(
+        "학교/거래처",
+        school_options,
+        key=f"hq_data_school_{table}"
+    )
 
     rows = db_get(table)
     if not rows:
@@ -97,10 +129,10 @@ def _render_collection_table(table, label):
     df = pd.DataFrame(rows)
     if vendor_filter != '전체' and 'vendor' in df.columns:
         df = df[df['vendor'] == vendor_filter]
-    if school_filter != '전체' and 'school_name' in df.columns:
-        df = df[df['school_name'] == school_filter]
-    if status_filter != '전체' and 'status' in df.columns:
-        df = df[df['status'] == status_filter]
+    if sel_school != '전체' and 'school_name' in df.columns:
+        df = df[df['school_name'] == sel_school]
+    if sel_month != '전체' and 'collect_date' in df.columns:
+        df = df[df['collect_date'].astype(str).str.startswith(sel_month)]
 
     # 상태 한글 표시
     if 'status' in df.columns:
@@ -112,9 +144,35 @@ def _render_collection_table(table, label):
         }
         df['status'] = df['status'].map(status_map).fillna(df['status'])
 
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # collect_date 기준 내림차순 정렬
+    if 'collect_date' in df.columns:
+        df = df.sort_values('collect_date', ascending=False)
+
+    # 표시 컬럼 순서 고정
+    show_cols = [
+        c for c in [
+            'collect_date', 'collect_time',
+            'school_name', 'vendor',
+            'item_type', 'weight',
+            'unit_price', 'amount',
+            'driver', 'memo', 'status'
+        ] if c in df.columns
+    ]
+    st.dataframe(
+        df[show_cols] if show_cols else df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # 합계 표시
     if 'weight' in df.columns:
-        st.metric("합계", f"{df['weight'].sum():,.1f} kg")
+        total_weight = df['weight'].sum()
+        total_amount = df['amount'].sum() if 'amount' in df.columns else 0
+        _mc1, _mc2 = st.columns(2)
+        with _mc1:
+            st.metric("총 수거량", f"{total_weight:,.1f} kg")
+        with _mc2:
+            st.metric("총 금액", f"{total_amount:,.0f} 원")
 
     # ── 수거량 수정 UI ─────────────────────────────
     st.divider()
