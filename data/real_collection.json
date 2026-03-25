@@ -558,5 +558,21 @@
     "submitted_at": "2026-03-24 23:24:49",
     "created_at": "2026-03-24 23:24:49",
     "id": 35
+  },
+  {
+    "vendor": "hy",
+    "school_name": "안산고등학교",
+    "collect_date": "2026-03-25",
+    "collect_time": "21:05",
+    "item_type": "음식물",
+    "weight": 180.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-25 21:05:50",
+    "created_at": "2026-03-25 21:05:50",
+    "id": 36
   }
 ]
