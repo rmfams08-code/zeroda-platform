@@ -702,5 +702,21 @@
     "submitted_at": "2026-03-26 13:45:52",
     "created_at": "2026-03-26 13:45:52",
     "id": 44
+  },
+  {
+    "vendor": "hy",
+    "school_name": "부림초등학교",
+    "collect_date": "2026-03-26",
+    "collect_time": "13:45",
+    "item_type": "음식물",
+    "weight": 160.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-26 13:53:57",
+    "created_at": "2026-03-26 13:53:57",
+    "id": 45
   }
 ]
