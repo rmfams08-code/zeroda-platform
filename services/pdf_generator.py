@@ -40,9 +40,11 @@ def _get_korean_font():
 
 
 def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
-                            rows: list, biz_info: dict, vendor_info: dict) -> bytes:
+                            rows: list, biz_info: dict, vendor_info: dict,
+                            cust_type: str = '') -> bytes:
     """
     거래명세서 PDF 생성
+    cust_type: '학교'면 면세(부가세 없음), 그 외('기업','관공서','기타')면 부가세 10% 포함
     rows: 수거 데이터 리스트
     biz_info: 수급자(학교) 사업자 정보
     vendor_info: 공급자(업체) 정보
@@ -230,16 +232,29 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(Spacer(1, 6*mm))
 
     # ── 합계 요약 ─────────────────────────
-    vat   = total_amount * 0.1
-    total = total_amount + vat
-    sum_data = [
-        [P('공급가액', size=10, color=colors.white),
-         P(f"{total_amount:,.0f} 원", size=10, align=2, color=colors.white)],
-        [P('부가세 (10%)', size=10),
-         P(f"{vat:,.0f} 원", size=10, align=2)],
-        [P('합계금액', size=11, color=colors.white),
-         P(f"{total:,.0f} 원", size=11, align=2, color=colors.white)],
-    ]
+    _is_tax_free = (cust_type == '학교')
+    if _is_tax_free:
+        # 학교: 면세 — 부가세 없음
+        sum_data = [
+            [P('공급가액', size=10, color=colors.white),
+             P(f"{total_amount:,.0f} 원", size=10, align=2, color=colors.white)],
+            [P('부가세', size=10),
+             P('면세', size=10, align=2, color=colors.HexColor('#1a73e8'))],
+            [P('합계금액', size=11, color=colors.white),
+             P(f"{total_amount:,.0f} 원", size=11, align=2, color=colors.white)],
+        ]
+    else:
+        # 기업/관공서/기타: 부가세 10% 포함
+        vat   = total_amount * 0.1
+        total = total_amount + vat
+        sum_data = [
+            [P('공급가액', size=10, color=colors.white),
+             P(f"{total_amount:,.0f} 원", size=10, align=2, color=colors.white)],
+            [P('부가세 (10%)', size=10),
+             P(f"{vat:,.0f} 원", size=10, align=2)],
+            [P('합계금액', size=11, color=colors.white),
+             P(f"{total:,.0f} 원", size=11, align=2, color=colors.white)],
+        ]
     sum_tbl = Table(sum_data, colWidths=[60*mm, 60*mm])
     sum_tbl.setStyle(TableStyle([
         ('FONTNAME',   (0,0), (-1,-1), font),
