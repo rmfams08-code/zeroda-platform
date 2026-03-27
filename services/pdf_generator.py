@@ -119,23 +119,45 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     header = ['날짜', '학교명', '품목', '수거량(kg)', '단가(원)', '금액(원)']
     tdata = [[P(h, size=9, align=1, color=colors.white) for h in header]]
 
-    # customer_info에서 학교별 품목 단가 사전 로딩
-    from database.db_manager import db_get
-    price_cache = {}
+    # customer_info에서 학교별 품목 단가 실시간 조회
     try:
-        cust_rows = db_get(
+        from database.db_manager import db_get
+        _cust = db_get(
             'customer_info',
             {'vendor': vendor, 'name': school_name}
         )
-        if cust_rows:
-            price_cache = {
-                '음식물':       float(cust_rows[0].get('price_food', 0) or 0),
-                '재활용':       float(cust_rows[0].get('price_recycle', 0) or 0),
-                '일반':         float(cust_rows[0].get('price_general', 0) or 0),
-                '사업장폐기물': float(cust_rows[0].get('price_general', 0) or 0),
+        if not _cust:
+            # vendor ID로 재시도
+            _vi = db_get('vendor_info',
+                         {'biz_name': vendor})
+            if _vi:
+                _cust = db_get(
+                    'customer_info',
+                    {'vendor': _vi[0].get('vendor',
+                                          vendor),
+                     'name':   school_name}
+                )
+        _price_cache = {}
+        if _cust:
+            _price_cache = {
+                '음식물':       float(
+                    _cust[0].get('price_food', 0)
+                    or 0),
+                '재활용':       float(
+                    _cust[0].get('price_recycle', 0)
+                    or 0),
+                '일반':         float(
+                    _cust[0].get('price_general', 0)
+                    or 0),
+                '사업장폐기물': float(
+                    _cust[0].get('price_general', 0)
+                    or 0),
+                '음식물쓰레기': float(
+                    _cust[0].get('price_food', 0)
+                    or 0),
             }
     except Exception:
-        price_cache = {}
+        _price_cache = {}
 
     total_weight = 0.0
     total_amount = 0.0
@@ -143,12 +165,19 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     for r in rows:
         weight     = float(r.get('weight') or r.get('음식물(kg)') or 0)
         # 1순위: customer_info 단가 (실시간 조회)
-        # 2순위: real_collection에 저장된 단가
+        # 2순위: real_collection 저장값
         # 3순위: 0
-        item = str(r.get('item_type', '') or r.get('품목', ''))
-        unit_price = price_cache.get(item, 0.0)
+        _item = str(
+            r.get('item_type', '')
+            or r.get('품목', '')
+        ).strip()
+        unit_price = _price_cache.get(_item, 0.0)
         if unit_price == 0.0:
-            unit_price = float(r.get('unit_price') or r.get('단가(원)') or 0)
+            unit_price = float(
+                r.get('unit_price')
+                or r.get('단가(원)')
+                or 0
+            )
         amount     = round(weight * unit_price, 0)
         total_weight += weight
         total_amount += amount
