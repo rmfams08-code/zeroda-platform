@@ -36,25 +36,22 @@ def render_statement_tab(vendor):
             if r.get('vendor') == vendor
             and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
-    # rows 단가 보정 (customer_info 실시간 조회)
-    cust_rows = db_get('customer_info', {'vendor': vendor, 'name': school})
-    if not cust_rows:
-        # vendor ID로 재시도
-        _vi = db_get('vendor_info', {'biz_name': vendor})
-        if _vi:
-            cust_rows = db_get(
-                'customer_info',
-                {'vendor': _vi[0].get('vendor', vendor),
-                 'name':   school}
-            )
+    # rows 단가 보정 (load_customers_from_db 방식 — vendor 전체 조회 후 매칭)
+    _all_customers = load_customers_from_db(vendor)
+    _cust_info = _all_customers.get(school, {})
+    if not _cust_info:
+        for _ck, _cv in _all_customers.items():
+            if _cv.get('상호') == school:
+                _cust_info = _cv
+                break
     _price_map = {}
-    if cust_rows:
+    if _cust_info:
         _price_map = {
-            '음식물':       float(cust_rows[0].get('price_food', 0) or 0),
-            '재활용':       float(cust_rows[0].get('price_recycle', 0) or 0),
-            '일반':         float(cust_rows[0].get('price_general', 0) or 0),
-            '사업장폐기물': float(cust_rows[0].get('price_general', 0) or 0),
-            '음식물쓰레기': float(cust_rows[0].get('price_food', 0) or 0),
+            '음식물':       float(_cust_info.get('price_food', 0) or 0),
+            '재활용':       float(_cust_info.get('price_recycle', 0) or 0),
+            '일반':         float(_cust_info.get('price_general', 0) or 0),
+            '사업장폐기물': float(_cust_info.get('price_general', 0) or 0),
+            '음식물쓰레기': float(_cust_info.get('price_food', 0) or 0),
         }
     corrected_rows = []
     for r in rows:
@@ -73,7 +70,7 @@ def render_statement_tab(vendor):
     with st.expander("🔍 단가 조회 디버그", expanded=False):
         st.write("vendor:", vendor)
         st.write("school:", school)
-        st.write("cust_rows 수:", len(cust_rows) if cust_rows else 0)
+        st.write("customer 매칭:", "성공" if _cust_info else "실패")
         st.write("_price_map:", _price_map)
         if rows:
             _sample = rows[0]

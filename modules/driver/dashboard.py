@@ -225,7 +225,7 @@ def render_dashboard(user: dict):
         _active_school = st.session_state.get("drv_active_school", "")
 
         # 학교별 카드
-        for _si, school in enumerate(schools):
+        for school in schools:
             done   = school in done_schools
 
             color  = "#34a853" if done else "#ea4335"
@@ -271,32 +271,6 @@ def render_dashboard(user: dict):
                 _is_active = (_active_school == school)
                 with st.expander(f"🍎 {school} 수거량 입력", expanded=_is_active):
 
-                    # 자동 스크롤 앵커
-                    st.markdown(f'<div id="weight_input_{_si}"></div>',
-                                unsafe_allow_html=True)
-
-                    # expander 열릴 때 숫자 키보드 자동 활성화
-                    if _is_active:
-                        st.markdown(
-                            """
-                            <script>
-                            (function() {
-                                setTimeout(function() {
-                                    var inputs = window.parent.document
-                                        .querySelectorAll('input[type="number"]');
-                                    if (inputs && inputs.length > 0) {
-                                        var last = inputs[inputs.length - 1];
-                                        last.setAttribute('inputmode', 'decimal');
-                                        last.focus();
-                                        last.click();
-                                    }
-                                }, 500);
-                            })();
-                            </script>
-                            """,
-                            unsafe_allow_html=True
-                        )
-
                     # 일정 연동 품목 안내
                     _linked_items = _school_items_map.get(school, [])
                     if _linked_items:
@@ -320,24 +294,6 @@ def render_dashboard(user: dict):
                         ]
 
                     st.caption("📆 날짜별 수거량 입력 (여러 날짜 입력 가능)")
-
-                    # number_input 포커스 시 0.0 자동 전체선택 (터치 즉시 숫자 입력 가능)
-                    st.markdown(
-                        """
-                        <script>
-                        (function() {
-                            var doc = window.parent.document;
-                            doc.addEventListener('focusin', function(e) {
-                                if (e.target && e.target.type === 'number') {
-                                    e.target.select();
-                                }
-                            });
-                        })();
-                        </script>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
                     _items_list = ["음식물", "재활용", "일반"]
 
                     for _idx, _row in enumerate(st.session_state[_dr_key]):
@@ -350,12 +306,22 @@ def render_dashboard(user: dict):
                             )
                             st.session_state[_dr_key][_idx]["date"] = _new_date
                         with _rc2:
-                            _new_wt = st.number_input(
-                                "수거량(kg)" if _idx == 0 else f"수거량 {_idx+1}",
-                                min_value=0.0, step=0.5, format="%.1f",
-                                value=_row["weight"],
+                            _wt_label = "수거량(kg)" if _idx == 0 else f"수거량 {_idx+1}"
+                            _wt_default = "" if _row["weight"] == 0.0 else f"{_row['weight']:.1f}"
+                            _wt_str = st.text_input(
+                                _wt_label,
+                                value=_wt_default,
+                                placeholder="kg 입력",
                                 key=f"drv_dr_wt_{school}_{_idx}"
                             )
+                            try:
+                                _new_wt = float(_wt_str) if _wt_str.strip() else 0.0
+                                if _new_wt < 0:
+                                    _new_wt = 0.0
+                                    st.error("0 이상 입력")
+                            except ValueError:
+                                _new_wt = 0.0
+                                st.error("숫자만 입력")
                             st.session_state[_dr_key][_idx]["weight"] = _new_wt
                         with _rc3:
                             _item_idx = _items_list.index(_row["item"]) if _row["item"] in _items_list else 0
@@ -448,37 +414,6 @@ def render_dashboard(user: dict):
                                 st.rerun()
                             else:
                                 st.error("전송할 데이터가 없습니다 (수거량 0 제외)")
-
-        # ── 활성 학교 스크롤 + 포커스 플래그 초기화 ──
-        if st.session_state.get("drv_weight_focus", False) and _active_school:
-            _scroll_idx = -1
-            for _sci, _scn in enumerate(schools):
-                if _scn == _active_school:
-                    _scroll_idx = _sci
-                    break
-            if _scroll_idx >= 0:
-                st.markdown(f"""
-                <script>
-                (function() {{
-                    setTimeout(function() {{
-                        var el = document.getElementById('weight_input_{_scroll_idx}');
-                        if (el) {{
-                            el.scrollIntoView({{behavior: 'smooth', block: 'center'}});
-                        }}
-                        // 모바일 숫자 키보드 활성화
-                        var inputs = window.parent.document
-                            .querySelectorAll('input[type="number"]');
-                        if (inputs && inputs.length > 0) {{
-                            var last = inputs[inputs.length - 1];
-                            last.setAttribute('inputmode', 'decimal');
-                            last.focus();
-                            last.click();
-                        }}
-                    }}, 400);
-                }})();
-                </script>
-                """, unsafe_allow_html=True)
-            st.session_state["drv_weight_focus"] = False
 
         # 오늘 입력 현황
         st.divider()

@@ -119,42 +119,24 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     header = ['날짜', '학교명', '품목', '수거량(kg)', '단가(원)', '금액(원)']
     tdata = [[P(h, size=9, align=1, color=colors.white) for h in header]]
 
-    # customer_info에서 학교별 품목 단가 실시간 조회
+    # customer_info에서 학교별 품목 단가 조회 (load_customers_from_db 방식)
     try:
-        from database.db_manager import db_get
-        _cust = db_get(
-            'customer_info',
-            {'vendor': vendor, 'name': school_name}
-        )
-        if not _cust:
-            # vendor ID로 재시도
-            _vi = db_get('vendor_info',
-                         {'biz_name': vendor})
-            if _vi:
-                _cust = db_get(
-                    'customer_info',
-                    {'vendor': _vi[0].get('vendor',
-                                          vendor),
-                     'name':   school_name}
-                )
+        from database.db_manager import load_customers_from_db
+        _all_cust = load_customers_from_db(vendor)
+        _cust_info = _all_cust.get(school_name, {})
+        if not _cust_info:
+            for _ck, _cv in _all_cust.items():
+                if _cv.get('상호') == school_name:
+                    _cust_info = _cv
+                    break
         _price_cache = {}
-        if _cust:
+        if _cust_info:
             _price_cache = {
-                '음식물':       float(
-                    _cust[0].get('price_food', 0)
-                    or 0),
-                '재활용':       float(
-                    _cust[0].get('price_recycle', 0)
-                    or 0),
-                '일반':         float(
-                    _cust[0].get('price_general', 0)
-                    or 0),
-                '사업장폐기물': float(
-                    _cust[0].get('price_general', 0)
-                    or 0),
-                '음식물쓰레기': float(
-                    _cust[0].get('price_food', 0)
-                    or 0),
+                '음식물':       float(_cust_info.get('price_food', 0) or 0),
+                '재활용':       float(_cust_info.get('price_recycle', 0) or 0),
+                '일반':         float(_cust_info.get('price_general', 0) or 0),
+                '사업장폐기물': float(_cust_info.get('price_general', 0) or 0),
+                '음식물쓰레기': float(_cust_info.get('price_food', 0) or 0),
             }
     except Exception:
         _price_cache = {}
