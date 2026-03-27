@@ -38,6 +38,15 @@ def render_statement_tab(vendor):
 
     # rows 단가 보정 (customer_info 실시간 조회)
     cust_rows = db_get('customer_info', {'vendor': vendor, 'name': school})
+    if not cust_rows:
+        # vendor ID로 재시도
+        _vi = db_get('vendor_info', {'biz_name': vendor})
+        if _vi:
+            cust_rows = db_get(
+                'customer_info',
+                {'vendor': _vi[0].get('vendor', vendor),
+                 'name':   school}
+            )
     _price_map = {}
     if cust_rows:
         _price_map = {
@@ -45,11 +54,12 @@ def render_statement_tab(vendor):
             '재활용':       float(cust_rows[0].get('price_recycle', 0) or 0),
             '일반':         float(cust_rows[0].get('price_general', 0) or 0),
             '사업장폐기물': float(cust_rows[0].get('price_general', 0) or 0),
+            '음식물쓰레기': float(cust_rows[0].get('price_food', 0) or 0),
         }
     corrected_rows = []
     for r in rows:
         row = dict(r)
-        item = str(row.get('item_type', '') or row.get('품목', ''))
+        item = str(row.get('item_type', '') or row.get('품목', '')).strip()
         up = _price_map.get(item, 0.0)
         if up == 0.0:
             up = float(row.get('unit_price', 0) or 0)
@@ -59,11 +69,23 @@ def render_statement_tab(vendor):
         corrected_rows.append(row)
     rows = corrected_rows
 
+    # ── 단가 디버그 (문제 확인 후 삭제 예정) ──
+    with st.expander("🔍 단가 조회 디버그", expanded=False):
+        st.write("vendor:", vendor)
+        st.write("school:", school)
+        st.write("cust_rows 수:", len(cust_rows) if cust_rows else 0)
+        st.write("_price_map:", _price_map)
+        if rows:
+            _sample = rows[0]
+            st.write("rows[0] item_type:", _sample.get('item_type', ''))
+            st.write("rows[0] unit_price:", _sample.get('unit_price', 0))
+            st.write("rows[0] amount:", _sample.get('amount', 0))
+
     st.markdown(f"### {year}년 {month}월 · {school}")
 
     if rows:
         df = pd.DataFrame(rows)
-        show_cols = [c for c in ['collect_date', 'item_type', 'weight', 'driver', 'memo'] if c in df.columns]
+        show_cols = [c for c in ['collect_date', 'item_type', 'weight', 'unit_price', 'amount', 'driver', 'memo'] if c in df.columns]
         st.dataframe(df[show_cols], use_container_width=True)
         total_weight = sum(float(r.get('weight', 0)) for r in rows)
         total_amount = sum(
