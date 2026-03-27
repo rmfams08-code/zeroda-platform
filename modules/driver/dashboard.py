@@ -267,20 +267,35 @@ def render_dashboard(user: dict):
                         f'text-decoration:none;font-size:13px;font-weight:700;">🟢 네이버지도</a>',
                         unsafe_allow_html=True)
 
-                # 수거량 입력 바로가기 버튼
-                if st.button(f"✏️ {school} 수거량 입력", key=f"drv_goto_{school}",
-                             use_container_width=True):
-                    st.session_state["drv_active_school"] = school
-                    st.session_state["drv_weight_focus"] = True
-                    st.rerun()
-
                 # 수거 입력 (인라인 expander)
                 _is_active = (_active_school == school)
-                with st.expander(f"📤 {school} 수거량 입력", expanded=_is_active):
+                with st.expander(f"🍎 {school} 수거량 입력", expanded=_is_active):
 
                     # 자동 스크롤 앵커
                     st.markdown(f'<div id="weight_input_{_si}"></div>',
                                 unsafe_allow_html=True)
+
+                    # expander 열릴 때 숫자 키보드 자동 활성화
+                    if _is_active:
+                        st.markdown(
+                            """
+                            <script>
+                            (function() {
+                                setTimeout(function() {
+                                    var inputs = window.parent.document
+                                        .querySelectorAll('input[type="number"]');
+                                    if (inputs && inputs.length > 0) {
+                                        var last = inputs[inputs.length - 1];
+                                        last.setAttribute('inputmode', 'decimal');
+                                        last.focus();
+                                        last.click();
+                                    }
+                                }, 500);
+                            })();
+                            </script>
+                            """,
+                            unsafe_allow_html=True
+                        )
 
                     # 일정 연동 품목 안내
                     _linked_items = _school_items_map.get(school, [])
@@ -416,7 +431,7 @@ def render_dashboard(user: dict):
                             else:
                                 st.error("전송할 데이터가 없습니다 (수거량 0 제외)")
 
-        # ── 자동 스크롤 JS 주입 ──────────────────
+        # ── 활성 학교 스크롤 + 포커스 플래그 초기화 ──
         if st.session_state.get("drv_weight_focus", False) and _active_school:
             _scroll_idx = -1
             for _sci, _scn in enumerate(schools):
@@ -426,12 +441,23 @@ def render_dashboard(user: dict):
             if _scroll_idx >= 0:
                 st.markdown(f"""
                 <script>
+                (function() {{
                     setTimeout(function() {{
                         var el = document.getElementById('weight_input_{_scroll_idx}');
                         if (el) {{
                             el.scrollIntoView({{behavior: 'smooth', block: 'center'}});
                         }}
-                    }}, 300);
+                        // 모바일 숫자 키보드 활성화
+                        var inputs = window.parent.document
+                            .querySelectorAll('input[type="number"]');
+                        if (inputs && inputs.length > 0) {{
+                            var last = inputs[inputs.length - 1];
+                            last.setAttribute('inputmode', 'decimal');
+                            last.focus();
+                            last.click();
+                        }}
+                    }}, 400);
+                }})();
                 </script>
                 """, unsafe_allow_html=True)
             st.session_state["drv_weight_focus"] = False
