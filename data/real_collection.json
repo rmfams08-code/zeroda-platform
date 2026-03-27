@@ -1150,5 +1150,21 @@
     "submitted_at": "2026-03-28 07:03:14",
     "created_at": "2026-03-28 07:03:14",
     "id": 72
+  },
+  {
+    "vendor": "hy",
+    "school_name": "서울공업고등학교",
+    "collect_date": "2026-03-28",
+    "collect_time": "07:02",
+    "item_type": "음식물",
+    "weight": 170.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-28 07:20:14",
+    "created_at": "2026-03-28 07:20:14",
+    "id": 73
   }
 ]
