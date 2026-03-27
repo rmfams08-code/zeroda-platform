@@ -1,7 +1,7 @@
 # modules/hq_admin/settlement_tab.py
 import streamlit as st
 import pandas as pd
-from database.db_manager import db_get, get_all_vendors, get_all_schools, filter_rows_by_school
+from database.db_manager import db_get, get_all_vendors, get_all_schools, filter_rows_by_school, load_customers_from_db
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
@@ -157,9 +157,11 @@ def _render_send_settlement():
                 from services.pdf_generator import generate_statement_pdf
                 vendor_rows = db_get('vendor_info', {'vendor': vendor})
                 vinfo = vendor_rows[0] if vendor_rows else {}
+                _custs = load_customers_from_db(vendor)
+                _ct = _custs.get(school if school != '전체' else '', {}).get('구분', '학교')
                 pdf = generate_statement_pdf(
                     vendor, school if school != '전체' else '전체',
-                    year, month, rows, {}, vinfo
+                    year, month, rows, {}, vinfo, cust_type=_ct
                 )
                 filename = f"정산서_{vendor}_{year}{month_str}.pdf"
                 st.download_button("PDF 다운로드", data=pdf,
@@ -179,9 +181,11 @@ def _render_send_settlement():
                     from services.email_service import send_statement_email
                     vendor_rows = db_get('vendor_info', {'vendor': vendor})
                     vinfo = vendor_rows[0] if vendor_rows else {}
+                    _custs2 = load_customers_from_db(vendor)
+                    _ct2 = _custs2.get(school if school != '전체' else '', {}).get('구분', '학교')
                     pdf = generate_statement_pdf(
                         vendor, school if school != '전체' else '전체',
-                        year, month, rows, {}, vinfo
+                        year, month, rows, {}, vinfo, cust_type=_ct2
                     )
                     filename = f"정산서_{vendor}_{year}{month_str}.pdf"
                     with st.spinner("발송 중..."):

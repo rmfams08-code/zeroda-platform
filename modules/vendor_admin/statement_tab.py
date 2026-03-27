@@ -188,7 +188,8 @@ def render_statement_tab(vendor):
             else:
                 try:
                     pdf_bytes = generate_statement_pdf(
-                        vendor, school, year, month, rows, biz_info, vinfo
+                        vendor, school, year, month, rows, biz_info, vinfo,
+                        cust_type=biz_info.get('구분', _cust_info.get('구분', '학교'))
                     )
                     filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                     st.download_button(
@@ -231,7 +232,8 @@ def render_statement_tab(vendor):
                 with st.spinner("PDF 생성 및 발송 중..."):
                     try:
                         pdf_bytes = generate_statement_pdf(
-                            vendor, school, year, month, rows or [], biz_info, vinfo
+                            vendor, school, year, month, rows or [], biz_info, vinfo,
+                            cust_type=biz_info.get('구분', _cust_info.get('구분', '학교'))
                         )
                         filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                         success, msg = send_statement_email(
