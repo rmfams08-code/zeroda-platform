@@ -221,7 +221,32 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(Spacer(1, 8*mm))
     story.append(P("* 본 거래명세서는 전자 발행된 문서입니다.", size=8, color=colors.grey))
 
-    doc.build(story)
+    # ── 직인(도장) 이미지 오버레이 ─────────
+    import os
+    _stamp_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                               'assets', 'stamp.png')
+    _has_stamp = os.path.exists(_stamp_path)
+
+    def _draw_stamp(canvas, doc_obj):
+        """공급자 정보 영역 우측 하단에 직인 오버레이"""
+        if not _has_stamp:
+            return
+        try:
+            from reportlab.lib.utils import ImageReader
+            stamp_size = 28 * mm  # 도장 크기
+            # 공급자 컬럼(왼쪽 90mm) 우측 하단에 배치
+            x = 15*mm + 90*mm - stamp_size - 3*mm
+            y = A4[1] - 15*mm - 25*mm - 52*mm
+            canvas.saveState()
+            canvas.setFillAlpha(0.85)
+            canvas.drawImage(_stamp_path, x, y,
+                             width=stamp_size, height=stamp_size,
+                             mask='auto', preserveAspectRatio=True)
+            canvas.restoreState()
+        except Exception:
+            pass
+
+    doc.build(story, onFirstPage=_draw_stamp)
     return buffer.getvalue()
 
 
@@ -647,3 +672,61 @@ def generate_edu_office_esg_pdf(edu_office_name: str, year: int, month_label: st
 
     doc.build(story)
     return buffer.getvalue()
+# ── 직인(도장) 이미지 오버레이 ─────────
+    import os
+    _stamp_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                               'assets', 'stamp.png')
+    _has_stamp = os.path.exists(_stamp_path)
+
+    def _draw_stamp(canvas, doc_obj):
+        """공급자 정보 영역 우측 하단에 직인 오버레이"""
+        if not _has_stamp:
+            return
+        try:
+            from reportlab.lib.utils import ImageReader
+            from PIL import Image # 파이썬 이미지 처리 도구 (Pillow)
+            
+            stamp_size = 28 * mm  # 도장 크기
+            # 공급자 컬럼(왼쪽 90mm) 우측 하단에 배치
+            x = 15*mm + 90*mm - stamp_size - 3*mm
+            y = A4[1] - 15*mm - 25*mm - 52*mm
+            
+            # 1. 원본 도장 이미지 불러오기 (RGBA 모드로 변환)
+            img = Image.open(_stamp_path).convert("RGBA")
+            datas = img.getdata()
+            
+            new_data = []
+            for item in datas:
+                # 2. 하얀색(또는 밝은 회색) 배경 부분 찾기
+                # R(빨강), G(초록), B(파랑) 값이 모두 200 이상이면 하얀색 배경으로 간주합니다.
+                if item[0] > 200 and item[1] > 200 and item[2] > 200:
+                    # 배경은 100% 투명하게 처리 (마지막 숫자 0이 완전 투명을 의미)
+                    new_data.append((255, 255, 255, 0))
+                else:
+                    # 3. 붉은색 도장 부분: 투명도를 약 85%로 낮춰 글씨에 자연스럽게 스며들게 함 (255 * 0.85 ≒ 216)
+                    new_data.append((item[0], item[1], item[2], 216))
+                    
+            # 변경된 데이터로 이미지 덮어쓰기
+            img.putdata(new_data)
+            processed_stamp = ImageReader(img)
+
+            canvas.saveState()
+            # 우리가 직접 투명도를 조절한 이미지를 지정한 좌표에 삽입합니다.
+            canvas.drawImage(processed_stamp, x, y,
+                             width=stamp_size, height=stamp_size,
+                             preserveAspectRatio=True)
+            canvas.restoreState()
+        except ImportError:
+            # 혹시 PIL(Pillow) 도구가 설치되어 있지 않을 경우를 대비한 2순위 안전장치(에러 방지용)
+            from reportlab.lib.utils import ImageReader
+            stamp_size = 28 * mm
+            x = 15*mm + 90*mm - stamp_size - 3*mm
+            y = A4[1] - 15*mm - 25*mm - 52*mm
+            canvas.saveState()
+            # mask 기능으로 하얀색 계열만 강제로 투명하게 만듭니다.
+            canvas.drawImage(_stamp_path, x, y,
+                             width=stamp_size, height=stamp_size,
+                             mask=[200, 255, 200, 255, 200, 255], preserveAspectRatio=True)
+            canvas.restoreState()
+        except Exception:
+            pass
