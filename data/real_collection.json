@@ -1198,5 +1198,21 @@
     "submitted_at": "2026-03-28 07:30:08",
     "created_at": "2026-03-28 07:30:08",
     "id": 75
+  },
+  {
+    "vendor": "hy",
+    "school_name": "구현고등학교",
+    "collect_date": "2026-03-28",
+    "collect_time": "07:02",
+    "item_type": "음식물",
+    "weight": 160.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-28 07:41:22",
+    "created_at": "2026-03-28 07:41:22",
+    "id": 76
   }
 ]
