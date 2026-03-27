@@ -52,13 +52,47 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     from reportlab.lib.units import mm
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
     from reportlab.lib.styles import ParagraphStyle
+    import os, pathlib
 
     font = _get_korean_font()
 
+    # ── 직인 경로 탐색 ─────────────────────
+    _base = pathlib.Path(__file__).resolve().parent.parent
+    _stamp_candidates = [
+        _base / 'assets' / 'stamp.png',
+        pathlib.Path('assets') / 'stamp.png',
+        pathlib.Path('assets/stamp.png'),
+    ]
+    _stamp_path = None
+    for _p in _stamp_candidates:
+        if _p.exists():
+            _stamp_path = str(_p)
+            break
+
+    class _StampDoc(SimpleDocTemplate):
+        """afterPage에서 직인을 그려서 테이블 위에 오버레이"""
+        def afterPage(self):
+            if not _stamp_path or self.page != 1:
+                return
+            try:
+                stamp_size = 14 * mm
+                # 공급자 컬럼 우측, 대표자 행 높이에 맞춤
+                x = 15*mm + 90*mm - stamp_size - 3*mm
+                y = A4[1] - 15*mm - 23*mm - 16*mm - stamp_size + 3*mm
+                self.canv.saveState()
+                self.canv.setFillAlpha(0.85)
+                self.canv.drawImage(_stamp_path, x, y,
+                                    width=stamp_size, height=stamp_size,
+                                    mask='auto', preserveAspectRatio=True)
+                self.canv.restoreState()
+            except Exception as e:
+                import logging
+                logging.warning(f"직인 이미지 렌더링 실패: {e}")
+
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            rightMargin=15*mm, leftMargin=15*mm,
-                            topMargin=15*mm, bottomMargin=15*mm)
+    doc = _StampDoc(buffer, pagesize=A4,
+                    rightMargin=15*mm, leftMargin=15*mm,
+                    topMargin=15*mm, bottomMargin=15*mm)
 
     def P(text, size=10, bold=False, align=0, color=colors.black):
         style = ParagraphStyle('s', fontName=font, fontSize=size,
@@ -221,41 +255,7 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(Spacer(1, 8*mm))
     story.append(P("* 본 거래명세서는 전자 발행된 문서입니다.", size=8, color=colors.grey))
 
-    # ── 직인(도장) 이미지 오버레이 ─────────
-    import os, pathlib
-    _base = pathlib.Path(__file__).resolve().parent.parent
-    _stamp_candidates = [
-        _base / 'assets' / 'stamp.png',
-        pathlib.Path('assets') / 'stamp.png',
-        pathlib.Path('assets/stamp.png'),
-    ]
-    _stamp_path = None
-    for _p in _stamp_candidates:
-        if _p.exists():
-            _stamp_path = str(_p)
-            break
-
-    def _draw_stamp(canvas, doc_obj):
-        """공급자 정보 영역 우측 하단에 직인 오버레이"""
-        if not _stamp_path:
-            return
-        try:
-            from reportlab.lib.utils import ImageReader
-            stamp_size = 28 * mm  # 도장 크기
-            # 공급자 컬럼(왼쪽 90mm) 우측 하단에 배치
-            x = 15*mm + 90*mm - stamp_size - 3*mm
-            y = A4[1] - 15*mm - 25*mm - 52*mm
-            canvas.saveState()
-            canvas.setFillAlpha(0.85)
-            canvas.drawImage(_stamp_path, x, y,
-                             width=stamp_size, height=stamp_size,
-                             mask='auto', preserveAspectRatio=True)
-            canvas.restoreState()
-        except Exception as e:
-            import logging
-            logging.warning(f"직인 이미지 렌더링 실패: {e}")
-
-    doc.build(story, onFirstPage=_draw_stamp)
+    doc.build(story)
     return buffer.getvalue()
 
 
