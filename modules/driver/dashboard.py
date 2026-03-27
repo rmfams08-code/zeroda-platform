@@ -320,6 +320,24 @@ def render_dashboard(user: dict):
                         ]
 
                     st.caption("📆 날짜별 수거량 입력 (여러 날짜 입력 가능)")
+
+                    # number_input 포커스 시 0.0 자동 전체선택 (터치 즉시 숫자 입력 가능)
+                    st.markdown(
+                        """
+                        <script>
+                        (function() {
+                            var doc = window.parent.document;
+                            doc.addEventListener('focusin', function(e) {
+                                if (e.target && e.target.type === 'number') {
+                                    e.target.select();
+                                }
+                            });
+                        })();
+                        </script>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
                     _items_list = ["음식물", "재활용", "일반"]
 
                     for _idx, _row in enumerate(st.session_state[_dr_key]):
