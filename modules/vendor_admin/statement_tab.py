@@ -36,6 +36,29 @@ def render_statement_tab(vendor):
             if r.get('vendor') == vendor
             and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
+    # rows 단가 보정 (customer_info 실시간 조회)
+    cust_rows = db_get('customer_info', {'vendor': vendor, 'name': school})
+    _price_map = {}
+    if cust_rows:
+        _price_map = {
+            '음식물':       float(cust_rows[0].get('price_food', 0) or 0),
+            '재활용':       float(cust_rows[0].get('price_recycle', 0) or 0),
+            '일반':         float(cust_rows[0].get('price_general', 0) or 0),
+            '사업장폐기물': float(cust_rows[0].get('price_general', 0) or 0),
+        }
+    corrected_rows = []
+    for r in rows:
+        row = dict(r)
+        item = str(row.get('item_type', '') or row.get('품목', ''))
+        up = _price_map.get(item, 0.0)
+        if up == 0.0:
+            up = float(row.get('unit_price', 0) or 0)
+        w = float(row.get('weight', 0) or row.get('음식물(kg)', 0) or 0)
+        row['unit_price'] = up
+        row['amount']     = round(w * up, 0)
+        corrected_rows.append(row)
+    rows = corrected_rows
+
     st.markdown(f"### {year}년 {month}월 · {school}")
 
     if rows:
