@@ -160,6 +160,17 @@ def render_customer_tab(vendor):
 
                     # ── 기존 정보 불러오기 ──
                     ci = customers.get(edit_target, {})
+                    # 거래처 변경 감지 → 위젯값 초기화
+                    _ek = "_last_edit_target"
+                    if st.session_state.get(_ek) != edit_target:
+                        st.session_state[_ek] = edit_target
+                        for _k in list(st.session_state.keys()):
+                            if _k.startswith("edit_cust_") and _k not in ("edit_cust_select", "edit_cust_type_filter"):
+                                del st.session_state[_k]
+                            if _k.startswith("edit_price_"):
+                                del st.session_state[_k]
+                        st.rerun()
+
                     st.divider()
                     st.markdown(f"**📌 '{edit_target}' 정보 수정**")
 
