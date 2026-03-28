@@ -360,11 +360,8 @@ def save_schedule(vendor, month, weekdays, schools, items, driver=''):
                              ZoneInfo('Asia/Seoul')
                          ).strftime('%Y-%m-%d %H:%M:%S'),
     }
-    try:
-        db_delete('schedules', {'vendor': vendor, 'month': month})
-    except Exception:
-        pass
-    return db_upsert('schedules', data)
+    # 순수 INSERT — 같은 월에 여러 일정(품목·거래처 조합)을 독립적으로 보존
+    return db_insert('schedules', data)
 
 
 def load_schedule(vendor, month):
@@ -379,6 +376,12 @@ def load_schedule(vendor, month):
 
 
 def load_all_schedules(vendor):
+    """
+    업체별 전체 일정 로드.
+    반환: { month_key: [entry, entry, ...], ... }
+    ※ 품목별로 복수 행이 존재할 수 있으므로 값이 리스트(list)임.
+      하위 호환: 기존 코드에서 dict value를 직접 접근하는 경우 첫 번째 항목 사용.
+    """
     try:
         rows = db_get('schedules', {'vendor': vendor})
         if not isinstance(rows, list):
@@ -387,7 +390,7 @@ def load_all_schedules(vendor):
         for r in rows:
             if not isinstance(r, dict):
                 continue
-            month_key = str(r.get('month', ''))  # 정수/문자열 통일
+            month_key = str(r.get('month', ''))
             if not month_key or month_key == 'None':
                 continue
             try:
@@ -403,15 +406,15 @@ def load_all_schedules(vendor):
                         'registered_by', 'admin'),
                     'created_at': r.get('created_at', ''),
                 }
-                existing = result.get(month_key)
-                if existing is None:
-                    result[month_key] = new_entry
-                else:
-                    if str(new_entry['created_at']) > \
-                       str(existing.get('created_at', '')):
-                        result[month_key] = new_entry
+                if month_key not in result:
+                    result[month_key] = []
+                result[month_key].append(new_entry)
             except Exception:
-                result[month_key] = {'요일': [], '학교': [], '품목': [], '기사': ''}
+                if month_key not in result:
+                    result[month_key] = []
+                result[month_key].append(
+                    {'요일': [], '학교': [], '품목': [], '기사': ''}
+                )
         return result
     except Exception:
         return {}
@@ -633,7 +636,7 @@ def save_schedule_by_vendor(vendor, month, weekdays,
     """
     외주업체가 본인 업체 일정을 직접 등록/수정.
     registered_by='vendor' 로 저장.
-    저장 전 기존 동일 vendor+month 행 삭제.
+    순수 INSERT — 같은 월에 여러 일정을 독립적으로 보존.
     """
     import json
     from zoneinfo import ZoneInfo
@@ -653,9 +656,5 @@ def save_schedule_by_vendor(vendor, month, weekdays,
                              ZoneInfo('Asia/Seoul')
                          ).strftime('%Y-%m-%d %H:%M:%S'),
     }
-    try:
-        db_delete('schedules', {'vendor': vendor,
-                                 'month': month})
-    except Exception:
-        pass
-    return db_upsert('schedules', data)
+    # 순수 INSERT — 같은 월에 여러 일정(품목·거래처 조합)을 독립적으로 보존
+    return db_insert('schedules', data)

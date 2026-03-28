@@ -315,33 +315,24 @@ def init_db():
 
 
 def migrate_schedules_unique():
-    """schedules 테이블 vendor+month UNIQUE 제약 추가 마이그레이션"""
+    """schedules 테이블: 기존 vendor+month UNIQUE 제약 제거.
+    품목별로 같은 월에 복수 행을 저장할 수 있도록 변경."""
     try:
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         c = conn.cursor()
-        # 1. 기존 schedules 데이터 백업
+        # 기존 UNIQUE 인덱스 삭제 (있으면)
         c.execute("""
-            CREATE TABLE IF NOT EXISTS schedules_backup AS
-            SELECT * FROM schedules
+            DROP INDEX IF EXISTS idx_schedules_vendor_month
         """)
-        # 2. vendor+month 기준으로 가장 최신 행만 남기기
-        #    (id 기준 내림차순에서 첫 번째)
+        # 일반 인덱스 추가 (조회 성능용)
         c.execute("""
-            DELETE FROM schedules
-            WHERE id NOT IN (
-                SELECT MAX(id) FROM schedules
-                GROUP BY vendor, month
-            )
-        """)
-        # 3. UNIQUE 인덱스 추가 (없으면 추가)
-        c.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS
-            idx_schedules_vendor_month
+            CREATE INDEX IF NOT EXISTS
+            idx_schedules_vendor_month_items
             ON schedules(vendor, month)
         """)
         conn.commit()
         conn.close()
-        print("[migrate_schedules_unique] schedules UNIQUE 제약 추가 완료")
+        print("[migrate_schedules_unique] UNIQUE 제약 제거 → 품목별 복수행 허용")
         return True
     except Exception as e:
         print(f"[migrate_schedules_unique] 오류: {e}")
