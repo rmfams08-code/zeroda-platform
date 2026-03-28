@@ -311,24 +311,11 @@ def _render_send_settlement():
             else:
                 try:
                     from services.sms_service import send_statement_sms, build_detail_sms_text
-                    # 품목별 상세 내역 집계
-                    _item_map = {}
-                    for r in rows:
-                        itype = r.get('item_type', '기타')
-                        w = float(r.get('weight', 0))
-                        p = float(r.get('unit_price', 0)) or float(r.get('amount', 0)) / w if w else 0
-                        a = float(r.get('amount', 0))
-                        if itype in _item_map:
-                            _item_map[itype]['weight'] += w
-                            _item_map[itype]['amount'] += a
-                        else:
-                            _item_map[itype] = {'item_type': itype, 'weight': w, 'unit_price': p, 'amount': a}
-                    _item_details = list(_item_map.values())
-                    _total_w = sum(d['weight'] for d in _item_details)
-                    _total_a = sum(d['amount'] for d in _item_details)
+                    _total_w = sum(float(r.get('weight', 0)) for r in rows)
+                    _total_a = sum(float(r.get('amount', 0)) for r in rows)
                     sms_text = build_detail_sms_text(
                         vinfo.get('biz_name', vendor), _school_label,
-                        year, month, _item_details, _total_w, _total_a,
+                        year, month, rows, _total_w, _total_a,
                         contact=_v_contact
                     )
                     with st.spinner("상세 문자 발송 중..."):
