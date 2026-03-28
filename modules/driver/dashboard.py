@@ -109,9 +109,8 @@ import re
 
 def _render_voice_input(schools: list, school_key_prefix: str):
     """
-    마이크 버튼 → 음성 인식 → '학교명 수거량 숫자' 파싱
-    결과를 HTML 내에서 표시 (순수 클라이언트 방식 — Streamlit rerun 없음)
-    인식된 학교명·수거량은 화면에 표시되며, 사용자가 키패드로 직접 입력
+    마이크 버튼 → 음성 인식 → '학교명 품목 수거량' 파싱
+    → confirm 팝업 → 확인 시 query_params 로 Streamlit 에 전달 → 자동 입력
     """
     _schools_js = json.dumps(schools, ensure_ascii=False)
 
@@ -129,6 +128,11 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     </div>
     <script>
     const schools = {_schools_js};
+    const itemKeywords = {{
+      '음식물': ['음식물', '음식', '잔반', '급식'],
+      '재활용': ['재활용', '분리수거', '페트', '캔'],
+      '일반':   ['일반', '종량제', '생활']
+    }};
     let recognition = null;
 
     function findSchool(text) {{
@@ -139,7 +143,25 @@ def _render_voice_input(schools: list, school_key_prefix: str):
           bestLen = s.length;
         }}
       }}
+      if (!best) {{
+        for (const s of schools) {{
+          const short = s.replace(/등학교|학교|중$|고$/, '');
+          if (short.length >= 2 && text.includes(short) && short.length > bestLen) {{
+            best = s;
+            bestLen = short.length;
+          }}
+        }}
+      }}
       return best;
+    }}
+
+    function findItem(text) {{
+      for (const [item, keywords] of Object.entries(itemKeywords)) {{
+        for (const kw of keywords) {{
+          if (text.includes(kw)) return item;
+        }}
+      }}
+      return '음식물';
     }}
 
     function findWeight(text) {{
@@ -148,6 +170,20 @@ def _render_voice_input(schools: list, school_key_prefix: str):
         return parseFloat(nums[nums.length - 1]);
       }}
       return null;
+    }}
+
+    function applyVoiceResult(school, item, weight) {{
+      try {{
+        const url = new URL(window.parent.location.href);
+        url.searchParams.set('_vc_school', school);
+        url.searchParams.set('_vc_weight', weight.toString());
+        url.searchParams.set('_vc_item', item);
+        url.searchParams.set('_vc', '1');
+        window.parent.location.replace(url.toString());
+      }} catch(ex) {{
+        document.getElementById('mic-result').innerHTML =
+          '<span style="color:#d93025">⚠️ 자동 적용 실패 — 아래 학교 카드에서 직접 입력하세요</span>';
+      }}
     }}
 
     function startVoice() {{
@@ -176,7 +212,7 @@ def _render_voice_input(schools: list, school_key_prefix: str):
       btn.style.border = '2px solid #ea4335';
       btn.textContent = '🔴 듣고 있습니다...';
       btn.disabled = true;
-      status.textContent = '말씀해 주세요 (예: 안산고등학교 200)';
+      status.textContent = '말씀해 주세요 (예: "안산고등학교 음식물 200")';
       result.textContent = '';
 
       function resetBtn() {{
@@ -203,13 +239,34 @@ def _render_voice_input(schools: list, school_key_prefix: str):
         if (final_text) {{
           const school = findSchool(final_text);
           const weight = findWeight(final_text);
-          let msg = '🗣️ "' + final_text + '"<br>';
-          if (school) msg += '📍 학교: <b>' + school + '</b>&nbsp;&nbsp;';
-          else msg += '⚠️ 학교 인식 실패&nbsp;&nbsp;';
-          if (weight !== null) msg += '⚖️ 수거량: <b>' + weight + 'kg</b>';
-          else msg += '⚠️ 수거량 인식 실패';
-          msg += '<br><span style="font-size:13px;color:#666;">👆 위 결과를 확인 후, 아래 학교 카드에서 키패드로 입력하세요</span>';
-          result.innerHTML = msg;
+          const item   = findItem(final_text);
+
+          if (school && weight !== null && weight > 0) {{
+            result.innerHTML = '🗣️ "' + final_text + '"<br>'
+              + '📍 <b>' + school + '</b> / '
+              + '📦 <b>' + item + '</b> / '
+              + '⚖️ <b>' + weight + 'kg</b>';
+
+            setTimeout(function() {{
+              const ok = confirm(
+                school + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
+                + '수거 등록하시겠습니까?'
+              );
+              if (ok) {{
+                applyVoiceResult(school, item, weight);
+              }} else {{
+                status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
+              }}
+            }}, 200);
+          }} else {{
+            let msg = '🗣️ "' + final_text + '"<br>';
+            if (!school) msg += '⚠️ 학교 인식 실패&nbsp;&nbsp;';
+            else msg += '📍 학교: <b>' + school + '</b>&nbsp;&nbsp;';
+            if (weight === null || weight <= 0) msg += '⚠️ 수거량 인식 실패';
+            else msg += '⚖️ 수거량: <b>' + weight + 'kg</b>';
+            msg += '<br><span style="font-size:13px;color:#888;">다시 말씀해 주세요 (예: "강남중학교 음식물 200")</span>';
+            result.innerHTML = msg;
+          }}
         }}
       }};
 
@@ -237,54 +294,7 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     }}
     </script>
     """
-    # 음성 컴포넌트 렌더 (리턴값 미사용 — rerun 방지)
     components.html(_html, height=160)
-
-    # ── 음성 결과 수동 적용 폼 ────────────────────────────
-    st.markdown("---")
-    st.caption("👆 음성 인식 결과를 확인 후 아래에서 적용하세요")
-    _vc1, _vc2 = st.columns(2)
-    with _vc1:
-        _v_school = st.selectbox(
-            "학교 선택",
-            ["선택하세요"] + schools,
-            key=f"_voice_school_{school_key_prefix}"
-        )
-    with _vc2:
-        _v_weight = st.number_input(
-            "수거량 (kg)",
-            min_value=0.0, step=10.0, format="%.1f",
-            key=f"_voice_weight_{school_key_prefix}"
-        )
-    if st.button("✅ 음성 결과 적용", key=f"_voice_apply_{school_key_prefix}",
-                  type="primary", use_container_width=True):
-        if _v_school == "선택하세요":
-            st.warning("학교를 선택하세요.")
-        elif _v_weight <= 0:
-            st.warning("수거량을 입력하세요.")
-        else:
-            _target_dr_key = f"drv_date_rows_{_v_school}"
-            # 아직 수거 데이터가 초기화되지 않은 경우 생성
-            _init_date = st.session_state.get(
-                "drv_schedule_date",
-                datetime.now(ZoneInfo('Asia/Seoul')).date()
-            )
-            if _target_dr_key not in st.session_state:
-                st.session_state[_target_dr_key] = [
-                    {"date": _init_date, "weight": 0.0, "item": "음식물"}
-                ]
-            _rows = st.session_state[_target_dr_key]
-            _applied = False
-            for _r in _rows:
-                if _r["weight"] == 0.0:
-                    _r["weight"] = float(_v_weight)
-                    _applied = True
-                    break
-            if _applied:
-                st.success(f"✅ {_v_school}에 {_v_weight}kg 적용 완료!")
-                st.rerun()
-            else:
-                st.warning(f"{_v_school}의 모든 행에 이미 수거량이 입력되어 있습니다.")
 
 
 # 안전점검 항목 (확장 가능)
@@ -305,6 +315,48 @@ def render_dashboard(user: dict):
     today       = datetime.now(ZoneInfo('Asia/Seoul')).date()
     today_str   = str(today)
     today_wd    = WEEKDAY_MAP[today.weekday()]
+
+    # ── 음성인식 자동입력 수신 처리 ──────────────────
+    _vc_params = st.query_params
+    if _vc_params.get('_vc') == '1':
+        _vc_school = _vc_params.get('_vc_school', '')
+        _vc_weight_str = _vc_params.get('_vc_weight', '0')
+        _vc_item = _vc_params.get('_vc_item', '음식물')
+        # 쿼리 파라미터 즉시 제거 (재진입 방지)
+        st.query_params.clear()
+        try:
+            _vc_weight = float(_vc_weight_str)
+        except (ValueError, TypeError):
+            _vc_weight = 0.0
+        if _vc_school and _vc_weight > 0:
+            _dr_key = f"drv_date_rows_{_vc_school}"
+            if _dr_key not in st.session_state:
+                st.session_state[_dr_key] = [
+                    {"date": today, "weight": 0.0, "item": _vc_item}
+                ]
+            _rows = st.session_state[_dr_key]
+            _applied = False
+            for _r in _rows:
+                if _r["weight"] == 0.0:
+                    _r["weight"] = _vc_weight
+                    _r["item"] = _vc_item
+                    _applied = True
+                    break
+            if not _applied:
+                # 빈 행이 없으면 새 행 추가
+                st.session_state[_dr_key].append(
+                    {"date": today, "weight": _vc_weight, "item": _vc_item}
+                )
+                _applied = True
+            if _applied:
+                st.session_state["_voice_success"] = (
+                    f"✅ 음성입력 완료: {_vc_school} / {_vc_item} / {_vc_weight}kg"
+                )
+
+    # 음성입력 성공 알림 (rerun 후 1회 표시)
+    _voice_msg = st.session_state.pop("_voice_success", None)
+    if _voice_msg:
+        st.toast(_voice_msg, icon="🎤")
 
     # ── 헤더 ──────────────────────────────────────
     st.markdown(f"""
@@ -497,9 +549,9 @@ def render_dashboard(user: dict):
 
         st.divider()
 
-        # ── 음성 입력 (전체 학교 대상) ────────────────────
-        with st.expander("🎤 음성으로 수거량 입력", expanded=False):
-            st.caption("예: \"안산고등학교 200\" 또는 \"강남중학교 수거량 150\"")
+        # ── 음성 입력 (전체 학교 대상 · 자동 매칭) ─────────
+        with st.expander("🎤 음성으로 수거량 입력 (자동 등록)", expanded=False):
+            st.caption("예: \"안산고등학교 음식물 200\" → 자동 매칭 → 확인 팝업 → 등록 완료")
             _render_voice_input(schools, "drv")
 
         # 활성 학교 (자동 스크롤용)
