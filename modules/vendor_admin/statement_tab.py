@@ -11,8 +11,80 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
 def render_statement_tab(vendor):
-    st.markdown("## 거래명세서 발송")
+    st.markdown("## 정산 관리")
 
+    stab1, stab2 = st.tabs(["📊 정산 현황", "📧 거래명세서 발송"])
+
+    with stab1:
+        _render_vendor_summary(vendor)
+
+    with stab2:
+        _render_vendor_send(vendor)
+
+
+def _render_vendor_summary(vendor):
+    """외주업체 정산 현황 요약 (본사와 동일 패턴)"""
+    col1, col2 = st.columns(2)
+    with col1:
+        _sy = st.selectbox("연도", [2024, 2025, 2026],
+                           index=[2024,2025,2026].index(CURRENT_YEAR) if CURRENT_YEAR in [2024,2025,2026] else 1,
+                           key="vstmt_sum_year")
+    with col2:
+        _sm = st.selectbox("월", list(range(1, 13)),
+                           index=CURRENT_MONTH - 1, key="vstmt_sum_month")
+
+    _month_str = str(_sm).zfill(2)
+    rows = [r for r in db_get('real_collection')
+            if r.get('vendor') == vendor
+            and str(r.get('collect_date', '')).startswith(f"{_sy}-{_month_str}")]
+
+    if not rows:
+        st.info("해당 기간 수거 데이터가 없습니다.")
+        return
+
+    st.markdown(f"### {_sy}년 {_sm}월 정산 현황")
+
+    df = pd.DataFrame(rows)
+    total_weight = df['weight'].sum() if 'weight' in df.columns else 0
+    total_amount = (df['weight'] * df['unit_price']).sum() \
+        if ('weight' in df.columns and 'unit_price' in df.columns) else 0
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("총 수거량", f"{total_weight:,.1f} kg")
+    with c2:
+        st.metric("공급가액", f"{total_amount:,.0f} 원")
+    with c3:
+        st.metric("총 건수", f"{len(rows)}건")
+
+    # 학교별 집계
+    if 'school_name' in df.columns and 'weight' in df.columns:
+        st.markdown("#### 학교별 수거 현황")
+        summary = df.groupby('school_name').agg(
+            수거량=('weight', 'sum'),
+            수거횟수=('weight', 'count')
+        ).reset_index()
+        summary.columns = ['학교명', '수거량(kg)', '수거횟수']
+        summary = summary.sort_values('수거량(kg)', ascending=False)
+        st.dataframe(summary, use_container_width=True, hide_index=True)
+
+    # 상태별 현황
+    if 'status' in df.columns:
+        st.markdown("#### 수거 상태 현황")
+        status_map = {
+            'draft':     '📋 임시저장',
+            'submitted': '📤 전송완료',
+            'confirmed': '✅ 확인완료',
+            'rejected':  '❌ 반려',
+        }
+        df['status_label'] = df['status'].map(status_map).fillna(df['status'])
+        status_counts = df['status_label'].value_counts().reset_index()
+        status_counts.columns = ['상태', '건수']
+        st.dataframe(status_counts, use_container_width=True, hide_index=True)
+
+
+def _render_vendor_send(vendor):
+    """외주업체 거래명세서 발송 (기존 기능 유지)"""
     # ── 필터 ──────────────────────────────
     col1, col2, col3 = st.columns(3)
     with col1:

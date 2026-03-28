@@ -6,25 +6,45 @@ from database.db_manager import (
 )
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 from zoneinfo import ZoneInfo
-from datetime import datetime
+from datetime import datetime, date
 
 
 def render_schedule_tab(vendor):
     st.markdown("## 수거일정 관리")
 
-    tab1, tab2, tab3 = st.tabs(["📋 일정 등록", "📅 일정 조회/삭제", "✏️ 일정 등록/수정"])
+    tab1, tab2, tab3 = st.tabs(["📅 일정 조회/삭제", "📋 일정 등록", "✏️ 일정 등록/수정"])
 
-    # ── 등록 탭 (첫 번째로) ───────────────
-    with tab1:
+    # ── 등록 탭 ───────────────
+    with tab2:
         st.markdown("### 일정 등록")
+
+        # 등록 모드 선택 (본사와 동일)
+        reg_mode = st.radio(
+            "등록 단위 선택",
+            ["📅 월별 등록 (수거 요일 반복)", "📌 일별 등록 (특정 날짜 지정)"],
+            horizontal=True,
+            key="sch_reg_mode"
+        )
+        is_daily = reg_mode.startswith("📌")
+
         col1, col2 = st.columns(2)
         with col1:
-            year     = st.selectbox("연도", [2025, 2026], key="sch_reg_year")
-            month    = st.selectbox("월", list(range(1, 13)),
-                                    index=CURRENT_MONTH - 1, key="sch_reg_month")
-            weekdays = st.multiselect("수거 요일",
-                                      ["월", "화", "수", "목", "금", "토"],
-                                      key="sch_reg_days")
+            if is_daily:
+                reg_date = st.date_input(
+                    "수거 날짜", value=date.today(), key="sch_reg_date"
+                )
+                auto_weekday = ['월','화','수','목','금','토','일'][reg_date.weekday()]
+                st.info(f"선택 날짜: **{reg_date.strftime('%Y년 %m월 %d일')} ({auto_weekday}요일)**")
+                weekdays = [auto_weekday]
+                month_str = reg_date.strftime('%Y-%m-%d')
+            else:
+                year     = st.selectbox("연도", [2025, 2026], key="sch_reg_year")
+                month    = st.selectbox("월", list(range(1, 13)),
+                                        index=CURRENT_MONTH - 1, key="sch_reg_month")
+                weekdays = st.multiselect("수거 요일",
+                                          ["월", "화", "수", "목", "금", "토"],
+                                          key="sch_reg_days")
+                month_str = f"{year}-{str(month).zfill(2)}"
         with col2:
             schools     = get_schools_by_vendor(vendor)
             sel_schools = st.multiselect("수거 학교",
@@ -37,28 +57,33 @@ def render_schedule_tab(vendor):
 
         # 입력 요약 미리보기
         if weekdays or sel_schools or items:
-            st.info(f"📌 {year}년 {month}월 | 요일: {', '.join(weekdays) if weekdays else '-'} "
-                    f"| 학교: {len(sel_schools)}개 | 품목: {', '.join(items) if items else '-'} "
-                    f"| 기사: {driver or '-'}")
+            if is_daily:
+                st.info(f"📌 {reg_date.strftime('%Y년 %m월 %d일')} ({auto_weekday}요일) "
+                        f"| 학교: {len(sel_schools)}개 | 품목: {', '.join(items) if items else '-'} "
+                        f"| 기사: {driver or '-'}")
+            else:
+                st.info(f"📌 {year}년 {month}월 | 요일: {', '.join(weekdays) if weekdays else '-'} "
+                        f"| 학교: {len(sel_schools)}개 | 품목: {', '.join(items) if items else '-'} "
+                        f"| 기사: {driver or '-'}")
 
         if st.button("💾 일정 저장", type="primary", use_container_width=True, key="sch_save"):
-            if not weekdays:
+            if not is_daily and not weekdays:
                 st.error("수거 요일을 선택하세요.")
             elif not sel_schools:
                 st.error("수거 학교를 선택하세요.")
             elif not items:
                 st.error("수거 품목을 선택하세요.")
             else:
-                month_str = f"{year}-{str(month).zfill(2)}"
                 ok = save_schedule(vendor, month_str, weekdays, sel_schools, items, driver)
                 if ok:
-                    st.success(f"✅ {year}년 {month}월 일정 저장 완료!")
+                    _label = reg_date.strftime('%Y년 %m월 %d일') if is_daily else f"{year}년 {month}월"
+                    st.success(f"✅ {_label} 일정 저장 완료!")
                     st.rerun()
                 else:
                     st.error("저장 실패 - 관리자에게 문의하세요.")
 
-    # ── 조회/삭제 탭 ─────────────────────
-    with tab2:
+    # ── 조회/삭제 탭 (첫 번째) ─────────────────────
+    with tab1:
         schedules = load_all_schedules(vendor)
         if not schedules:
             st.info("등록된 일정이 없습니다. '일정 등록' 탭에서 추가하세요.")
@@ -86,25 +111,42 @@ def render_schedule_tab(vendor):
     with tab3:
         st.markdown("### 수거일정 등록/수정")
 
-        # 연도·월 선택
-        col1, col2 = st.columns(2)
-        with col1:
-            year = st.selectbox(
-                "연도", [2025, 2026],
-                key="vnd_sch_year"
-            )
-        with col2:
-            month = st.selectbox(
-                "월", list(range(1, 13)),
-                key="vnd_sch_month"
-            )
-
-        # 수거 요일 선택
-        weekdays = st.multiselect(
-            "수거 요일",
-            ["월", "화", "수", "목", "금", "토"],
-            key="vnd_sch_days"
+        # 등록 모드 선택 (본사와 동일)
+        vnd_reg_mode = st.radio(
+            "등록 단위 선택",
+            ["📅 월별 등록 (수거 요일 반복)", "📌 일별 등록 (특정 날짜 지정)"],
+            horizontal=True,
+            key="vnd_sch_reg_mode"
         )
+        vnd_is_daily = vnd_reg_mode.startswith("📌")
+
+        if vnd_is_daily:
+            vnd_reg_date = st.date_input(
+                "수거 날짜", value=date.today(), key="vnd_sch_reg_date"
+            )
+            vnd_auto_wd = ['월','화','수','목','금','토','일'][vnd_reg_date.weekday()]
+            st.info(f"선택 날짜: **{vnd_reg_date.strftime('%Y년 %m월 %d일')} ({vnd_auto_wd}요일)**")
+            weekdays = [vnd_auto_wd]
+        else:
+            # 연도·월 선택
+            col1, col2 = st.columns(2)
+            with col1:
+                year = st.selectbox(
+                    "연도", [2025, 2026],
+                    key="vnd_sch_year"
+                )
+            with col2:
+                month = st.selectbox(
+                    "월", list(range(1, 13)),
+                    key="vnd_sch_month"
+                )
+
+            # 수거 요일 선택
+            weekdays = st.multiselect(
+                "수거 요일",
+                ["월", "화", "수", "목", "금", "토"],
+                key="vnd_sch_days"
+            )
 
         # 담당 학교 선택 — customer_info에서 vendor 기준 조회
         customer_rows = db_get('customer_info', {'vendor': vendor})
@@ -160,13 +202,21 @@ def render_schedule_tab(vendor):
 
         # 미리보기
         if weekdays or sel_schools or items:
-            st.info(
-                f"📌 {year}년 {month}월 "
-                f"| 요일: {', '.join(weekdays) if weekdays else '-'} "
-                f"| 학교: {len(sel_schools)}개 "
-                f"| 품목: {', '.join(items) if items else '-'} "
-                f"| 기사: {driver or '-'}"
-            )
+            if vnd_is_daily:
+                st.info(
+                    f"📌 {vnd_reg_date.strftime('%Y년 %m월 %d일')} ({vnd_auto_wd}요일) "
+                    f"| 학교: {len(sel_schools)}개 "
+                    f"| 품목: {', '.join(items) if items else '-'} "
+                    f"| 기사: {driver or '-'}"
+                )
+            else:
+                st.info(
+                    f"📌 {year}년 {month}월 "
+                    f"| 요일: {', '.join(weekdays) if weekdays else '-'} "
+                    f"| 학교: {len(sel_schools)}개 "
+                    f"| 품목: {', '.join(items) if items else '-'} "
+                    f"| 기사: {driver or '-'}"
+                )
 
         # 저장/삭제 버튼
         col_s, col_d = st.columns(2)
@@ -176,23 +226,24 @@ def render_schedule_tab(vendor):
                 use_container_width=True,
                 key="vnd_sch_save"
             ):
-                if not weekdays:
+                if not vnd_is_daily and not weekdays:
                     st.error("수거 요일을 선택하세요.")
                 elif not sel_schools:
                     st.error("수거 학교를 선택하세요.")
                 elif not items:
                     st.error("수거 품목을 선택하세요.")
                 else:
-                    month_str = f"{year}-{str(month).zfill(2)}"
+                    if vnd_is_daily:
+                        month_str = vnd_reg_date.strftime('%Y-%m-%d')
+                    else:
+                        month_str = f"{year}-{str(month).zfill(2)}"
                     ok = save_schedule_by_vendor(
                         vendor, month_str, weekdays,
                         sel_schools, items, driver
                     )
                     if ok:
-                        st.success(
-                            f"✅ {year}년 {month}월 "
-                            "일정 저장 완료!"
-                        )
+                        _label = vnd_reg_date.strftime('%Y년 %m월 %d일') if vnd_is_daily else f"{year}년 {month}월"
+                        st.success(f"✅ {_label} 일정 저장 완료!")
                         st.rerun()
                     else:
                         st.error("저장 실패")

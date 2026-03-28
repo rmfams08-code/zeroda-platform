@@ -162,7 +162,31 @@ def _render_send_settlement():
     else:
         _ct = '학교'
 
-    col1, col2 = st.columns(2)
+    # 거래처 정보 (biz_info) 조회 — PDF에 실제 데이터 전달 (외주업체와 동일)
+    _biz_info = {}
+    if school != '전체':
+        _cust_match2 = _custs.get(school, {})
+        if not _cust_match2:
+            for _ck2, _cv2 in _custs.items():
+                if _cv2.get('상호') == school:
+                    _cust_match2 = _cv2
+                    break
+        if _cust_match2:
+            _biz_info = {
+                '상호': _cust_match2.get('상호', school),
+                '사업자번호': _cust_match2.get('사업자번호', ''),
+                '대표자': _cust_match2.get('대표자', ''),
+                '주소': _cust_match2.get('주소', ''),
+                '업태': _cust_match2.get('업태', ''),
+                '종목': _cust_match2.get('종목', ''),
+                '이메일': _cust_match2.get('이메일', ''),
+                '구분': _cust_match2.get('구분', '학교'),
+            }
+
+    _school_label = school if school != '전체' else '전체'
+    _pdf_filename = f"거래명세서_{_school_label}_{year}{month_str}.pdf"
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         if st.button("📥 PDF 다운로드", use_container_width=True, key="dl_pdf"):
@@ -171,18 +195,31 @@ def _render_send_settlement():
                 vendor_rows = db_get('vendor_info', {'vendor': vendor})
                 vinfo = vendor_rows[0] if vendor_rows else {}
                 pdf = generate_statement_pdf(
-                    vendor, school if school != '전체' else '전체',
-                    year, month, rows, {}, vinfo, cust_type=_ct
+                    vendor, _school_label,
+                    year, month, rows, _biz_info, vinfo, cust_type=_ct
                 )
-                filename = f"정산서_{vendor}_{year}{month_str}.pdf"
                 st.download_button("PDF 다운로드", data=pdf,
-                                   file_name=filename, mime="application/pdf",
+                                   file_name=_pdf_filename, mime="application/pdf",
                                    use_container_width=True)
                 st.success("PDF 생성 완료!")
             except Exception as e:
                 st.error(f"PDF 생성 실패: {e}")
 
     with col2:
+        if st.button("📥 엑셀 다운로드", use_container_width=True, key="dl_excel"):
+            try:
+                from services.excel_generator import generate_collection_excel
+                excel_bytes = generate_collection_excel(rows)
+                _xls_filename = f"수거내역_{_school_label}_{year}{month_str}.xlsx"
+                st.download_button("엑셀 다운로드", data=excel_bytes,
+                                   file_name=_xls_filename,
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   use_container_width=True)
+                st.success("엑셀 생성 완료!")
+            except Exception as e:
+                st.error(f"엑셀 생성 실패: {e}")
+
+    with col3:
         if st.button("📧 이메일 발송", type="primary", use_container_width=True, key="send_btn"):
             if not to_email:
                 st.error("수신 이메일을 입력하세요.")
@@ -193,13 +230,12 @@ def _render_send_settlement():
                     vendor_rows = db_get('vendor_info', {'vendor': vendor})
                     vinfo = vendor_rows[0] if vendor_rows else {}
                     pdf = generate_statement_pdf(
-                        vendor, school if school != '전체' else '전체',
-                        year, month, rows, {}, vinfo, cust_type=_ct
+                        vendor, _school_label,
+                        year, month, rows, _biz_info, vinfo, cust_type=_ct
                     )
-                    filename = f"정산서_{vendor}_{year}{month_str}.pdf"
                     with st.spinner("발송 중..."):
                         success, msg = send_statement_email(
-                            to_email, subject, body, pdf, filename
+                            to_email, subject, body, pdf, _pdf_filename
                         )
                     if success:
                         st.success(msg)

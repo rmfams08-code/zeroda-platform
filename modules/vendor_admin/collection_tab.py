@@ -9,7 +9,7 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 def render_collection_tab(vendor):
     st.markdown("## 수거 데이터")
 
-    tab1, tab2 = st.tabs(["수거 내역", "수거 입력"])
+    tab1, tab2 = st.tabs(["📋 수거 내역", "✏️ 수거 입력"])
 
     with tab1:
         from zoneinfo import ZoneInfo
@@ -72,8 +72,8 @@ def render_collection_tab(vendor):
             if 'status' in df.columns:
                 df['status'] = df['status'].map({
                     'draft':     '📋 임시저장',
-                    'submitted': '✅ 전송완료',
-                    'confirmed': '✔️ 확인완료',
+                    'submitted': '📤 전송완료',
+                    'confirmed': '✅ 확인완료',
                     'rejected':  '❌ 반려',
                 }).fillna(df['status'])
 
@@ -107,7 +107,7 @@ def render_collection_tab(vendor):
                     st.metric("총 금액", f"{total_amount:,.0f} 원")
 
             # ── 수거량 수정 UI ─────────────────────────
-            st.markdown("---")
+            st.divider()
             st.markdown("#### ✏️ 수거량 수정")
             st.caption("기사가 입력한 수거량을 수정할 수 있습니다.")
 
