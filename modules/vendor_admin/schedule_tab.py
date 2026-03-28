@@ -19,34 +19,83 @@ def render_schedule_tab(vendor):
     # ══════════════════════════════════════════════
     with tab1:
         schedules = load_all_schedules(vendor)
+        if not isinstance(schedules, dict):
+            schedules = {}
         if not schedules:
             st.info("등록된 일정이 없습니다. '일정 등록/수정' 탭에서 추가하세요.")
         else:
-            st.markdown(f"**총 {len(schedules)}개 일정 등록됨**")
-            for month_key, info in sorted(schedules.items()):
-                # 월별/일별 구분 표시
-                _key_label = f"📌 {month_key} (일별)" if len(month_key) == 10 else f"📅 {month_key} (월별)"
-                with st.expander(_key_label):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"**수거 요일:** {', '.join(info.get('요일', []))}")
-                        st.write(f"**수거 품목:** {', '.join(info.get('품목', []))}")
-                        st.write(f"**담당 기사:** {info.get('기사', '-')}")
-                    with col2:
-                        schools_list = info.get('학교', [])
-                        st.write(f"**담당 거래처 ({len(schools_list)}개):**")
-                        for s in schools_list:
-                            st.write(f"  • {s}")
+            # ── 요일 필터 ────────────────────────────────────────
+            _all_days = ["월", "화", "수", "목", "금", "토"]
+            _day_cols = st.columns(len(_all_days))
+            _sel_days = []
+            for _di, _dc in enumerate(_all_days):
+                with _day_cols[_di]:
+                    if st.checkbox(_dc, value=True, key=f"vnd_sch_vday_{_dc}"):
+                        _sel_days.append(_dc)
 
-                    # 본사 등록 일정은 삭제 불가 안내
-                    _reg_by = info.get('registered_by', 'admin')
-                    if _reg_by == 'vendor':
-                        if st.button("🗑 삭제", key=f"del_{month_key}", type="secondary"):
-                            delete_schedule(vendor, month_key)
-                            st.success(f"{month_key} 일정 삭제 완료")
-                            st.rerun()
-                    else:
-                        st.caption("ℹ️ 본사 등록 일정 (삭제 불가)")
+            # ── 전체 entry flat list 펼침 ────────────────────────
+            all_entries = []
+            for month_key, entry_list in schedules.items():
+                if not isinstance(entry_list, list):
+                    entry_list = [entry_list]
+                for entry in entry_list:
+                    entry_days = entry.get('요일', [])
+                    if _sel_days and entry_days:
+                        if not set(entry_days) & set(_sel_days):
+                            continue
+                    all_entries.append({**entry, '_month': month_key})
+
+            if not all_entries:
+                st.info("선택한 조건에 맞는 일정이 없습니다.")
+            else:
+                # ── 품목별 하위 탭 ────────────────────────────────
+                _item_set = set()
+                for _e in all_entries:
+                    for _it in _e.get('품목', []):
+                        _item_set.add(_it)
+                _item_tabs = ["전체"] + sorted(_item_set)
+                _sub_tabs = st.tabs(
+                    [f"📦 {_it}" if _it != "전체" else "📋 전체" for _it in _item_tabs]
+                )
+
+                for _ti, _tab_name in enumerate(_item_tabs):
+                    with _sub_tabs[_ti]:
+                        if _tab_name == "전체":
+                            _show = all_entries
+                        else:
+                            _show = [
+                                e for e in all_entries
+                                if _tab_name in e.get('품목', [])
+                            ]
+                        st.markdown(f"**{len(_show)}건 일정**")
+                        for _ei, _entry in enumerate(_show):
+                            _mk = _entry.get('_month', '')
+                            _label = f"📌 {_mk} (일별)" if len(_mk) == 10 else f"📅 {_mk} (월별)"
+                            _items_str = ', '.join(_entry.get('품목', []))
+                            with st.expander(
+                                f"{_label} | {_items_str} | "
+                                f"{', '.join(_entry.get('요일', []))}요일"
+                            ):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    st.write(f"**수거 요일:** {', '.join(_entry.get('요일', []))}")
+                                    st.write(f"**수거 품목:** {_items_str}")
+                                    st.write(f"**담당 기사:** {_entry.get('기사', '-')}")
+                                with c2:
+                                    schools_list = _entry.get('학교', [])
+                                    st.write(f"**담당 거래처 ({len(schools_list)}개):**")
+                                    for s in schools_list:
+                                        st.write(f"  • {s}")
+
+                                # 본사 등록 일정은 삭제 불가 안내
+                                _reg_by = _entry.get('registered_by', 'admin')
+                                if _reg_by == 'vendor':
+                                    if st.button("🗑 삭제", key=f"vnd_del_{_mk}_{_ti}_{_ei}", type="secondary"):
+                                        delete_schedule(vendor, _mk)
+                                        st.success(f"{_mk} 일정 삭제 완료")
+                                        st.rerun()
+                                else:
+                                    st.caption("ℹ️ 본사 등록 일정 (삭제 불가)")
 
     # ══════════════════════════════════════════════
     # 탭2: 일정 등록/수정 (통합 — 기존 tab3 승격)
@@ -201,11 +250,16 @@ def render_schedule_tab(vendor):
                 _existing_sched = load_all_schedules(vendor)
                 if not isinstance(_existing_sched, dict):
                     _existing_sched = {}
-                _existing_info = _existing_sched.get(reg_key)
+                _existing_entries = _existing_sched.get(reg_key, [])
+                if not isinstance(_existing_entries, list):
+                    _existing_entries = [_existing_entries]
                 _dup_schools = []
-                if _existing_info:
-                    _existing_schools = _existing_info.get('학교', [])
-                    _dup_schools = [s for s in sel_schools if s in _existing_schools]
+                for _ex_entry in _existing_entries:
+                    _existing_schools = _ex_entry.get('학교', [])
+                    _dup_schools.extend(
+                        s for s in sel_schools
+                        if s in _existing_schools and s not in _dup_schools
+                    )
 
                 _block_save = False
                 if _dup_schools:
