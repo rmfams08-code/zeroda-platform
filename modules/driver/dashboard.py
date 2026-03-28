@@ -23,7 +23,7 @@ _NUMPAD_CSS = """
 
 def _render_numpad(dr_key: str, school: str):
     """
-    전체 너비 숫자 키패드.
+    전체 너비 4×4 숫자 키패드.
     _np_target_{school} : 편집 중인 행 인덱스 (-1이면 닫힘)
     _np_buf_{school}    : 입력 버퍼 문자열
     """
@@ -41,46 +41,47 @@ def _render_numpad(dr_key: str, school: str):
                 f"{display} kg</span>",
                 unsafe_allow_html=True)
 
-    # 키패드 버튼 4행
-    _rows = [['7','8','9'], ['4','5','6'], ['1','2','3'], ['.','0','⌫']]
+    # 4×4 키패드 레이아웃
+    _rows = [
+        ['7', '8', '9', '⌫'],
+        ['4', '5', '6', 'C'],
+        ['1', '2', '3', '.'],
+        ['0', '00', '✅', '🗑️'],
+    ]
     _pressed = None
     for _r in _rows:
-        _c = st.columns(3)
+        _c = st.columns(4)
         for _col, _k in zip(_c, _r):
             with _col:
+                _btn_type = "primary" if _k == '✅' else "secondary"
                 if st.button(_k, key=f"_np_{school}_{_k}",
-                             use_container_width=True):
+                             use_container_width=True, type=_btn_type):
                     _pressed = _k
-
-    # 확인 / 초기화
-    _a1, _a2 = st.columns(2)
-    with _a1:
-        if st.button("✅ 확인", key=f"_np_ok_{school}",
-                     use_container_width=True, type="primary"):
-            # 값 저장
-            try:
-                _val = float(buf) if buf.strip() else 0.0
-            except ValueError:
-                _val = 0.0
-            if 0 <= tgt < len(st.session_state.get(dr_key, [])):
-                st.session_state[dr_key][tgt]["weight"] = _val
-            st.session_state[_tgt_key] = -1
-            st.session_state[_buf_key] = ""
-            st.rerun()
-    with _a2:
-        if st.button("🗑️ 초기화", key=f"_np_clr_{school}",
-                     use_container_width=True):
-            st.session_state[_buf_key] = ""
-            st.rerun()
 
     # 버튼 입력 처리
     if _pressed:
         v = st.session_state.get(_buf_key, "")
         if _pressed == '⌫':
             st.session_state[_buf_key] = v[:-1]
+        elif _pressed == 'C':
+            st.session_state[_buf_key] = ""
         elif _pressed == '.':
             if '.' not in v:
                 st.session_state[_buf_key] = v + '.'
+        elif _pressed == '00':
+            st.session_state[_buf_key] = v + '00'
+        elif _pressed == '✅':
+            # 확인 — 값 저장 후 키패드 닫기
+            try:
+                _val = float(v) if v.strip() else 0.0
+            except ValueError:
+                _val = 0.0
+            if 0 <= tgt < len(st.session_state.get(dr_key, [])):
+                st.session_state[dr_key][tgt]["weight"] = _val
+            st.session_state[_tgt_key] = -1
+            st.session_state[_buf_key] = ""
+        elif _pressed == '🗑️':
+            st.session_state[_buf_key] = ""
         else:
             st.session_state[_buf_key] = v + _pressed
         st.rerun()
@@ -92,9 +93,9 @@ import re
 def _render_voice_input(schools: list, school_key_prefix: str):
     """
     마이크 버튼 → 음성 인식 → '학교명 수거량 숫자' 파싱
-    결과를 st.session_state['_voice_result'] 에 저장
+    결과를 HTML 내에서 표시 (순수 클라이언트 방식 — Streamlit rerun 없음)
+    인식된 학교명·수거량은 화면에 표시되며, 사용자가 키패드로 직접 입력
     """
-    _vr_key = "_voice_result"
     _schools_js = json.dumps(schools, ensure_ascii=False)
 
     _html = f"""
@@ -125,7 +126,6 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     }}
 
     function findWeight(text) {{
-      // 숫자 추출 (정수 + 소수)
       const nums = text.match(/\\d+\\.?\\d*/g);
       if (nums && nums.length > 0) {{
         return parseFloat(nums[nums.length - 1]);
@@ -134,6 +134,10 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     }}
 
     function startVoice() {{
+      if (recognition) {{
+        try {{ recognition.abort(); }} catch(ex) {{}}
+        recognition = null;
+      }}
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SR) {{
         document.getElementById('mic-status').textContent =
@@ -154,8 +158,17 @@ def _render_voice_input(schools: list, school_key_prefix: str):
       btn.style.color = '#fff';
       btn.style.border = '2px solid #ea4335';
       btn.textContent = '🔴 듣고 있습니다...';
+      btn.disabled = true;
       status.textContent = '말씀해 주세요 (예: 안산고등학교 200)';
       result.textContent = '';
+
+      function resetBtn() {{
+        btn.style.background = '#fff';
+        btn.style.color = '#1a73e8';
+        btn.style.border = '2px solid #1a73e8';
+        btn.textContent = '🎤 다시 입력하기';
+        btn.disabled = false;
+      }}
 
       recognition.onresult = function(e) {{
         let final_text = '';
@@ -173,45 +186,32 @@ def _render_voice_input(schools: list, school_key_prefix: str):
         if (final_text) {{
           const school = findSchool(final_text);
           const weight = findWeight(final_text);
-          let msg = '🗣️ "' + final_text + '"';
-          if (school) msg += '  →  📍' + school;
-          if (weight !== null) msg += '  ⚖️' + weight + 'kg';
+          let msg = '🗣️ "' + final_text + '"<br>';
+          if (school) msg += '📍 학교: <b>' + school + '</b>&nbsp;&nbsp;';
+          else msg += '⚠️ 학교 인식 실패&nbsp;&nbsp;';
+          if (weight !== null) msg += '⚖️ 수거량: <b>' + weight + 'kg</b>';
+          else msg += '⚠️ 수거량 인식 실패';
+          msg += '<br><span style="font-size:13px;color:#666;">👆 위 결과를 확인 후, 아래 학교 카드에서 키패드로 입력하세요</span>';
           result.innerHTML = msg;
-
-          // Streamlit으로 결과 전달
-          const data = JSON.stringify({{
-            text: final_text,
-            school: school,
-            weight: weight
-          }});
-          // postMessage로 전달
-          window.parent.postMessage({{
-            type: 'streamlit:setComponentValue',
-            value: data
-          }}, '*');
         }}
       }};
 
       recognition.onerror = function(e) {{
-        btn.style.background = '#fff';
-        btn.style.color = '#1a73e8';
-        btn.style.border = '2px solid #1a73e8';
-        btn.textContent = '🎤 음성으로 입력하기';
+        resetBtn();
         if (e.error === 'no-speech') {{
           status.textContent = '⚠️ 음성이 감지되지 않았습니다. 다시 시도하세요.';
         }} else if (e.error === 'not-allowed') {{
           status.textContent = '⚠️ 마이크 권한을 허용해 주세요.';
+        }} else if (e.error === 'aborted') {{
+          status.textContent = '';
         }} else {{
           status.textContent = '⚠️ 오류: ' + e.error;
         }}
       }};
 
       recognition.onend = function() {{
-        btn.style.background = '#fff';
-        btn.style.color = '#1a73e8';
-        btn.style.border = '2px solid #1a73e8';
-        btn.textContent = '🎤 음성으로 입력하기';
-        if (!result.textContent) {{
+        resetBtn();
+        if (!result.innerHTML) {{
           status.textContent = '음성 인식 종료';
         }}
       }};
@@ -220,37 +220,8 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     }}
     </script>
     """
-    # 음성 컴포넌트 렌더
-    _voice_val = components.html(_html, height=120)
-
-    # 음성 결과 처리
-    if _voice_val:
-        try:
-            _parsed = json.loads(_voice_val) if isinstance(_voice_val, str) else _voice_val
-            st.session_state[_vr_key] = _parsed
-        except Exception:
-            pass
-
-    # 음성 결과가 있으면 자동 적용
-    _vr = st.session_state.get(_vr_key)
-    if _vr and isinstance(_vr, dict):
-        _v_school = _vr.get('school')
-        _v_weight = _vr.get('weight')
-        _v_text = _vr.get('text', '')
-        if _v_school and _v_weight is not None:
-            st.success(f"🗣️ \"{_v_text}\"  →  📍{_v_school} ⚖️{_v_weight}kg")
-            # 해당 학교의 수거량에 자동 반영
-            _target_dr_key = f"drv_date_rows_{_v_school}"
-            if _target_dr_key in st.session_state:
-                _rows = st.session_state[_target_dr_key]
-                if _rows and _rows[0]["weight"] == 0.0:
-                    st.session_state[_target_dr_key][0]["weight"] = float(_v_weight)
-                    st.info(f"✅ {_v_school} 첫 번째 행에 {_v_weight}kg 자동 입력됨")
-            # 결과 초기화 (중복 적용 방지)
-            del st.session_state[_vr_key]
-        elif _v_text:
-            st.warning(f"🗣️ \"{_v_text}\" — 학교명 또는 수거량을 인식하지 못했습니다. 다시 시도하세요.")
-            del st.session_state[_vr_key]
+    # 음성 컴포넌트 렌더 (리턴값 미사용 — rerun 방지)
+    components.html(_html, height=160)
 
 
 # 안전점검 항목 (확장 가능)
