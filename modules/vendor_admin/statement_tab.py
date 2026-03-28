@@ -224,7 +224,7 @@ def _render_vendor_send(vendor):
     st.divider()
 
     # ── 버튼 영역 ─────────────────────────
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         # PDF 미리보기/다운로드
@@ -298,25 +298,65 @@ def _render_vendor_send(vendor):
                         st.info("💡 Streamlit Cloud Secrets에 SMTP 설정이 필요합니다.")
 
     with col4:
-        # 문자 발송
-        if st.button("📱 문자 발송", use_container_width=True):
+        # 요약 문자 발송 (SMS 단문)
+        if st.button("📱 요약문자", use_container_width=True):
             if not to_phone:
                 st.error("수신 전화번호를 입력하세요.")
             else:
                 try:
-                    from services.sms_service import send_statement_sms, build_statement_sms_text
+                    from services.sms_service import send_statement_sms, build_summary_sms_text
                     _total_w = sum(float(r.get('weight', 0)) for r in rows)
                     _total_a = sum(
                         float(r.get('weight', 0)) *
                         (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
                         for r in rows
                     )
-                    sms_text = build_statement_sms_text(
+                    sms_text = build_summary_sms_text(
                         vinfo.get('biz_name', vendor), school,
                         year, month, _total_w, _total_a,
                         contact=v_contact
                     )
                     with st.spinner("문자 발송 중..."):
+                        success, msg = send_statement_sms(
+                            to_phone, sms_text,
+                            from_phone=vinfo.get('contact', '')
+                        )
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error(f"문자 발송 실패: {e}")
+
+    with col5:
+        # 상세 문자 발송 (LMS 장문, 품목별 내역)
+        if st.button("📋 상세문자", use_container_width=True):
+            if not to_phone:
+                st.error("수신 전화번호를 입력하세요.")
+            else:
+                try:
+                    from services.sms_service import send_statement_sms, build_detail_sms_text
+                    # 품목별 상세 내역 집계
+                    _item_map = {}
+                    for r in rows:
+                        itype = r.get('item_type', '기타')
+                        w = float(r.get('weight', 0))
+                        p = float(r.get('unit_price', 0)) or get_unit_price(vendor, school, itype)
+                        a = w * p
+                        if itype in _item_map:
+                            _item_map[itype]['weight'] += w
+                            _item_map[itype]['amount'] += a
+                        else:
+                            _item_map[itype] = {'item_type': itype, 'weight': w, 'unit_price': p, 'amount': a}
+                    _item_details = list(_item_map.values())
+                    _total_w = sum(d['weight'] for d in _item_details)
+                    _total_a = sum(d['amount'] for d in _item_details)
+                    sms_text = build_detail_sms_text(
+                        vinfo.get('biz_name', vendor), school,
+                        year, month, _item_details, _total_w, _total_a,
+                        contact=v_contact
+                    )
+                    with st.spinner("상세 문자 발송 중..."):
                         success, msg = send_statement_sms(
                             to_phone, sms_text,
                             from_phone=vinfo.get('contact', '')
