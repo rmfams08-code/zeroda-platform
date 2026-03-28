@@ -9,7 +9,7 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 def render_safety_tab():
     st.markdown("## 안전관리")
 
-    tab1, tab2, tab3 = st.tabs(["📚 안전교육 현황", "🔧 안전점검 현황", "🚨 사고 신고 현황"])
+    tab1, tab2, tab3 = st.tabs(["📚 안전교육 조회", "🔧 안전점검 조회", "🚨 사고 신고 관리"])
 
     with tab1:
         _render_education()
@@ -103,6 +103,11 @@ def _render_accident():
     with c3:
         done = len(df[df['status'] == '완료']) if 'status' in df.columns else 0
         st.metric("완료", f"{done}건")
+
+    # 상태 이모지 매핑 (외주업체와 통일)
+    _acc_status_map = {'신고완료': '📋 신고완료', '처리중': '⏳ 처리중', '완료': '✅ 완료'}
+    if 'status' in df.columns:
+        df['status'] = df['status'].map(_acc_status_map).fillna(df['status'])
 
     show = [c for c in ['occur_date','vendor','driver','accident_type','severity','status','occur_location'] if c in df.columns]
     st.dataframe(df[show], use_container_width=True, hide_index=True)
