@@ -108,28 +108,70 @@ def send_statement_sms(to_phone: str, message: str,
         return False, f"❌ 문자 발송 실패: {err_str}"
 
 
-def build_statement_sms_text(vendor_name: str, school: str,
-                              year: int, month: int,
-                              total_weight: float, total_amount: float,
-                              contact: str = '') -> str:
-    """거래명세서 안내 문자 본문 생성"""
+def build_summary_sms_text(vendor_name: str, school: str,
+                            year: int, month: int,
+                            total_weight: float, total_amount: float,
+                            contact: str = '') -> str:
+    """요약 정산 문자 본문 생성 (SMS 단문용, 90바이트 이내)"""
+    vat = total_amount * 0.1
+    total_with_vat = total_amount + vat
+    text = (
+        f"[{vendor_name}] {year}년{month}월 정산\n"
+        f"{school} {total_weight:,.1f}kg\n"
+        f"합계 {total_with_vat:,.0f}원(VAT포함)"
+    )
+    if contact:
+        text += f"\n문의:{contact}"
+    return text
+
+
+def build_detail_sms_text(vendor_name: str, school: str,
+                           year: int, month: int,
+                           item_details: list,
+                           total_weight: float, total_amount: float,
+                           contact: str = '') -> str:
+    """상세 정산 문자 본문 생성 (LMS 장문용, 품목별 내역 포함)
+    Args:
+        item_details: [{'item_type': '음식물', 'weight': 100.0, 'unit_price': 100, 'amount': 10000}, ...]
+    """
     vat = total_amount * 0.1
     total_with_vat = total_amount + vat
 
     text = (
-        f"[{vendor_name}] 거래명세서 안내\n"
+        f"[{vendor_name}] 거래명세서\n"
         f"\n"
-        f"■ {school} 님\n"
+        f"■ {school}\n"
         f"■ {year}년 {month}월 수거 내역\n"
         f"\n"
-        f"- 총 수거량: {total_weight:,.1f} kg\n"
-        f"- 공급가액: {total_amount:,.0f}원\n"
-        f"- VAT(10%): {vat:,.0f}원\n"
-        f"- 합계: {total_with_vat:,.0f}원\n"
+    )
+
+    # 품목별 상세
+    for item in item_details:
+        itype = item.get('item_type', '')
+        iweight = float(item.get('weight', 0))
+        iprice = float(item.get('unit_price', 0))
+        iamount = float(item.get('amount', 0))
+        text += f"· {itype}: {iweight:,.1f}kg × {iprice:,.0f}원 = {iamount:,.0f}원\n"
+
+    text += (
         f"\n"
-        f"상세 명세서가 필요하시면 연락 주세요.\n"
+        f"공급가액: {total_amount:,.0f}원\n"
+        f"VAT(10%): {vat:,.0f}원\n"
+        f"합계: {total_with_vat:,.0f}원\n"
     )
     if contact:
-        text += f"연락처: {contact}\n"
+        text += f"\n문의: {contact}"
 
     return text
+
+
+# 하위 호환용 (기존 코드에서 호출 시)
+def build_statement_sms_text(vendor_name: str, school: str,
+                              year: int, month: int,
+                              total_weight: float, total_amount: float,
+                              contact: str = '') -> str:
+    """거래명세서 안내 문자 본문 생성 (하위 호환)"""
+    return build_summary_sms_text(
+        vendor_name, school, year, month,
+        total_weight, total_amount, contact
+    )
