@@ -68,53 +68,25 @@ def send_statement_sms(to_phone: str, message: str,
     try:
         import httpx
 
-        # --- 먼저 잔액 조회로 인증 테스트 ---
         auth_header = _make_auth_header(api_key, api_secret)
         headers = {
             "Authorization": auth_header,
             "Content-Type": "application/json",
         }
-
-        # 디버그: API Key 앞 8자리만 표시
-        debug_key = api_key[:8] + "..." if len(api_key) > 8 else api_key
-        debug_secret_len = len(api_secret)
+        payload = {
+            "messages": [
+                {
+                    "to": to_clean,
+                    "from": from_clean,
+                    "text": message,
+                }
+            ]
+        }
 
         with httpx.Client(timeout=10) as client:
-            # 1단계: 잔액 조회로 인증 확인
-            test_resp = client.get(
-                "https://api.solapi.com/cash/v1/balance",
-                headers=headers,
-            )
-            if test_resp.status_code >= 400:
-                test_result = test_resp.json()
-                err_code = test_result.get('errorCode', '')
-                err_msg = test_result.get('errorMessage', '')
-                return False, (
-                    f"❌ 인증 실패 ({err_code}): {err_msg}\n"
-                    f"[디버그] Key: {debug_key}, Secret길이: {debug_secret_len}자, "
-                    f"Auth 앞부분: {auth_header[:60]}..."
-                )
-
-            # 2단계: 인증 성공 → 문자 발송
-            # 발송 시 새 인증 헤더 생성 (시간 갱신)
-            auth_header2 = _make_auth_header(api_key, api_secret)
-            send_headers = {
-                "Authorization": auth_header2,
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "messages": [
-                    {
-                        "to": to_clean,
-                        "from": from_clean,
-                        "text": message,
-                    }
-                ]
-            }
-
             resp = client.post(
                 "https://api.solapi.com/messages/v4/send-many/detail",
-                headers=send_headers,
+                headers=headers,
                 json=payload,
             )
 
