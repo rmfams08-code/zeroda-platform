@@ -960,5 +960,21 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 64
+  },
+  {
+    "vendor": "hy",
+    "name": "안양남초등학교",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "phone": "01031144030",
+    "cust_type": "학교",
+    "price_food": 210.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 65
   }
 ]
