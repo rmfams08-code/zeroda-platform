@@ -348,20 +348,70 @@ def get_unit_price(vendor: str, school: str, item_type: str) -> float:
 
 
 def save_schedule(vendor, month, weekdays, schools, items, driver=''):
-    data = {
-        'vendor':        vendor,
-        'month':         month,
-        'weekdays':      json.dumps(weekdays, ensure_ascii=False),
-        'schools':       json.dumps(schools,  ensure_ascii=False),
-        'items':         json.dumps(items,    ensure_ascii=False),
-        'driver':        driver,
-        'registered_by': 'admin',
-        'created_at':    datetime.now(
-                             ZoneInfo('Asia/Seoul')
-                         ).strftime('%Y-%m-%d %H:%M:%S'),
-    }
-    # 순수 INSERT — 같은 월에 여러 일정(품목·거래처 조합)을 독립적으로 보존
-    return db_insert('schedules', data)
+    """
+    본사관리자 일정 저장 (병합 방식).
+    같은 vendor + month + weekdays(정렬) 조합이 이미 있으면:
+      → 거래처(schools) 합집합, 품목(items) 합집합으로 기존 행을 업데이트.
+    없으면 → 신규 INSERT.
+    """
+    _weekdays_key = json.dumps(sorted(weekdays), ensure_ascii=False)
+    # 기존 행 검색
+    _existing = db_get('schedules', {'vendor': vendor, 'month': month})
+    if not isinstance(_existing, list):
+        _existing = []
+    _matched_row = None
+    for _er in _existing:
+        try:
+            _er_wd = json.dumps(
+                sorted(json.loads(_er['weekdays'])) if _er.get('weekdays') else [],
+                ensure_ascii=False
+            )
+        except Exception:
+            _er_wd = '[]'
+        if _er_wd == _weekdays_key:
+            _matched_row = _er
+            break
+    if _matched_row:
+        # 병합: 거래처·품목 합집합
+        try:
+            _old_schools = json.loads(_matched_row.get('schools', '[]'))
+        except Exception:
+            _old_schools = []
+        try:
+            _old_items = json.loads(_matched_row.get('items', '[]'))
+        except Exception:
+            _old_items = []
+        _merged_schools = list(dict.fromkeys(_old_schools + schools))
+        _merged_items   = list(dict.fromkeys(_old_items + items))
+        _update_data = {
+            'id':            _matched_row.get('id'),
+            'vendor':        vendor,
+            'month':         month,
+            'weekdays':      json.dumps(weekdays, ensure_ascii=False),
+            'schools':       json.dumps(_merged_schools, ensure_ascii=False),
+            'items':         json.dumps(_merged_items,   ensure_ascii=False),
+            'driver':        driver if driver else _matched_row.get('driver', ''),
+            'registered_by': 'admin',
+            'created_at':    datetime.now(
+                                 ZoneInfo('Asia/Seoul')
+                             ).strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        return db_upsert('schedules', _update_data)
+    else:
+        # 신규 INSERT
+        data = {
+            'vendor':        vendor,
+            'month':         month,
+            'weekdays':      json.dumps(weekdays, ensure_ascii=False),
+            'schools':       json.dumps(schools,  ensure_ascii=False),
+            'items':         json.dumps(items,    ensure_ascii=False),
+            'driver':        driver,
+            'registered_by': 'admin',
+            'created_at':    datetime.now(
+                                 ZoneInfo('Asia/Seoul')
+                             ).strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        return db_insert('schedules', data)
 
 
 def load_schedule(vendor, month):
@@ -634,27 +684,64 @@ def get_today_schools_for_driver(driver_name):
 def save_schedule_by_vendor(vendor, month, weekdays,
                             schools, items, driver=''):
     """
-    외주업체가 본인 업체 일정을 직접 등록/수정.
+    외주업체 일정 저장 (병합 방식).
+    같은 vendor + month + weekdays(정렬) 조합이 이미 있으면:
+      → 거래처(schools) 합집합, 품목(items) 합집합으로 기존 행을 업데이트.
+    없으면 → 신규 INSERT.
     registered_by='vendor' 로 저장.
-    순수 INSERT — 같은 월에 여러 일정을 독립적으로 보존.
     """
-    import json
-    from zoneinfo import ZoneInfo
-    from datetime import datetime
-    data = {
-        'vendor':        vendor,
-        'month':         month,
-        'weekdays':      json.dumps(
-                             weekdays, ensure_ascii=False),
-        'schools':       json.dumps(
-                             schools,  ensure_ascii=False),
-        'items':         json.dumps(
-                             items,    ensure_ascii=False),
-        'driver':        driver,
-        'registered_by': 'vendor',
-        'created_at':    datetime.now(
-                             ZoneInfo('Asia/Seoul')
-                         ).strftime('%Y-%m-%d %H:%M:%S'),
-    }
-    # 순수 INSERT — 같은 월에 여러 일정(품목·거래처 조합)을 독립적으로 보존
-    return db_insert('schedules', data)
+    _weekdays_key = json.dumps(sorted(weekdays), ensure_ascii=False)
+    _existing = db_get('schedules', {'vendor': vendor, 'month': month})
+    if not isinstance(_existing, list):
+        _existing = []
+    _matched_row = None
+    for _er in _existing:
+        try:
+            _er_wd = json.dumps(
+                sorted(json.loads(_er['weekdays'])) if _er.get('weekdays') else [],
+                ensure_ascii=False
+            )
+        except Exception:
+            _er_wd = '[]'
+        if _er_wd == _weekdays_key:
+            _matched_row = _er
+            break
+    if _matched_row:
+        try:
+            _old_schools = json.loads(_matched_row.get('schools', '[]'))
+        except Exception:
+            _old_schools = []
+        try:
+            _old_items = json.loads(_matched_row.get('items', '[]'))
+        except Exception:
+            _old_items = []
+        _merged_schools = list(dict.fromkeys(_old_schools + schools))
+        _merged_items   = list(dict.fromkeys(_old_items + items))
+        _update_data = {
+            'id':            _matched_row.get('id'),
+            'vendor':        vendor,
+            'month':         month,
+            'weekdays':      json.dumps(weekdays, ensure_ascii=False),
+            'schools':       json.dumps(_merged_schools, ensure_ascii=False),
+            'items':         json.dumps(_merged_items,   ensure_ascii=False),
+            'driver':        driver if driver else _matched_row.get('driver', ''),
+            'registered_by': 'vendor',
+            'created_at':    datetime.now(
+                                 ZoneInfo('Asia/Seoul')
+                             ).strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        return db_upsert('schedules', _update_data)
+    else:
+        data = {
+            'vendor':        vendor,
+            'month':         month,
+            'weekdays':      json.dumps(weekdays, ensure_ascii=False),
+            'schools':       json.dumps(schools,  ensure_ascii=False),
+            'items':         json.dumps(items,    ensure_ascii=False),
+            'driver':        driver,
+            'registered_by': 'vendor',
+            'created_at':    datetime.now(
+                                 ZoneInfo('Asia/Seoul')
+                             ).strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        return db_insert('schedules', data)

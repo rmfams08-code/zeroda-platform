@@ -21,6 +21,21 @@ def render_schedule_tab(vendor):
         schedules = load_all_schedules(vendor)
         if not isinstance(schedules, dict):
             schedules = {}
+
+        # ── 오늘 수거 완료 데이터 조회 (완료 표시용) ─────────────
+        _today_str = str(date.today())
+        _today_weekday = ['월','화','수','목','금','토','일'][date.today().weekday()]
+        _today_collections = db_get('real_collection')
+        if not isinstance(_today_collections, list):
+            _today_collections = []
+        _done_set = set()
+        for _tc in _today_collections:
+            if (str(_tc.get('collect_date', '')) == _today_str
+                    and _tc.get('vendor', '') == vendor):
+                _sn = _tc.get('school_name', '') or _tc.get('학교명', '')
+                if _sn:
+                    _done_set.add(_sn)
+
         if not schedules:
             st.info("등록된 일정이 없습니다. '일정 등록/수정' 탭에서 추가하세요.")
         else:
@@ -83,9 +98,22 @@ def render_schedule_tab(vendor):
                                     st.write(f"**담당 기사:** {_entry.get('기사', '-')}")
                                 with c2:
                                     schools_list = _entry.get('학교', [])
-                                    st.write(f"**담당 거래처 ({len(schools_list)}개):**")
-                                    for s in schools_list:
-                                        st.write(f"  • {s}")
+                                    _entry_days = _entry.get('요일', [])
+                                    _is_today_schedule = _today_weekday in _entry_days
+                                    if _is_today_schedule:
+                                        _done_cnt = sum(1 for s in schools_list if s in _done_set)
+                                        _total = len(schools_list)
+                                        st.write(
+                                            f"**담당 거래처 ({_total}개)** — "
+                                            f"오늘: ✅ {_done_cnt}완료 / ⬜ {_total - _done_cnt}미수거"
+                                        )
+                                        for s in schools_list:
+                                            _mark = "✅" if s in _done_set else "⬜"
+                                            st.write(f"  {_mark} {s}")
+                                    else:
+                                        st.write(f"**담당 거래처 ({len(schools_list)}개):**")
+                                        for s in schools_list:
+                                            st.write(f"  • {s}")
 
                                 # 본사 등록 일정은 삭제 불가 안내
                                 _reg_by = _entry.get('registered_by', 'admin')
@@ -246,7 +274,7 @@ def render_schedule_tab(vendor):
             elif not items:
                 st.error("수거 품목을 선택하세요.")
             else:
-                # ── 중복 체크: 같은 월 같은 학교 ──────────
+                # ── 중복 체크: 같은 월+요일에 이미 등록된 거래처 안내 ─
                 _existing_sched = load_all_schedules(vendor)
                 if not isinstance(_existing_sched, dict):
                     _existing_sched = {}
@@ -254,23 +282,26 @@ def render_schedule_tab(vendor):
                 if not isinstance(_existing_entries, list):
                     _existing_entries = [_existing_entries]
                 _dup_schools = []
+                _weekdays_key = sorted(weekdays)
                 for _ex_entry in _existing_entries:
+                    if sorted(_ex_entry.get('요일', [])) != _weekdays_key:
+                        continue
                     _existing_schools = _ex_entry.get('학교', [])
                     _dup_schools.extend(
                         s for s in sel_schools
                         if s in _existing_schools and s not in _dup_schools
                     )
+                _new_schools = [s for s in sel_schools if s not in _dup_schools]
 
                 _block_save = False
                 if _dup_schools:
-                    st.warning(f"⚠️ 이미 등록된 거래처: {', '.join(_dup_schools)} — 덮어쓰기 됩니다")
-                    _overwrite = st.checkbox(
-                        "중복 거래처 포함하여 저장하시겠습니까?",
-                        key="vnd_sch_overwrite_confirm"
+                    st.info(
+                        f"ℹ️ 이미 등록된 거래처: {', '.join(_dup_schools)} (중복 건너뜀)\n\n"
+                        f"새로 추가될 거래처: {', '.join(_new_schools) if _new_schools else '없음'}"
                     )
-                    if not _overwrite:
+                    if not _new_schools:
+                        st.warning("⚠️ 모든 거래처가 이미 등록되어 있습니다.")
                         _block_save = True
-                        st.info("☑️ 체크박스를 선택하면 저장이 진행됩니다.")
 
                 # ── 저장 실행 ────────────────────────
                 if not _block_save:
