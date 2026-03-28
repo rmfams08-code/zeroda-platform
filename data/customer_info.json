@@ -793,5 +793,20 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 53
+  },
+  {
+    "vendor": "hy",
+    "name": "남양pc방",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "cust_type": "기업",
+    "price_food": 0.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 54
   }
 ]
