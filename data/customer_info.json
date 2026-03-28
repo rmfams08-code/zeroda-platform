@@ -748,5 +748,20 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 50
+  },
+  {
+    "vendor": "hy",
+    "name": "착한뷔페",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "cust_type": "기업",
+    "price_food": 0.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 51
   }
 ]
