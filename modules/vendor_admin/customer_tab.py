@@ -78,41 +78,206 @@ def render_customer_tab(vendor):
                     st.error("저장 실패")
 
     with tab2:
-        st.markdown("### 거래처 등록")
-        col1, col2 = st.columns(2)
-        with col1:
-            name    = st.text_input("상호명 *")
-            biz_no  = st.text_input("사업자번호")
-            rep     = st.text_input("대표자")
-            ctype   = st.selectbox("구분", ["학교", "기업", "관공서", "일반업장", "기타"])
-        with col2:
-            addr    = st.text_input("주소")
-            biz_type= st.text_input("업태")
-            biz_item= st.text_input("종목")
-            email   = st.text_input("이메일")
-            phone   = st.text_input("전화번호", placeholder="010-0000-0000")
+        # ── 하위 모드: 신규등록 / 수정 ──
+        cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타"]
+        mode = st.radio(
+            "작업 선택", ["📝 신규등록", "✏️ 수정"],
+            horizontal=True, key="cust_reg_mode"
+        )
 
-        if st.button("저장", type="primary"):
-            if not name:
-                st.error("상호명은 필수입니다.")
-            else:
-                ok = save_customer_to_db(vendor, name, {
-                    '사업자번호': biz_no, '대표자': rep, '주소': addr,
-                    '업태': biz_type, '종목': biz_item, '이메일': email,
-                    '전화번호': phone, '구분': ctype
-                })
-                if ok:
-                    st.success(f"'{name}' 저장 완료!")
-                    st.rerun()
+        if mode == "📝 신규등록":
+            # ────── 신규등록 모드 ──────
+            st.markdown("### 거래처 신규등록")
+            col1, col2 = st.columns(2)
+            with col1:
+                name    = st.text_input("상호명 *", key="new_cust_name")
+                biz_no  = st.text_input("사업자번호", key="new_cust_bizno")
+                rep     = st.text_input("대표자", key="new_cust_rep")
+                ctype   = st.selectbox("구분", cust_type_options, key="new_cust_type")
+            with col2:
+                addr    = st.text_input("주소", key="new_cust_addr")
+                biz_type= st.text_input("업태", key="new_cust_biztype")
+                biz_item= st.text_input("종목", key="new_cust_bizitem")
+                email   = st.text_input("이메일", key="new_cust_email")
+                phone   = st.text_input("전화번호", placeholder="010-0000-0000", key="new_cust_phone")
+
+            if st.button("💾 신규 저장", type="primary", key="new_cust_save"):
+                if not name:
+                    st.error("상호명은 필수입니다.")
+                elif name in customers:
+                    st.warning(f"'{name}'은(는) 이미 등록된 거래처입니다. 수정 모드를 이용해주세요.")
                 else:
-                    st.error("저장 실패")
+                    ok = save_customer_to_db(vendor, name, {
+                        '사업자번호': biz_no, '대표자': rep, '주소': addr,
+                        '업태': biz_type, '종목': biz_item, '이메일': email,
+                        '전화번호': phone, '구분': ctype
+                    })
+                    if ok:
+                        st.success(f"'{name}' 신규 등록 완료!")
+                        try:
+                            from services.github_storage import _github_get_cached
+                            _github_get_cached.clear()
+                        except Exception:
+                            pass
+                        st.rerun()
+                    else:
+                        st.error("저장 실패")
 
-        if customers:
-            st.markdown("### 거래처 삭제")
-            del_name = st.selectbox("삭제할 거래처", list(customers.keys()))
-            if st.button("삭제", type="secondary"):
-                ok = delete_customer_from_db(vendor, del_name)
-                if ok:
-                    st.success("삭제 완료")
-                    st.rerun()
+        else:
+            # ────── 수정 모드 ──────
+            st.markdown("### 거래처 수정")
+
+            if not customers:
+                st.info("등록된 거래처가 없습니다. 먼저 신규등록을 해주세요.")
+            else:
+                # ── 필터 영역 ──
+                st.markdown("**거래처 검색**")
+                fcol1, fcol2 = st.columns([1, 2])
+                with fcol1:
+                    edit_type_filter = st.selectbox(
+                        "구분 필터",
+                        ["전체"] + cust_type_options,
+                        key="edit_cust_type_filter"
+                    )
+                # 필터 적용
+                if edit_type_filter == "전체":
+                    filtered_names = list(customers.keys())
+                else:
+                    filtered_names = [
+                        n for n, info in customers.items()
+                        if str(info.get('구분', '')) == edit_type_filter
+                    ]
+
+                if not filtered_names:
+                    st.warning(f"'{edit_type_filter}' 구분에 해당하는 거래처가 없습니다.")
+                else:
+                    with fcol2:
+                        edit_target = st.selectbox(
+                            "수정할 거래처 선택",
+                            filtered_names,
+                            key="edit_cust_select"
+                        )
+
+                    # ── 기존 정보 불러오기 ──
+                    ci = customers.get(edit_target, {})
+                    st.divider()
+                    st.markdown(f"**📌 '{edit_target}' 정보 수정**")
+
+                    ecol1, ecol2 = st.columns(2)
+                    with ecol1:
+                        edit_name = st.text_input(
+                            "상호명 *", value=edit_target, key="edit_cust_name"
+                        )
+                        edit_biz_no = st.text_input(
+                            "사업자번호", value=str(ci.get('사업자번호', '') or ''),
+                            key="edit_cust_bizno"
+                        )
+                        edit_rep = st.text_input(
+                            "대표자", value=str(ci.get('대표자', '') or ''),
+                            key="edit_cust_rep"
+                        )
+                        # 기존 구분값 위치 찾기
+                        cur_type = str(ci.get('구분', '학교') or '학교')
+                        type_idx = cust_type_options.index(cur_type) if cur_type in cust_type_options else 0
+                        edit_ctype = st.selectbox(
+                            "구분", cust_type_options,
+                            index=type_idx, key="edit_cust_type"
+                        )
+                    with ecol2:
+                        edit_addr = st.text_input(
+                            "주소", value=str(ci.get('주소', '') or ''),
+                            key="edit_cust_addr"
+                        )
+                        edit_biz_type = st.text_input(
+                            "업태", value=str(ci.get('업태', '') or ''),
+                            key="edit_cust_biztype"
+                        )
+                        edit_biz_item = st.text_input(
+                            "종목", value=str(ci.get('종목', '') or ''),
+                            key="edit_cust_bizitem"
+                        )
+                        edit_email = st.text_input(
+                            "이메일", value=str(ci.get('이메일', '') or ''),
+                            key="edit_cust_email"
+                        )
+                        edit_phone = st.text_input(
+                            "전화번호", value=str(ci.get('전화번호', '') or ''),
+                            placeholder="010-0000-0000", key="edit_cust_phone"
+                        )
+
+                    # ── 단가 정보도 함께 표시/수정 ──
+                    st.markdown("**💰 단가 정보**")
+                    pcol1, pcol2, pcol3 = st.columns(3)
+                    with pcol1:
+                        edit_price_food = st.number_input(
+                            "🍱 음식물 단가 (원/kg)",
+                            min_value=0.0, step=10.0, format="%.0f",
+                            value=float(ci.get('price_food', 0) or 0),
+                            key="edit_price_food"
+                        )
+                    with pcol2:
+                        edit_price_recycle = st.number_input(
+                            "♻️ 재활용 단가 (원/kg)",
+                            min_value=0.0, step=10.0, format="%.0f",
+                            value=float(ci.get('price_recycle', 0) or 0),
+                            key="edit_price_recycle"
+                        )
+                    with pcol3:
+                        edit_price_general = st.number_input(
+                            "🗑️ 사업장폐기물 단가 (원/kg)",
+                            min_value=0.0, step=10.0, format="%.0f",
+                            value=float(ci.get('price_general', 0) or 0),
+                            key="edit_price_general"
+                        )
+
+                    # ── 저장 / 삭제 버튼 ──
+                    btn_col1, btn_col2 = st.columns([1, 1])
+                    with btn_col1:
+                        if st.button("💾 수정 저장", type="primary", key="edit_cust_save"):
+                            if not edit_name:
+                                st.error("상호명은 필수입니다.")
+                            else:
+                                updated_info = {
+                                    '사업자번호': edit_biz_no,
+                                    '대표자': edit_rep,
+                                    '주소': edit_addr,
+                                    '업태': edit_biz_type,
+                                    '종목': edit_biz_item,
+                                    '이메일': edit_email,
+                                    '전화번호': edit_phone,
+                                    '구분': edit_ctype,
+                                    'price_food': edit_price_food,
+                                    'price_recycle': edit_price_recycle,
+                                    'price_general': edit_price_general,
+                                }
+                                # 상호명이 변경된 경우: 기존 삭제 → 새 이름으로 저장
+                                if edit_name != edit_target:
+                                    delete_customer_from_db(vendor, edit_target)
+                                ok = save_customer_to_db(vendor, edit_name, updated_info)
+                                if ok:
+                                    msg = f"'{edit_name}' 수정 완료!"
+                                    if edit_name != edit_target:
+                                        msg += f" (상호명 변경: {edit_target} → {edit_name})"
+                                    st.success(msg)
+                                    try:
+                                        from services.github_storage import _github_get_cached
+                                        _github_get_cached.clear()
+                                    except Exception:
+                                        pass
+                                    st.rerun()
+                                else:
+                                    st.error("저장 실패")
+                    with btn_col2:
+                        if st.button("🗑️ 거래처 삭제", type="secondary", key="edit_cust_del"):
+                            ok = delete_customer_from_db(vendor, edit_target)
+                            if ok:
+                                st.success(f"'{edit_target}' 삭제 완료")
+                                try:
+                                    from services.github_storage import _github_get_cached
+                                    _github_get_cached.clear()
+                                except Exception:
+                                    pass
+                                st.rerun()
+                            else:
+                                st.error("삭제 실패")
 
