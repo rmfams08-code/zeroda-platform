@@ -290,7 +290,8 @@ def load_customers_from_db(vendor):
     return {r['name']: {
         '사업자번호': r.get('biz_no', ''), '상호': r['name'], '대표자': r.get('rep', ''),
         '주소': r.get('addr', ''), '업태': r.get('biz_type', ''), '종목': r.get('biz_item', ''),
-        '이메일': r.get('email', ''), '구분': r.get('cust_type', '학교'),
+        '이메일': r.get('email', ''), '전화번호': r.get('phone', ''),
+        '구분': r.get('cust_type', '학교'),
         'price_food':    float(r.get('price_food', 0) or 0),
         'price_recycle': float(r.get('price_recycle', 0) or 0),
         'price_general': float(r.get('price_general', 0) or 0),
@@ -306,6 +307,7 @@ def save_customer_to_db(vendor, name, info):
         'biz_type':  info.get('업태', ''),
         'biz_item':  info.get('종목', ''),
         'email':     info.get('이메일', ''),
+        'phone':     info.get('전화번호', ''),
         'cust_type': info.get('구분', '학교'),
         'price_food':    float(info.get('price_food', 0) or 0),
         'price_recycle': float(info.get('price_recycle', 0) or 0),

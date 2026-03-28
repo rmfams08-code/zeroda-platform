@@ -157,11 +157,14 @@ def _render_send_settlement():
     st.markdown("#### 수급자 정보 (학교)")
     _bi_col1, _bi_col2 = st.columns(2)
     with _bi_col1:
-        to_email = st.text_input("수신 이메일 *",
+        to_email = st.text_input("수신 이메일",
                                   value=_biz_info.get('이메일', ''), key="send_email")
         _rep     = st.text_input("대표자", value=_biz_info.get('대표자', ''), key="send_rep")
         _biz_no  = st.text_input("사업자번호", value=_biz_info.get('사업자번호', ''), key="send_bizno")
     with _bi_col2:
+        to_phone  = st.text_input("수신 전화번호 (문자 발송용)",
+                                   value=_biz_info.get('전화번호', ''), key="send_phone",
+                                   placeholder="010-0000-0000")
         _addr     = st.text_input("주소", value=_biz_info.get('주소', ''), key="send_addr")
         _biz_type = st.text_input("업태", value=_biz_info.get('업태', ''), key="send_btype")
         _biz_item = st.text_input("종목", value=_biz_info.get('종목', ''), key="send_bitem")
@@ -169,6 +172,7 @@ def _render_send_settlement():
     # 입력값 반영
     _biz_info.update({
         '상호': school if school != '전체' else '전체', '이메일': to_email,
+        '전화번호': to_phone,
         '대표자': _rep, '사업자번호': _biz_no, '주소': _addr,
         '업태': _biz_type, '종목': _biz_item, '구분': _ct
     })
@@ -219,7 +223,7 @@ def _render_send_settlement():
 
     _pdf_filename = f"거래명세서_{_school_label}_{year}{month_str}.pdf"
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         if st.button("📥 PDF 다운로드", use_container_width=True, key="dl_pdf"):
@@ -273,3 +277,29 @@ def _render_send_settlement():
                         st.error(msg)
                 except Exception as e:
                     st.error(f"발송 실패: {e}")
+
+    with col4:
+        if st.button("📱 문자 발송", use_container_width=True, key="send_sms_btn"):
+            if not to_phone:
+                st.error("수신 전화번호를 입력하세요.")
+            else:
+                try:
+                    from services.sms_service import send_statement_sms, build_statement_sms_text
+                    _total_w = sum(float(r.get('weight', 0)) for r in rows)
+                    _total_a = sum(float(r.get('amount', 0)) for r in rows)
+                    sms_text = build_statement_sms_text(
+                        vinfo.get('biz_name', vendor), _school_label,
+                        year, month, _total_w, _total_a,
+                        contact=_v_contact
+                    )
+                    with st.spinner("문자 발송 중..."):
+                        success, msg = send_statement_sms(
+                            to_phone, sms_text,
+                            from_phone=vinfo.get('contact', '')
+                        )
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error(f"문자 발송 실패: {e}")

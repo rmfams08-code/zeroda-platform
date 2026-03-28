@@ -153,11 +153,14 @@ def _render_vendor_send(vendor):
     st.markdown("#### 수급자 정보 (학교)")
     col1, col2 = st.columns(2)
     with col1:
-        to_email = st.text_input("수신 이메일 *",
+        to_email = st.text_input("수신 이메일",
                                   value=biz_info.get('이메일', ''), key="stmt_email")
         rep      = st.text_input("대표자", value=biz_info.get('대표자', ''), key="stmt_rep")
         biz_no   = st.text_input("사업자번호", value=biz_info.get('사업자번호', ''), key="stmt_bizno")
     with col2:
+        to_phone = st.text_input("수신 전화번호 (문자 발송용)",
+                                  value=biz_info.get('전화번호', ''), key="stmt_phone",
+                                  placeholder="010-0000-0000")
         addr     = st.text_input("주소", value=biz_info.get('주소', ''), key="stmt_addr")
         biz_type = st.text_input("업태", value=biz_info.get('업태', ''), key="stmt_btype")
         biz_item = st.text_input("종목", value=biz_info.get('종목', ''), key="stmt_bitem")
@@ -167,9 +170,9 @@ def _render_vendor_send(vendor):
 
     # 수급자 정보 업데이트
     biz_info.update({
-        '상호': school, '이메일': to_email, '대표자': rep,
-        '사업자번호': biz_no, '주소': addr, '업태': biz_type, '종목': biz_item,
-        '구분': _cust_type
+        '상호': school, '이메일': to_email, '전화번호': to_phone,
+        '대표자': rep, '사업자번호': biz_no, '주소': addr,
+        '업태': biz_type, '종목': biz_item, '구분': _cust_type
     })
 
     st.divider()
@@ -221,7 +224,7 @@ def _render_vendor_send(vendor):
     st.divider()
 
     # ── 버튼 영역 ─────────────────────────
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         # PDF 미리보기/다운로드
@@ -268,7 +271,7 @@ def _render_vendor_send(vendor):
 
     with col3:
         # 이메일 발송
-        if st.button("이메일 발송", type="primary", use_container_width=True):
+        if st.button("📧 이메일 발송", type="primary", use_container_width=True):
             if not to_email:
                 st.error("수신 이메일을 입력하세요.")
             else:
@@ -286,10 +289,41 @@ def _render_vendor_send(vendor):
                             st.success(msg)
                             st.balloons()
                         else:
-                            # SMTP 설정 안내 포함
                             st.error(msg)
                             if "SMTP 설정" in msg or "인증" in msg:
-                                st.info("💡 Streamlit Cloud → Manage App → Secrets 에서\n"                                        "NAVER_SMTP_USER, NAVER_SMTP_APP_PW 를 등록하세요.")
+                                st.info("💡 Streamlit Cloud → Manage App → Secrets 에서\n"
+                                        "NAVER_SMTP_USER, NAVER_SMTP_APP_PW 를 등록하세요.")
                     except Exception as e:
                         st.error(f"발송 중 오류: {e}")
                         st.info("💡 Streamlit Cloud Secrets에 SMTP 설정이 필요합니다.")
+
+    with col4:
+        # 문자 발송
+        if st.button("📱 문자 발송", use_container_width=True):
+            if not to_phone:
+                st.error("수신 전화번호를 입력하세요.")
+            else:
+                try:
+                    from services.sms_service import send_statement_sms, build_statement_sms_text
+                    _total_w = sum(float(r.get('weight', 0)) for r in rows)
+                    _total_a = sum(
+                        float(r.get('weight', 0)) *
+                        (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
+                        for r in rows
+                    )
+                    sms_text = build_statement_sms_text(
+                        vinfo.get('biz_name', vendor), school,
+                        year, month, _total_w, _total_a,
+                        contact=v_contact
+                    )
+                    with st.spinner("문자 발송 중..."):
+                        success, msg = send_statement_sms(
+                            to_phone, sms_text,
+                            from_phone=vinfo.get('contact', '')
+                        )
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+                except Exception as e:
+                    st.error(f"문자 발송 실패: {e}")
