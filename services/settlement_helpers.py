@@ -65,5 +65,6 @@ def build_biz_info(cust_info, school):
         '업태':       cust_info.get('업태', ''),
         '종목':       cust_info.get('종목', ''),
         '이메일':     cust_info.get('이메일', ''),
+        '전화번호':   cust_info.get('전화번호', ''),
         '구분':       cust_info.get('구분', '학교'),
     }

@@ -90,6 +90,7 @@ def render_customer_tab(vendor):
             biz_type= st.text_input("업태")
             biz_item= st.text_input("종목")
             email   = st.text_input("이메일")
+            phone   = st.text_input("전화번호", placeholder="010-0000-0000")
 
         if st.button("저장", type="primary"):
             if not name:
@@ -97,7 +98,8 @@ def render_customer_tab(vendor):
             else:
                 ok = save_customer_to_db(vendor, name, {
                     '사업자번호': biz_no, '대표자': rep, '주소': addr,
-                    '업태': biz_type, '종목': biz_item, '이메일': email, '구분': ctype
+                    '업태': biz_type, '종목': biz_item, '이메일': email,
+                    '전화번호': phone, '구분': ctype
                 })
                 if ok:
                     st.success(f"'{name}' 저장 완료!")
