@@ -101,54 +101,21 @@ def _render_vendor_send(vendor):
             return
         school = st.selectbox("학교 선택", schools, key="stmt_school")
 
-    # ── 수거 데이터 조회 ──────────────────
+    # ── 수거 데이터 조회 + 단가 보정 (공통 헬퍼 사용) ──
+    from services.settlement_helpers import (
+        get_customer_match, build_price_map, correct_row_prices
+    )
     month_str = str(month).zfill(2)
     all_rows = db_get('real_collection')
     rows = [r for r in filter_rows_by_school(all_rows, school)
             if r.get('vendor') == vendor
             and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
-    # rows 단가 보정 (load_customers_from_db 방식 — vendor 전체 조회 후 매칭)
     _all_customers = load_customers_from_db(vendor)
-    _cust_info = _all_customers.get(school, {})
-    if not _cust_info:
-        for _ck, _cv in _all_customers.items():
-            if _cv.get('상호') == school:
-                _cust_info = _cv
-                break
-    _price_map = {}
-    if _cust_info:
-        _price_map = {
-            '음식물':       float(_cust_info.get('price_food', 0) or 0),
-            '재활용':       float(_cust_info.get('price_recycle', 0) or 0),
-            '일반':         float(_cust_info.get('price_general', 0) or 0),
-            '사업장폐기물': float(_cust_info.get('price_general', 0) or 0),
-            '음식물쓰레기': float(_cust_info.get('price_food', 0) or 0),
-        }
-    corrected_rows = []
-    for r in rows:
-        row = dict(r)
-        item = str(row.get('item_type', '') or row.get('품목', '')).strip()
-        up = _price_map.get(item, 0.0)
-        if up == 0.0:
-            up = float(row.get('unit_price', 0) or 0)
-        w = float(row.get('weight', 0) or row.get('음식물(kg)', 0) or 0)
-        row['unit_price'] = up
-        row['amount']     = round(w * up, 0)
-        corrected_rows.append(row)
-    rows = corrected_rows
-
-    # ── 단가 디버그 (문제 확인 후 삭제 예정) ──
-    with st.expander("🔍 단가 조회 디버그", expanded=False):
-        st.write("vendor:", vendor)
-        st.write("school:", school)
-        st.write("customer 매칭:", "성공" if _cust_info else "실패")
-        st.write("_price_map:", _price_map)
-        if rows:
-            _sample = rows[0]
-            st.write("rows[0] item_type:", _sample.get('item_type', ''))
-            st.write("rows[0] unit_price:", _sample.get('unit_price', 0))
-            st.write("rows[0] amount:", _sample.get('amount', 0))
+    _cust_info = get_customer_match(vendor, school, _all_customers)
+    _price_map = build_price_map(_cust_info)
+    if _price_map:
+        rows = correct_row_prices(rows, _price_map)
 
     st.markdown(f"### {year}년 {month}월 · {school}")
 

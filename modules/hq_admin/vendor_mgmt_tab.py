@@ -9,7 +9,8 @@ from database.db_manager import (db_get, db_upsert, db_delete, get_all_schools,
 def render_vendor_mgmt_tab():
     st.markdown("## 외주업체 관리")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["업체 목록", "업체 등록", "학교 별칭 관리", "품목별 단가 관리", "🛡️ 안전관리 평가"])
+    tab1, tab2, tab3, tab5 = st.tabs(["업체 목록", "업체 등록", "학교 별칭 관리", "🛡️ 안전관리 평가"])
+    # ※ 품목별 단가 관리는 '거래처 관리' 메뉴로 통합 (중복 제거)
 
     with tab1:
         vendors = db_get('vendor_info')
@@ -91,66 +92,7 @@ def render_vendor_mgmt_tab():
                 else:
                     st.error("저장 실패")
 
-    with tab4:
-        st.markdown("### 📋 품목별 단가 관리")
-        st.caption("업체와 거래처(학교)를 선택해 품목별 단가를 등록/수정합니다.")
-
-        vendors = db_get('vendor_info')
-        if not vendors:
-            st.info("등록된 업체가 없습니다.")
-        else:
-            vendor_opts = {v.get('biz_name', v['vendor']): v['vendor'] for v in vendors}
-            sel_vendor_label = st.selectbox("업체 선택", list(vendor_opts.keys()), key="price_vendor_sel")
-            sel_vendor = vendor_opts[sel_vendor_label]
-
-            customers = load_customers_from_db(sel_vendor)
-            if not customers:
-                st.info("해당 업체에 등록된 거래처가 없습니다. 거래처 관리에서 먼저 등록하세요.")
-            else:
-                sel_cust = st.selectbox("거래처(학교) 선택", list(customers.keys()), key="price_cust_hq_sel")
-                cust_info = customers.get(sel_cust, {})
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    price_food = st.number_input(
-                        "🍱 음식물쓰레기 단가 (원/kg)",
-                        min_value=0.0, step=10.0, format="%.0f",
-                        value=float(cust_info.get('price_food', 0) or 0),
-                        key=f"hq_price_food_{sel_vendor}_{sel_cust}"
-                    )
-                with col2:
-                    price_recycle = st.number_input(
-                        "♻️ 재활용 단가 (원/kg)",
-                        min_value=0.0, step=10.0, format="%.0f",
-                        value=float(cust_info.get('price_recycle', 0) or 0),
-                        key=f"hq_price_recycle_{sel_vendor}_{sel_cust}"
-                    )
-                with col3:
-                    price_general = st.number_input(
-                        "🗑️ 사업장폐기물 단가 (원/kg)",
-                        min_value=0.0, step=10.0, format="%.0f",
-                        value=float(cust_info.get('price_general', 0) or 0),
-                        key=f"hq_price_general_{sel_vendor}_{sel_cust}"
-                    )
-
-                if st.button("💾 단가 저장", key="hq_price_save_btn", type="primary"):
-                    updated_info = {**cust_info,
-                                    'price_food': price_food,
-                                    'price_recycle': price_recycle,
-                                    'price_general': price_general}
-                    ok = save_customer_to_db(sel_vendor, sel_cust, updated_info)
-                    if ok:
-                        st.success(f"'{sel_cust}' 단가 저장 완료! (음식물: {price_food:,.0f}원 / 재활용: {price_recycle:,.0f}원 / 사업장: {price_general:,.0f}원)")
-                        try:
-                            from services.github_storage import _github_get_cached
-                            _github_get_cached.clear()
-                        except Exception:
-                            pass
-                        st.rerun()
-                    else:
-                        st.error("저장 실패")
-
-    # ── tab5: 안전관리 평가 (신규 추가) ─────────────────────────────────
+    # ── tab5: 안전관리 평가 ─────────────────────────────────
     with tab5:
         _render_safety_eval()
 

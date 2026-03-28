@@ -559,9 +559,14 @@ def render_dashboard(user: dict):
 
                     # 현장 증빙 사진
                     with st.expander("📸 현장 증빙 사진 (선택)", expanded=False):
-                        photo = st.camera_input("카메라로 촬영하세요",
-                                                key=f"drv_camera_{school}")
+                        photo = st.file_uploader(
+                            "사진 촬영 또는 갤러리에서 선택",
+                            type=['jpg', 'jpeg', 'png'],
+                            key=f"drv_photo_{school}",
+                            help="모바일: 촬영 또는 갤러리 선택 가능"
+                        )
                         if photo:
+                            st.image(photo, caption="첨부된 사진", use_container_width=True)
                             st.success("📸 사진이 첨부되었습니다.")
 
                     # ── 날짜별 다중행 수거량 입력 ──────────────────
