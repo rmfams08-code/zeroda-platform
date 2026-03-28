@@ -123,10 +123,14 @@ def render_statement_tab(vendor):
         biz_type = st.text_input("업태", value=biz_info.get('업태', ''), key="stmt_btype")
         biz_item = st.text_input("종목", value=biz_info.get('종목', ''), key="stmt_bitem")
 
+    # 거래처 구분 (면세/과세 판단용)
+    _cust_type = _cust_info.get('구분', '학교')
+
     # 수급자 정보 업데이트
     biz_info.update({
         '상호': school, '이메일': to_email, '대표자': rep,
-        '사업자번호': biz_no, '주소': addr, '업태': biz_type, '종목': biz_item
+        '사업자번호': biz_no, '주소': addr, '업태': biz_type, '종목': biz_item,
+        '구분': _cust_type
     })
 
     st.divider()
@@ -189,7 +193,7 @@ def render_statement_tab(vendor):
                 try:
                     pdf_bytes = generate_statement_pdf(
                         vendor, school, year, month, rows, biz_info, vinfo,
-                        cust_type=biz_info.get('구분', _cust_info.get('구분', '학교'))
+                        cust_type=_cust_type
                     )
                     filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                     st.download_button(
@@ -233,7 +237,7 @@ def render_statement_tab(vendor):
                     try:
                         pdf_bytes = generate_statement_pdf(
                             vendor, school, year, month, rows or [], biz_info, vinfo,
-                            cust_type=biz_info.get('구분', _cust_info.get('구분', '학교'))
+                            cust_type=_cust_type
                         )
                         filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                         success, msg = send_statement_email(

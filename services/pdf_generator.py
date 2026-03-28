@@ -232,7 +232,7 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(Spacer(1, 6*mm))
 
     # ── 합계 요약 ─────────────────────────
-    _is_tax_free = (cust_type == '학교')
+    _is_tax_free = (cust_type in ('학교', ''))
     if _is_tax_free:
         # 학교: 면세 — 부가세 없음
         sum_data = [

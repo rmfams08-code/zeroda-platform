@@ -149,6 +149,19 @@ def _render_send_settlement():
                          value=f"안녕하세요.\n\n{year}년 {month}월 정산서를 첨부하여 발송드립니다.\n\n감사합니다.",
                          height=120, key="send_body")
 
+    # 거래처 구분 조회 (면세/과세 판단용)
+    _custs = load_customers_from_db(vendor)
+    if school != '전체':
+        _cust_match = _custs.get(school, {})
+        if not _cust_match:
+            for _ck, _cv in _custs.items():
+                if _cv.get('상호') == school:
+                    _cust_match = _cv
+                    break
+        _ct = _cust_match.get('구분', '학교')
+    else:
+        _ct = '학교'
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -157,8 +170,6 @@ def _render_send_settlement():
                 from services.pdf_generator import generate_statement_pdf
                 vendor_rows = db_get('vendor_info', {'vendor': vendor})
                 vinfo = vendor_rows[0] if vendor_rows else {}
-                _custs = load_customers_from_db(vendor)
-                _ct = _custs.get(school if school != '전체' else '', {}).get('구분', '학교')
                 pdf = generate_statement_pdf(
                     vendor, school if school != '전체' else '전체',
                     year, month, rows, {}, vinfo, cust_type=_ct
@@ -181,11 +192,9 @@ def _render_send_settlement():
                     from services.email_service import send_statement_email
                     vendor_rows = db_get('vendor_info', {'vendor': vendor})
                     vinfo = vendor_rows[0] if vendor_rows else {}
-                    _custs2 = load_customers_from_db(vendor)
-                    _ct2 = _custs2.get(school if school != '전체' else '', {}).get('구분', '학교')
                     pdf = generate_statement_pdf(
                         vendor, school if school != '전체' else '전체',
-                        year, month, rows, {}, vinfo, cust_type=_ct2
+                        year, month, rows, {}, vinfo, cust_type=_ct
                     )
                     filename = f"정산서_{vendor}_{year}{month_str}.pdf"
                     with st.spinner("발송 중..."):
