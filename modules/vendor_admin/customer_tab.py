@@ -158,18 +158,9 @@ def render_customer_tab(vendor):
                             key="edit_cust_select"
                         )
 
-                    # ── 기존 정보 불러오기 ──
+                    # ── 기존 정보 불러오기 (key에 거래처명 포함 → 선택 변경 시 자동 초기화) ──
                     ci = customers.get(edit_target, {})
-                    # 거래처 변경 감지 → 위젯값 초기화
-                    _ek = "_last_edit_target"
-                    if st.session_state.get(_ek) != edit_target:
-                        st.session_state[_ek] = edit_target
-                        for _k in list(st.session_state.keys()):
-                            if _k.startswith("edit_cust_") and _k not in ("edit_cust_select", "edit_cust_type_filter"):
-                                del st.session_state[_k]
-                            if _k.startswith("edit_price_"):
-                                del st.session_state[_k]
-                        st.rerun()
+                    _kp = edit_target.replace(" ", "_")  # key prefix
 
                     st.divider()
                     st.markdown(f"**📌 '{edit_target}' 정보 수정**")
@@ -177,43 +168,43 @@ def render_customer_tab(vendor):
                     ecol1, ecol2 = st.columns(2)
                     with ecol1:
                         edit_name = st.text_input(
-                            "상호명 *", value=edit_target, key="edit_cust_name"
+                            "상호명 *", value=edit_target,
+                            key=f"ec_name_{_kp}"
                         )
                         edit_biz_no = st.text_input(
                             "사업자번호", value=str(ci.get('사업자번호', '') or ''),
-                            key="edit_cust_bizno"
+                            key=f"ec_bizno_{_kp}"
                         )
                         edit_rep = st.text_input(
                             "대표자", value=str(ci.get('대표자', '') or ''),
-                            key="edit_cust_rep"
+                            key=f"ec_rep_{_kp}"
                         )
-                        # 기존 구분값 위치 찾기
                         cur_type = str(ci.get('구분', '학교') or '학교')
                         type_idx = cust_type_options.index(cur_type) if cur_type in cust_type_options else 0
                         edit_ctype = st.selectbox(
                             "구분", cust_type_options,
-                            index=type_idx, key="edit_cust_type"
+                            index=type_idx, key=f"ec_type_{_kp}"
                         )
                     with ecol2:
                         edit_addr = st.text_input(
                             "주소", value=str(ci.get('주소', '') or ''),
-                            key="edit_cust_addr"
+                            key=f"ec_addr_{_kp}"
                         )
                         edit_biz_type = st.text_input(
                             "업태", value=str(ci.get('업태', '') or ''),
-                            key="edit_cust_biztype"
+                            key=f"ec_biztype_{_kp}"
                         )
                         edit_biz_item = st.text_input(
                             "종목", value=str(ci.get('종목', '') or ''),
-                            key="edit_cust_bizitem"
+                            key=f"ec_bizitem_{_kp}"
                         )
                         edit_email = st.text_input(
                             "이메일", value=str(ci.get('이메일', '') or ''),
-                            key="edit_cust_email"
+                            key=f"ec_email_{_kp}"
                         )
                         edit_phone = st.text_input(
                             "전화번호", value=str(ci.get('전화번호', '') or ''),
-                            placeholder="010-0000-0000", key="edit_cust_phone"
+                            placeholder="010-0000-0000", key=f"ec_phone_{_kp}"
                         )
 
                     # ── 단가 정보도 함께 표시/수정 ──
@@ -224,27 +215,27 @@ def render_customer_tab(vendor):
                             "🍱 음식물 단가 (원/kg)",
                             min_value=0.0, step=10.0, format="%.0f",
                             value=float(ci.get('price_food', 0) or 0),
-                            key="edit_price_food"
+                            key=f"ec_pfood_{_kp}"
                         )
                     with pcol2:
                         edit_price_recycle = st.number_input(
                             "♻️ 재활용 단가 (원/kg)",
                             min_value=0.0, step=10.0, format="%.0f",
                             value=float(ci.get('price_recycle', 0) or 0),
-                            key="edit_price_recycle"
+                            key=f"ec_precycle_{_kp}"
                         )
                     with pcol3:
                         edit_price_general = st.number_input(
                             "🗑️ 사업장폐기물 단가 (원/kg)",
                             min_value=0.0, step=10.0, format="%.0f",
                             value=float(ci.get('price_general', 0) or 0),
-                            key="edit_price_general"
+                            key=f"ec_pgeneral_{_kp}"
                         )
 
                     # ── 저장 / 삭제 버튼 ──
                     btn_col1, btn_col2 = st.columns([1, 1])
                     with btn_col1:
-                        if st.button("💾 수정 저장", type="primary", key="edit_cust_save"):
+                        if st.button("💾 수정 저장", type="primary", key=f"ec_save_{_kp}"):
                             if not edit_name:
                                 st.error("상호명은 필수입니다.")
                             else:
@@ -261,7 +252,6 @@ def render_customer_tab(vendor):
                                     'price_recycle': edit_price_recycle,
                                     'price_general': edit_price_general,
                                 }
-                                # 상호명이 변경된 경우: 기존 삭제 → 새 이름으로 저장
                                 if edit_name != edit_target:
                                     delete_customer_from_db(vendor, edit_target)
                                 ok = save_customer_to_db(vendor, edit_name, updated_info)
@@ -279,7 +269,7 @@ def render_customer_tab(vendor):
                                 else:
                                     st.error("저장 실패")
                     with btn_col2:
-                        if st.button("🗑️ 거래처 삭제", type="secondary", key="edit_cust_del"):
+                        if st.button("🗑️ 거래처 삭제", type="secondary", key=f"ec_del_{_kp}"):
                             ok = delete_customer_from_db(vendor, edit_target)
                             if ok:
                                 st.success(f"'{edit_target}' 삭제 완료")
