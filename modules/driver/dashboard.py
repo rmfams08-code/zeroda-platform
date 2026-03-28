@@ -15,8 +15,22 @@ WEEKDAY_MAP = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
 # ── 숫자 키패드 (모바일 터치 최적화) ──────────────────────────────
 _NUMPAD_CSS = """
 <style>
-[data-testid="stButton"] button[kind="secondary"] {
-    min-height: 48px;
+/* ── 모바일 키패드 최적화 ── */
+/* 모바일에서 st.columns 가로 정렬 유지 (세로 쌓임 방지) */
+@media (max-width: 768px) {
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+    }
+    [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+        min-width: 0 !important;
+        flex: 1 1 0 !important;
+    }
+}
+/* 키패드 버튼 터치 영역 확대 */
+[data-testid="stButton"] button {
+    min-height: 52px !important;
+    font-size: 18px !important;
+    touch-action: manipulation !important;
 }
 </style>
 """
@@ -32,6 +46,9 @@ def _render_numpad(dr_key: str, school: str):
     tgt = st.session_state.get(_tgt_key, -1)
     if tgt < 0:
         return  # 키패드 닫힘
+
+    # 모바일 CSS 주입 (키패드 열릴 때만)
+    st.markdown(_NUMPAD_CSS, unsafe_allow_html=True)
 
     buf = st.session_state.get(_buf_key, "")
     display = buf if buf else "0"
@@ -222,6 +239,52 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     """
     # 음성 컴포넌트 렌더 (리턴값 미사용 — rerun 방지)
     components.html(_html, height=160)
+
+    # ── 음성 결과 수동 적용 폼 ────────────────────────────
+    st.markdown("---")
+    st.caption("👆 음성 인식 결과를 확인 후 아래에서 적용하세요")
+    _vc1, _vc2 = st.columns(2)
+    with _vc1:
+        _v_school = st.selectbox(
+            "학교 선택",
+            ["선택하세요"] + schools,
+            key=f"_voice_school_{school_key_prefix}"
+        )
+    with _vc2:
+        _v_weight = st.number_input(
+            "수거량 (kg)",
+            min_value=0.0, step=10.0, format="%.1f",
+            key=f"_voice_weight_{school_key_prefix}"
+        )
+    if st.button("✅ 음성 결과 적용", key=f"_voice_apply_{school_key_prefix}",
+                  type="primary", use_container_width=True):
+        if _v_school == "선택하세요":
+            st.warning("학교를 선택하세요.")
+        elif _v_weight <= 0:
+            st.warning("수거량을 입력하세요.")
+        else:
+            _target_dr_key = f"drv_date_rows_{_v_school}"
+            # 아직 수거 데이터가 초기화되지 않은 경우 생성
+            _init_date = st.session_state.get(
+                "drv_schedule_date",
+                datetime.now(ZoneInfo('Asia/Seoul')).date()
+            )
+            if _target_dr_key not in st.session_state:
+                st.session_state[_target_dr_key] = [
+                    {"date": _init_date, "weight": 0.0, "item": "음식물"}
+                ]
+            _rows = st.session_state[_target_dr_key]
+            _applied = False
+            for _r in _rows:
+                if _r["weight"] == 0.0:
+                    _r["weight"] = float(_v_weight)
+                    _applied = True
+                    break
+            if _applied:
+                st.success(f"✅ {_v_school}에 {_v_weight}kg 적용 완료!")
+                st.rerun()
+            else:
+                st.warning(f"{_v_school}의 모든 행에 이미 수거량이 입력되어 있습니다.")
 
 
 # 안전점검 항목 (확장 가능)
