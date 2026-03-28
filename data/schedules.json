@@ -97,5 +97,16 @@
     "registered_by": "admin",
     "created_at": "2026-03-28 21:49:42",
     "id": 9
+  },
+  {
+    "vendor": "hy",
+    "month": "2026-04",
+    "weekdays": "[\"월\", \"수\", \"토\"]",
+    "schools": "[\"비봉고등학교\"]",
+    "items": "[\"음식물\"]",
+    "driver": "하영기사1",
+    "registered_by": "admin",
+    "created_at": "2026-03-28 21:55:01",
+    "id": 10
   }
 ]
