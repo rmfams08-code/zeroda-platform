@@ -506,3 +506,83 @@ def _render_safety():
             st.info("해당 기간 사고 보고 없음 ✅")
     else:
         st.info("사고 보고 데이터가 없습니다.")
+
+    st.divider()
+
+    # ── 섹션5: 안전관리보고서 PDF 다운로드 (FEAT 추가) ──────────────────
+    st.markdown("#### 📄 안전관리보고서 PDF 다운로드")
+    st.caption("중대재해예방점검 서류 기반 월간 안전관리 보고서를 PDF로 생성합니다.")
+
+    # 월 선택 (전체일 경우 현재 월 사용)
+    pdf_month = int(month) if month != '전체' else _CM
+    pdf_ym = f"{year}-{str(pdf_month).zfill(2)}"
+
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        edu_org_name = st.text_input("교육청명", value="경기도화성오산교육지원청",
+                                      key="edu_safety_pdf_org")
+    with pc2:
+        edu_vendor_name = st.text_input("수거(용역) 업체명", value="하영자원",
+                                         key="edu_safety_pdf_vendor")
+
+    # 안전보건 점검 체크리스트 (HWP 기반 7항목)
+    with st.expander("✅ 안전보건 점검 체크리스트 (PDF 반영)", expanded=False):
+        _cl_items = [
+            "과업지시서(또는 계약서)에 '안전관리 및 예방조치 후 작업' 실시 내용 포함",
+            "공사(용역)업체에서 근로자에 대한 안전보건교육 실시",
+            "안전보호구(안전모, 안전대, 안전화 등) 착용 주지",
+            "위험사항(위험성평가 등)과 기계·기구·설비 안전점검 안내",
+            "학교 현장 이동 시 행정실(담당자) 안내 주지",
+            "유해·위험 작업 시 안전보건 점검표 제출 여부",
+            "안전·보건에 관한 종사자 의견청취 실시",
+        ]
+        edu_cl_results = []
+        for idx, item in enumerate(_cl_items):
+            result = st.radio(f"{idx+1}. {item}", ['예', '아니오'],
+                              horizontal=True, key=f"edu_safety_cl_{idx}")
+            edu_cl_results.append(result)
+
+    # 데이터 수집
+    pdf_scores = scores if scores else []
+    pdf_violations = get_violations(year_month=pdf_ym) if month != '전체' else \
+        get_violations()
+    pdf_violations = [v for v in (pdf_violations or [])
+                      if str(v.get('violation_date', '')).startswith(str(year))]
+    if month != '전체':
+        m_s = str(pdf_month).zfill(2)
+        pdf_violations = [v for v in pdf_violations
+                          if f"-{m_s}-" in str(v.get('violation_date', ''))]
+
+    pdf_edu = [r for r in (edu_data or [])
+               if str(r.get('edu_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")]
+    pdf_check = [r for r in (check_data or [])
+                 if str(r.get('check_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")]
+    pdf_accident = [r for r in (accident_data or [])
+                    if str(r.get('accident_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")]
+
+    if st.button("📄 안전관리보고서 PDF 생성", key="edu_safety_pdf_btn", type="primary"):
+        try:
+            from services.pdf_generator import generate_safety_report_pdf
+            pdf_bytes = generate_safety_report_pdf(
+                org_name=edu_org_name,
+                org_type='edu_office',
+                year=year,
+                month=pdf_month,
+                vendor_scores=pdf_scores,
+                violations=pdf_violations,
+                education_records=pdf_edu,
+                checklist_records=pdf_check,
+                accident_records=pdf_accident,
+                vendor_name=edu_vendor_name,
+                checklist_results=edu_cl_results,
+            )
+            st.download_button(
+                label="⬇️ PDF 다운로드",
+                data=pdf_bytes,
+                file_name=f"안전관리보고서_{edu_org_name}_{year}년{pdf_month}월.pdf",
+                mime="application/pdf",
+                key="edu_safety_pdf_download",
+            )
+            st.success("✅ 안전관리보고서가 생성되었습니다.")
+        except Exception as e:
+            st.error(f"PDF 생성 오류: {e}")
