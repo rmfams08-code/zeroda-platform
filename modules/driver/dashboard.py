@@ -11,6 +11,248 @@ from config.settings import COMMON_CSS
 
 WEEKDAY_MAP = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
 
+
+# ── 숫자 키패드 (모바일 터치 최적화) ──────────────────────────────
+_NUMPAD_CSS = """
+<style>
+[data-testid="stButton"] button[kind="secondary"] {
+    min-height: 48px;
+}
+</style>
+"""
+
+def _render_numpad(dr_key: str, school: str):
+    """
+    전체 너비 숫자 키패드.
+    _np_target_{school} : 편집 중인 행 인덱스 (-1이면 닫힘)
+    _np_buf_{school}    : 입력 버퍼 문자열
+    """
+    _tgt_key = f"_np_target_{school}"
+    _buf_key = f"_np_buf_{school}"
+    tgt = st.session_state.get(_tgt_key, -1)
+    if tgt < 0:
+        return  # 키패드 닫힘
+
+    buf = st.session_state.get(_buf_key, "")
+    display = buf if buf else "0"
+
+    st.markdown(f"**수거량 입력** &nbsp; 👉 &nbsp; "
+                f"<span style='font-size:28px;font-weight:bold;color:#1a73e8'>"
+                f"{display} kg</span>",
+                unsafe_allow_html=True)
+
+    # 키패드 버튼 4행
+    _rows = [['7','8','9'], ['4','5','6'], ['1','2','3'], ['.','0','⌫']]
+    _pressed = None
+    for _r in _rows:
+        _c = st.columns(3)
+        for _col, _k in zip(_c, _r):
+            with _col:
+                if st.button(_k, key=f"_np_{school}_{_k}",
+                             use_container_width=True):
+                    _pressed = _k
+
+    # 확인 / 초기화
+    _a1, _a2 = st.columns(2)
+    with _a1:
+        if st.button("✅ 확인", key=f"_np_ok_{school}",
+                     use_container_width=True, type="primary"):
+            # 값 저장
+            try:
+                _val = float(buf) if buf.strip() else 0.0
+            except ValueError:
+                _val = 0.0
+            if 0 <= tgt < len(st.session_state.get(dr_key, [])):
+                st.session_state[dr_key][tgt]["weight"] = _val
+            st.session_state[_tgt_key] = -1
+            st.session_state[_buf_key] = ""
+            st.rerun()
+    with _a2:
+        if st.button("🗑️ 초기화", key=f"_np_clr_{school}",
+                     use_container_width=True):
+            st.session_state[_buf_key] = ""
+            st.rerun()
+
+    # 버튼 입력 처리
+    if _pressed:
+        v = st.session_state.get(_buf_key, "")
+        if _pressed == '⌫':
+            st.session_state[_buf_key] = v[:-1]
+        elif _pressed == '.':
+            if '.' not in v:
+                st.session_state[_buf_key] = v + '.'
+        else:
+            st.session_state[_buf_key] = v + _pressed
+        st.rerun()
+
+# ── 음성 입력 헬퍼 (Web Speech API) ───────────────────────────────
+import streamlit.components.v1 as components
+import re
+
+def _render_voice_input(schools: list, school_key_prefix: str):
+    """
+    마이크 버튼 → 음성 인식 → '학교명 수거량 숫자' 파싱
+    결과를 st.session_state['_voice_result'] 에 저장
+    """
+    _vr_key = "_voice_result"
+    _schools_js = json.dumps(schools, ensure_ascii=False)
+
+    _html = f"""
+    <div id="voice-box" style="text-align:center;padding:8px 0">
+      <button id="mic-btn" onclick="startVoice()" style="
+        width:100%;max-width:400px;padding:14px 20px;font-size:18px;font-weight:700;
+        border:2px solid #1a73e8;border-radius:12px;background:#fff;color:#1a73e8;
+        cursor:pointer;touch-action:manipulation">
+        🎤 음성으로 입력하기
+      </button>
+      <div id="mic-status" style="margin-top:8px;font-size:14px;color:#666"></div>
+      <div id="mic-result" style="margin-top:6px;font-size:16px;font-weight:700;color:#333;
+        min-height:24px"></div>
+    </div>
+    <script>
+    const schools = {_schools_js};
+    let recognition = null;
+
+    function findSchool(text) {{
+      let best = null, bestLen = 0;
+      for (const s of schools) {{
+        if (text.includes(s) && s.length > bestLen) {{
+          best = s;
+          bestLen = s.length;
+        }}
+      }}
+      return best;
+    }}
+
+    function findWeight(text) {{
+      // 숫자 추출 (정수 + 소수)
+      const nums = text.match(/\\d+\\.?\\d*/g);
+      if (nums && nums.length > 0) {{
+        return parseFloat(nums[nums.length - 1]);
+      }}
+      return null;
+    }}
+
+    function startVoice() {{
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {{
+        document.getElementById('mic-status').textContent =
+          '⚠️ 이 브라우저는 음성 인식을 지원하지 않습니다 (Chrome 사용 권장)';
+        return;
+      }}
+      recognition = new SR();
+      recognition.lang = 'ko-KR';
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 3;
+
+      const btn = document.getElementById('mic-btn');
+      const status = document.getElementById('mic-status');
+      const result = document.getElementById('mic-result');
+
+      btn.style.background = '#ea4335';
+      btn.style.color = '#fff';
+      btn.style.border = '2px solid #ea4335';
+      btn.textContent = '🔴 듣고 있습니다...';
+      status.textContent = '말씀해 주세요 (예: 안산고등학교 200)';
+      result.textContent = '';
+
+      recognition.onresult = function(e) {{
+        let final_text = '';
+        let interim_text = '';
+        for (let i = 0; i < e.results.length; i++) {{
+          if (e.results[i].isFinal) {{
+            final_text += e.results[i][0].transcript;
+          }} else {{
+            interim_text += e.results[i][0].transcript;
+          }}
+        }}
+        if (interim_text) {{
+          status.textContent = '🔊 ' + interim_text;
+        }}
+        if (final_text) {{
+          const school = findSchool(final_text);
+          const weight = findWeight(final_text);
+          let msg = '🗣️ "' + final_text + '"';
+          if (school) msg += '  →  📍' + school;
+          if (weight !== null) msg += '  ⚖️' + weight + 'kg';
+          result.innerHTML = msg;
+
+          // Streamlit으로 결과 전달
+          const data = JSON.stringify({{
+            text: final_text,
+            school: school,
+            weight: weight
+          }});
+          // postMessage로 전달
+          window.parent.postMessage({{
+            type: 'streamlit:setComponentValue',
+            value: data
+          }}, '*');
+        }}
+      }};
+
+      recognition.onerror = function(e) {{
+        btn.style.background = '#fff';
+        btn.style.color = '#1a73e8';
+        btn.style.border = '2px solid #1a73e8';
+        btn.textContent = '🎤 음성으로 입력하기';
+        if (e.error === 'no-speech') {{
+          status.textContent = '⚠️ 음성이 감지되지 않았습니다. 다시 시도하세요.';
+        }} else if (e.error === 'not-allowed') {{
+          status.textContent = '⚠️ 마이크 권한을 허용해 주세요.';
+        }} else {{
+          status.textContent = '⚠️ 오류: ' + e.error;
+        }}
+      }};
+
+      recognition.onend = function() {{
+        btn.style.background = '#fff';
+        btn.style.color = '#1a73e8';
+        btn.style.border = '2px solid #1a73e8';
+        btn.textContent = '🎤 음성으로 입력하기';
+        if (!result.textContent) {{
+          status.textContent = '음성 인식 종료';
+        }}
+      }};
+
+      recognition.start();
+    }}
+    </script>
+    """
+    # 음성 컴포넌트 렌더
+    _voice_val = components.html(_html, height=120)
+
+    # 음성 결과 처리
+    if _voice_val:
+        try:
+            _parsed = json.loads(_voice_val) if isinstance(_voice_val, str) else _voice_val
+            st.session_state[_vr_key] = _parsed
+        except Exception:
+            pass
+
+    # 음성 결과가 있으면 자동 적용
+    _vr = st.session_state.get(_vr_key)
+    if _vr and isinstance(_vr, dict):
+        _v_school = _vr.get('school')
+        _v_weight = _vr.get('weight')
+        _v_text = _vr.get('text', '')
+        if _v_school and _v_weight is not None:
+            st.success(f"🗣️ \"{_v_text}\"  →  📍{_v_school} ⚖️{_v_weight}kg")
+            # 해당 학교의 수거량에 자동 반영
+            _target_dr_key = f"drv_date_rows_{_v_school}"
+            if _target_dr_key in st.session_state:
+                _rows = st.session_state[_target_dr_key]
+                if _rows and _rows[0]["weight"] == 0.0:
+                    st.session_state[_target_dr_key][0]["weight"] = float(_v_weight)
+                    st.info(f"✅ {_v_school} 첫 번째 행에 {_v_weight}kg 자동 입력됨")
+            # 결과 초기화 (중복 적용 방지)
+            del st.session_state[_vr_key]
+        elif _v_text:
+            st.warning(f"🗣️ \"{_v_text}\" — 학교명 또는 수거량을 인식하지 못했습니다. 다시 시도하세요.")
+            del st.session_state[_vr_key]
+
+
 # 안전점검 항목 (확장 가능)
 SAFETY_CHECKS = [
     ("chk_camera",    "차량 후방 카메라 정상 작동"),
@@ -221,6 +463,11 @@ def render_dashboard(user: dict):
 
         st.divider()
 
+        # ── 음성 입력 (전체 학교 대상) ────────────────────
+        with st.expander("🎤 음성으로 수거량 입력", expanded=False):
+            st.caption("예: \"안산고등학교 200\" 또는 \"강남중학교 수거량 150\"")
+            _render_voice_input(schools, "drv")
+
         # 활성 학교 (자동 스크롤용)
         _active_school = st.session_state.get("drv_active_school", "")
 
@@ -296,6 +543,12 @@ def render_dashboard(user: dict):
                     st.caption("📆 날짜별 수거량 입력 (여러 날짜 입력 가능)")
                     _items_list = ["음식물", "재활용", "일반"]
 
+                    # 키패드 상태 키
+                    _np_tgt_key = f"_np_target_{school}"
+                    _np_buf_key = f"_np_buf_{school}"
+                    if _np_tgt_key not in st.session_state:
+                        st.session_state[_np_tgt_key] = -1
+
                     for _idx, _row in enumerate(st.session_state[_dr_key]):
                         _rc1, _rc2, _rc3, _rc4 = st.columns([3, 2, 2, 1])
                         with _rc1:
@@ -306,23 +559,21 @@ def render_dashboard(user: dict):
                             )
                             st.session_state[_dr_key][_idx]["date"] = _new_date
                         with _rc2:
+                            # 수거량: 키패드 열기 버튼
                             _wt_label = "수거량(kg)" if _idx == 0 else f"수거량 {_idx+1}"
-                            _wt_default = "" if _row["weight"] == 0.0 else f"{_row['weight']:.1f}"
-                            _wt_str = st.text_input(
-                                _wt_label,
-                                value=_wt_default,
-                                placeholder="kg 입력",
-                                key=f"drv_dr_wt_{school}_{_idx}"
-                            )
-                            try:
-                                _new_wt = float(_wt_str) if _wt_str.strip() else 0.0
-                                if _new_wt < 0:
-                                    _new_wt = 0.0
-                                    st.error("0 이상 입력")
-                            except ValueError:
-                                _new_wt = 0.0
-                                st.error("숫자만 입력")
-                            st.session_state[_dr_key][_idx]["weight"] = _new_wt
+                            _wt_display = f"{_row['weight']:.1f}" if _row["weight"] > 0 else "0"
+                            _is_editing = (st.session_state.get(_np_tgt_key, -1) == _idx)
+                            st.markdown(f"<div style='font-size:12px;color:#666;margin-bottom:2px'>{_wt_label}</div>",
+                                        unsafe_allow_html=True)
+                            _btn_label = f"✏️ {_wt_display} kg" if not _is_editing else f"📝 입력중..."
+                            if st.button(_btn_label, key=f"drv_dr_wt_{school}_{_idx}",
+                                         use_container_width=True):
+                                if _is_editing:
+                                    st.session_state[_np_tgt_key] = -1
+                                else:
+                                    st.session_state[_np_tgt_key] = _idx
+                                    st.session_state[_np_buf_key] = f"{_row['weight']:.1f}" if _row["weight"] > 0 else ""
+                                st.rerun()
                         with _rc3:
                             _item_idx = _items_list.index(_row["item"]) if _row["item"] in _items_list else 0
                             _new_item = st.selectbox(
@@ -337,6 +588,9 @@ def render_dashboard(user: dict):
                                 if st.button("🗑️", key=f"drv_dr_del_{school}_{_idx}"):
                                     st.session_state[_dr_key].pop(_idx)
                                     st.rerun()
+
+                    # ── 숫자 키패드 (전체 너비) ────────────────────
+                    _render_numpad(_dr_key, school)
 
                     # 날짜 추가 버튼
                     if st.button("＋ 날짜 추가", key=f"drv_dr_add_{school}"):
