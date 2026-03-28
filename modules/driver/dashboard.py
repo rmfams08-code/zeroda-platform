@@ -109,11 +109,56 @@ import re
 
 def _render_voice_input(schools: list, school_key_prefix: str):
     """
-    마이크 버튼 → 음성 인식 → '학교명 품목 수거량' 파싱
-    → confirm 팝업 → 확인 시 query_params 로 Streamlit 에 전달 → 자동 입력
+    마이크 버튼 → 음성 인식 → '거래처명 품목 수거량' 파싱
+    → confirm 팝업 → 확인 시 postMessage 로 부모에 전달
+    → 숨겨진 리스너 컴포넌트가 session_state 에 저장 → 자동 입력
+    (하드 리로드 없음 — 튕김 현상 해결)
     """
     _schools_js = json.dumps(schools, ensure_ascii=False)
 
+    # ── (A) 메시지 수신 리스너 (부모 페이지에 삽입, 높이 0) ──
+    _listener_html = """
+    <script>
+    window.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'VOICE_CONFIRMED') {
+        // Streamlit 의 setComponentValue 가 없으므로
+        // hidden input → form submit 패턴으로 session_state 전달
+        const d = e.data;
+        const frame = window.parent;
+        try {
+          // Streamlit 내부 API: query_params 를 soft 하게 설정
+          const url = new URL(frame.location.href);
+          url.searchParams.set('_vc', '1');
+          url.searchParams.set('_vc_school', d.school);
+          url.searchParams.set('_vc_weight', d.weight.toString());
+          url.searchParams.set('_vc_item', d.item);
+          // history.replaceState 는 페이지 리로드 없이 URL 만 변경
+          frame.history.replaceState(null, '', url.toString());
+          // Streamlit 의 soft rerun 트리거
+          // StreamlitのWidgetManager 에 rerun 시그널
+          const rerunBtn = frame.document.querySelector(
+            '[data-testid="stRerunButton"], [data-testid="stStatusWidget"] button'
+          );
+          if (rerunBtn) { rerunBtn.click(); }
+          else {
+            // fallback: 키보드 이벤트로 rerun
+            frame.document.dispatchEvent(
+              new KeyboardEvent('keydown', {key: 'r', ctrlKey: false})
+            );
+            // 최종 fallback: soft reload
+            setTimeout(function() { frame.location.reload(); }, 300);
+          }
+        } catch(ex) {
+          // sandbox 제한 시 fallback
+          frame.location.reload();
+        }
+      }
+    });
+    </script>
+    """
+    components.html(_listener_html, height=0)
+
+    # ── (B) 음성인식 + confirm 팝업 컴포넌트 ──
     _html = f"""
     <div id="voice-box" style="text-align:center;padding:8px 0">
       <button id="mic-btn" onclick="startVoice()" style="
@@ -173,17 +218,16 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     }}
 
     function applyVoiceResult(school, item, weight) {{
-      try {{
-        const url = new URL(window.parent.location.href);
-        url.searchParams.set('_vc_school', school);
-        url.searchParams.set('_vc_weight', weight.toString());
-        url.searchParams.set('_vc_item', item);
-        url.searchParams.set('_vc', '1');
-        window.parent.location.replace(url.toString());
-      }} catch(ex) {{
-        document.getElementById('mic-result').innerHTML =
-          '<span style="color:#d93025">⚠️ 자동 적용 실패 — 아래 학교 카드에서 직접 입력하세요</span>';
-      }}
+      // postMessage 로 부모 프레임의 리스너에 전달 (하드 리로드 없음)
+      window.parent.postMessage({{
+        type: 'VOICE_CONFIRMED',
+        school: school,
+        item: item,
+        weight: weight
+      }}, '*');
+      document.getElementById('mic-result').innerHTML =
+        '<span style="color:#34a853;font-size:18px;">✅ ' + school
+        + ' / ' + item + ' / ' + weight + 'kg 등록 중...</span>';
     }}
 
     function startVoice() {{
@@ -260,8 +304,8 @@ def _render_voice_input(schools: list, school_key_prefix: str):
             }}, 200);
           }} else {{
             let msg = '🗣️ "' + final_text + '"<br>';
-            if (!school) msg += '⚠️ 학교 인식 실패&nbsp;&nbsp;';
-            else msg += '📍 학교: <b>' + school + '</b>&nbsp;&nbsp;';
+            if (!school) msg += '⚠️ 거래처 인식 실패&nbsp;&nbsp;';
+            else msg += '📍 거래처: <b>' + school + '</b>&nbsp;&nbsp;';
             if (weight === null || weight <= 0) msg += '⚠️ 수거량 인식 실패';
             else msg += '⚖️ 수거량: <b>' + weight + 'kg</b>';
             msg += '<br><span style="font-size:13px;color:#888;">다시 말씀해 주세요 (예: "강남중학교 음식물 200")</span>';
@@ -495,7 +539,7 @@ def render_dashboard(user: dict):
     if not _sched_schools:
         st.info(f"{_sel_date} ({_sel_weekday}요일) 수거 일정이 없습니다.")
     else:
-        st.success(f"총 {len(_sched_schools)}개 학교 수거 예정")
+        st.success(f"총 {len(_sched_schools)}개 거래처 수거 예정")
         _display_df = pd.DataFrame([
             {k: v for k, v in s.items() if not k.startswith('_')}
             for s in _sched_schools
@@ -521,10 +565,26 @@ def render_dashboard(user: dict):
         if _sn and _sn not in _school_items_map:
             _school_items_map[_sn] = _ls.get('_items', [])
 
+    # ── 거래처 정보 매핑 (cust_type, addr) ──────────
+    _cust_info_map = {}  # {거래처명: {cust_type, addr}}
+    _cust_rows = db_get('customer_info', {'vendor': vendor})
+    if isinstance(_cust_rows, list):
+        for _cr in _cust_rows:
+            _cname = _cr.get('name', '')
+            if _cname:
+                _cust_info_map[_cname] = {
+                    'cust_type': _cr.get('cust_type', '학교'),
+                    'addr': _cr.get('addr', ''),
+                }
+    _CUST_ICON = {
+        '학교': '🏫', '기업': '🏢', '관공서': '🏛️',
+        '일반업장': '🍽️', '기타': '📦',
+    }
+
     if not schools:
-        st.warning("담당 학교가 없습니다. 관리자에게 문의하세요.")
+        st.warning("담당 거래처가 없습니다. 관리자에게 문의하세요.")
     else:
-        # 선택일 기준 완료 학교 확인
+        # 선택일 기준 완료 거래처 확인
         _sel_date_str = _sel_date.strftime('%Y-%m-%d')
         today_all  = [r for r in db_get('real_collection')
                       if r.get('driver') == driver_name
@@ -538,43 +598,60 @@ def render_dashboard(user: dict):
         _remain_cnt = max(0, _total_cnt - _done_cnt)
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric("담당 학교", f"{_total_cnt}개")
+            st.metric("담당 거래처", f"{_total_cnt}개")
         with c2:
             st.metric("완료", f"{_done_cnt}개")
         with c3:
-            st.metric("남은 학교", f"{_remain_cnt}개")
+            st.metric("남은 거래처", f"{_remain_cnt}개")
         _ratio = (_done_cnt / _total_cnt) if _total_cnt > 0 else 0.0
         _ratio = max(0.0, min(1.0, _ratio))
         st.progress(_ratio)
 
         st.divider()
 
-        # ── 음성 입력 (전체 학교 대상 · 자동 매칭) ─────────
+        # ── 음성 입력 (전체 거래처 대상 · 자동 매칭) ─────────
         with st.expander("🎤 음성으로 수거량 입력 (자동 등록)", expanded=False):
             st.caption("예: \"안산고등학교 음식물 200\" → 자동 매칭 → 확인 팝업 → 등록 완료")
             _render_voice_input(schools, "drv")
 
-        # 활성 학교 (자동 스크롤용)
+        # 활성 거래처 (자동 스크롤용)
         _active_school = st.session_state.get("drv_active_school", "")
 
-        # 학교별 카드
+        # 거래처별 카드
         for school in schools:
             done   = school in done_schools
 
+            # 거래처 구분 정보
+            _ci = _cust_info_map.get(school, {})
+            _ctype = _ci.get('cust_type', '학교')
+            _caddr = _ci.get('addr', '')
+            _cicon = _CUST_ICON.get(_ctype, '📦')
+
             color  = "#34a853" if done else "#ea4335"
             status = "✅ 완료"  if done else "⏳ 대기"
-            encoded = urllib.parse.quote(school)
+
+            # 내비: 주소가 있으면 주소로, 없으면 이름으로 검색
+            _nav_query = _caddr if _caddr else school
+            encoded = urllib.parse.quote(_nav_query)
             kakao   = f"https://map.kakao.com/link/search/{encoded}"
             tmap    = f"tmap://search?name={encoded}"
             naver   = f"https://map.naver.com/v5/search/{encoded}"
 
+            # 카드 표시 (아이콘 + 구분 + 주소)
+            _addr_line = (
+                f'<div style="font-size:12px;color:#666;margin-top:4px;">'
+                f'📍 {_caddr}</div>'
+            ) if _caddr else ''
             st.markdown(f"""
             <div style="background:#f8f9fa;border-radius:10px;padding:14px;
                         margin-bottom:6px;border-left:5px solid {color};">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span style="font-weight:700;font-size:15px;">🏫 {school}</span>
+                    <span style="font-weight:700;font-size:15px;">{_cicon} {school}
+                      <span style="font-size:11px;color:#888;font-weight:400;">({_ctype})</span>
+                    </span>
                     <span style="color:{color};font-weight:700;">{status}</span>
                 </div>
+                {_addr_line}
             </div>
             """, unsafe_allow_html=True)
 
@@ -602,7 +679,7 @@ def render_dashboard(user: dict):
 
                 # 수거 입력 (인라인 expander)
                 _is_active = (_active_school == school)
-                with st.expander(f"🍎 {school} 수거량 입력", expanded=_is_active):
+                with st.expander(f"{_cicon} {school} 수거량 입력", expanded=_is_active):
 
                     # 일정 연동 품목 안내
                     _linked_items = _school_items_map.get(school, [])
@@ -804,11 +881,11 @@ def render_dashboard(user: dict):
     with c2:
         st.metric("총 수거량", f"{total_weight:,.1f} kg")
     with c3:
-        st.metric("학교 완료율", f"{len(done_schools2)}/{len(all_schools)}개")
+        st.metric("거래처 완료율", f"{len(done_schools2)}/{len(all_schools)}개")
 
     remain = [s for s in all_schools if s not in done_schools2]
     if remain:
-        st.warning(f"⚠️ 미완료 학교 {len(remain)}곳: {', '.join(remain)}")
+        st.warning(f"⚠️ 미완료 거래처 {len(remain)}곳: {', '.join(remain)}")
 
     safety_done = all(
         st.session_state.get(key, False) for key, _ in SAFETY_CHECKS

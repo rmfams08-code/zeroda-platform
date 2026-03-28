@@ -91,7 +91,7 @@ def render_schedule_tab():
                                 st.write(f"**담당 기사:** {info.get('기사', '-')}")
                             with col2:
                                 schools_list = info.get('학교', [])
-                                st.write(f"**담당 학교 ({len(schools_list)}개):**")
+                                st.write(f"**담당 거래처 ({len(schools_list)}개):**")
                                 for s in schools_list:
                                     st.write(f"  • {s}")
 
@@ -148,7 +148,7 @@ def render_schedule_tab():
                                 st.write(f"**담당 기사:** {pv_info.get('기사', '-')}")
                             with sc2:
                                 sch_list = pv_info.get('학교', [])
-                                st.write(f"**수거 학교 ({len(sch_list)}개):**")
+                                st.write(f"**수거 거래처 ({len(sch_list)}개):**")
                                 for s in sch_list:
                                     st.write(f"  • {s}")
                         else:
@@ -201,7 +201,7 @@ def render_schedule_tab():
                     reg_month = month
 
             with col2:
-                # 거래처 학교 목록 로딩
+                # 거래처 목록 로딩
                 customer_rows = db_get('customer_info', {'vendor': vendor})
                 if not customer_rows:
                     vendor_rows = db_get('vendor_info', {'vendor_id': vendor})
@@ -211,14 +211,37 @@ def render_schedule_tab():
                         vid = vendor_rows[0].get('vendor_id', vendor)
                         customer_rows = db_get('customer_info', {'vendor': vid})
 
-                school_list = [r.get('name', '') for r in customer_rows if r.get('name')]
+                # 거래처 구분 필터
+                _cust_types_found = sorted(set(
+                    r.get('cust_type', '학교') for r in customer_rows if r.get('name')
+                ))
+                if not _cust_types_found:
+                    _cust_types_found = ['학교']
+                _cust_filter = st.selectbox(
+                    "거래처 구분",
+                    ["전체"] + _cust_types_found,
+                    key="hq_sch_reg_cust_type"
+                )
+                # 필터 적용
+                if _cust_filter == "전체":
+                    _filtered_rows = [r for r in customer_rows if r.get('name')]
+                else:
+                    _filtered_rows = [
+                        r for r in customer_rows
+                        if r.get('name') and r.get('cust_type', '학교') == _cust_filter
+                    ]
+                school_list = [r.get('name', '') for r in _filtered_rows]
 
                 if not school_list:
-                    st.warning(f"'{vendor}' 업체에 등록된 학교가 없습니다.\n거래처 관리에서 먼저 등록하세요.")
+                    st.warning(f"'{vendor}' 업체에 등록된 거래처가 없습니다.\n거래처 관리에서 먼저 등록하세요.")
                     sel_schools = []
                 else:
-                    sel_schools = st.multiselect("담당 학교", school_list,
-                                                  key="hq_sch_reg_schools")
+                    sel_schools = st.multiselect(
+                        f"담당 거래처 ({_cust_filter})" if _cust_filter != "전체"
+                        else "담당 거래처 (전체)",
+                        school_list,
+                        key="hq_sch_reg_schools"
+                    )
 
                 items = st.multiselect("수거 품목", ["음식물","재활용","일반"],
                                        key="hq_sch_reg_items")
@@ -248,7 +271,7 @@ def render_schedule_tab():
                 else:
                     label = f"📅 {reg_year}년 {reg_month}월 | 요일: {', '.join(weekdays) if weekdays else '-'}"
                 st.info(
-                    f"{label}  |  학교: {len(sel_schools)}개  "
+                    f"{label}  |  거래처: {len(sel_schools)}개  "
                     f"|  품목: {', '.join(items) if items else '-'}  "
                     f"|  기사: {driver or '-'}"
                 )
@@ -261,7 +284,7 @@ def render_schedule_tab():
                     if not is_daily and not weekdays:
                         st.error("수거 요일을 선택하세요.")
                     elif not sel_schools:
-                        st.error("수거 학교를 선택하세요.")
+                        st.error("수거 거래처를 선택하세요.")
                     elif not items:
                         st.error("수거 품목을 선택하세요.")
                     else:
@@ -277,9 +300,9 @@ def render_schedule_tab():
 
                         _block_save = False
                         if _dup_schools:
-                            st.warning(f"⚠️ 이미 등록된 학교: {', '.join(_dup_schools)} — 덮어쓰기 됩니다")
+                            st.warning(f"⚠️ 이미 등록된 거래처: {', '.join(_dup_schools)} — 덮어쓰기 됩니다")
                             _overwrite = st.checkbox(
-                                "중복 학교 포함하여 저장하시겠습니까?",
+                                "중복 거래처 포함하여 저장하시겠습니까?",
                                 key="hq_sch_overwrite_confirm"
                             )
                             if not _overwrite:
@@ -321,7 +344,7 @@ def render_schedule_tab():
                             if _cross_dup_msgs:
                                 _unique_msgs = sorted(set(_cross_dup_msgs))
                                 st.info(
-                                    "ℹ️ 아래 학교는 같은 요일에 다른 업체에도 등록되어 있습니다:\n"
+                                    "ℹ️ 아래 거래처는 같은 요일에 다른 업체에도 등록되어 있습니다:\n"
                                     + "\n".join(f"  • {m}" for m in _unique_msgs)
                                 )
 

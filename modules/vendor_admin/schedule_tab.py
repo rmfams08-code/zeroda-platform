@@ -34,7 +34,7 @@ def render_schedule_tab(vendor):
                         st.write(f"**담당 기사:** {info.get('기사', '-')}")
                     with col2:
                         schools_list = info.get('학교', [])
-                        st.write(f"**담당 학교 ({len(schools_list)}개):**")
+                        st.write(f"**담당 거래처 ({len(schools_list)}개):**")
                         for s in schools_list:
                             st.write(f"  • {s}")
 
@@ -91,14 +91,32 @@ def render_schedule_tab(vendor):
                 )
 
         with col2:
-            # 담당 학교 선택 — customer_info에서 vendor 기준 조회
+            # 담당 거래처 선택 — customer_info에서 vendor 기준 조회
             customer_rows = db_get('customer_info', {'vendor': vendor})
             if not customer_rows:
                 customer_rows = []
-            school_list = [
-                r.get('name', '') for r in customer_rows
-                if r.get('name')
-            ]
+
+            # 거래처 구분 필터
+            _cust_types_found = sorted(set(
+                r.get('cust_type', '학교') for r in customer_rows if r.get('name')
+            ))
+            if not _cust_types_found:
+                _cust_types_found = ['학교']
+            _cust_filter = st.selectbox(
+                "거래처 구분",
+                ["전체"] + _cust_types_found,
+                key="vnd_sch_reg_cust_type"
+            )
+            # 필터 적용
+            if _cust_filter == "전체":
+                _filtered_rows = [r for r in customer_rows if r.get('name')]
+            else:
+                _filtered_rows = [
+                    r for r in customer_rows
+                    if r.get('name') and r.get('cust_type', '학교') == _cust_filter
+                ]
+            school_list = [r.get('name', '') for r in _filtered_rows]
+
             if not school_list:
                 st.warning(
                     f"'{vendor}' 업체에 등록된 거래처가 없습니다.\n"
@@ -107,7 +125,9 @@ def render_schedule_tab(vendor):
                 sel_schools = []
             else:
                 sel_schools = st.multiselect(
-                    "담당 학교", school_list,
+                    f"담당 거래처 ({_cust_filter})" if _cust_filter != "전체"
+                    else "담당 거래처 (전체)",
+                    school_list,
                     key="vnd_sch_schools"
                 )
 
@@ -147,7 +167,7 @@ def render_schedule_tab(vendor):
             if vnd_is_daily:
                 st.info(
                     f"📌 {vnd_reg_date.strftime('%Y년 %m월 %d일')} ({vnd_auto_wd}요일) "
-                    f"| 학교: {len(sel_schools)}개 "
+                    f"| 거래처: {len(sel_schools)}개 "
                     f"| 품목: {', '.join(items) if items else '-'} "
                     f"| 기사: {driver or '-'}"
                 )
@@ -155,7 +175,7 @@ def render_schedule_tab(vendor):
                 st.info(
                     f"📅 {year}년 {month}월 "
                     f"| 요일: {', '.join(weekdays) if weekdays else '-'} "
-                    f"| 학교: {len(sel_schools)}개 "
+                    f"| 거래처: {len(sel_schools)}개 "
                     f"| 품목: {', '.join(items) if items else '-'} "
                     f"| 기사: {driver or '-'}"
                 )
@@ -173,7 +193,7 @@ def render_schedule_tab(vendor):
             if not vnd_is_daily and not weekdays:
                 st.error("수거 요일을 선택하세요.")
             elif not sel_schools:
-                st.error("수거 학교를 선택하세요.")
+                st.error("수거 거래처를 선택하세요.")
             elif not items:
                 st.error("수거 품목을 선택하세요.")
             else:
@@ -189,9 +209,9 @@ def render_schedule_tab(vendor):
 
                 _block_save = False
                 if _dup_schools:
-                    st.warning(f"⚠️ 이미 등록된 학교: {', '.join(_dup_schools)} — 덮어쓰기 됩니다")
+                    st.warning(f"⚠️ 이미 등록된 거래처: {', '.join(_dup_schools)} — 덮어쓰기 됩니다")
                     _overwrite = st.checkbox(
-                        "중복 학교 포함하여 저장하시겠습니까?",
+                        "중복 거래처 포함하여 저장하시겠습니까?",
                         key="vnd_sch_overwrite_confirm"
                     )
                     if not _overwrite:
