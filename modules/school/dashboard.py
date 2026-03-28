@@ -30,7 +30,8 @@ def render_dashboard(user):
     school = st.selectbox("학교 선택", school_list) if len(school_list) > 1 else school_list[0]
     st.markdown(f"### {school}")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 월별 현황", "📋 수거 내역", "💰 정산 확인", "🌿 ESG 보고서"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["📊 월별 현황", "📋 수거 내역", "💰 정산 확인", "🌿 ESG 보고서", "🛡️ 안전관리보고서"])
 
     with tab1:
         _render_monthly(school)
@@ -43,6 +44,9 @@ def render_dashboard(user):
 
     with tab4:
         _render_esg(school)
+
+    with tab5:
+        _render_safety_report(school)
 
 
 def _render_monthly(school):
@@ -249,5 +253,173 @@ def _render_esg(school: str):
                 key="sch_esg_download",
             )
             st.success("✅ ESG 보고서가 생성되었습니다.")
+        except Exception as e:
+            st.error(f"PDF 생성 오류: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 안전관리보고서 탭 (FEAT: 학교 안전관리 현황 + PDF 다운로드)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_safety_report(school: str):
+    """학교 안전관리보고서 탭 — 현황 조회 + PDF 다운로드"""
+    st.markdown("### 🛡️ 안전관리 보고서")
+    st.caption("중대재해예방점검 서류 기반 월간 안전관리 보고서를 조회·다운로드할 수 있습니다.")
+
+    from database.db_manager import (db_get, get_safety_scores, get_violations,
+                                     get_all_vendors, calculate_safety_score)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        year = st.selectbox("연도", [2024, 2025, 2026],
+                            index=[2024,2025,2026].index(CURRENT_YEAR)
+                            if CURRENT_YEAR in [2024,2025,2026] else 2,
+                            key="sch_safety_year")
+    with col2:
+        month = st.selectbox("월", list(range(1, 13)),
+                             index=CURRENT_MONTH - 1, key="sch_safety_month")
+
+    year_month = f"{year}-{str(month).zfill(2)}"
+
+    # ── 안전관리 등급 현황 ────────────────────────────────────────────────
+    st.markdown("#### 📊 업체별 안전관리 등급")
+
+    _GRADE_EMOJI = {'S': '⭐ S등급', 'A': '✅ A등급', 'B': '⚠️ B등급',
+                    'C': '🔶 C등급', 'D': '🚨 D등급'}
+    _GRADE_COLOR = {'S': '#1565C0', 'A': '#2D7D46', 'B': '#F9A825',
+                    'C': '#E07B39', 'D': '#C0392B'}
+    _GRADE_BG    = {'S': '#E3F2FD', 'A': '#E8F5E9', 'B': '#FFFDE7',
+                    'C': '#FFF3E0', 'D': '#FFEBEE'}
+
+    scores = get_safety_scores(year_month=year_month)
+    if not scores:
+        all_vendors = get_all_vendors()
+        for v in all_vendors:
+            calculate_safety_score(v, year_month)
+        scores = get_safety_scores(year_month=year_month)
+
+    if scores:
+        cols = st.columns(min(len(scores), 4))
+        for i, sc in enumerate(scores):
+            grade = sc.get('grade', 'D')
+            with cols[i % len(cols)]:
+                st.markdown(
+                    f"<div style='background:{_GRADE_BG.get(grade,'#f5f5f5')};"
+                    f"border-left:5px solid {_GRADE_COLOR.get(grade,'#999')};"
+                    f"padding:12px;border-radius:6px;margin-bottom:8px;'>"
+                    f"<div style='font-size:13px;color:#555;'>{sc.get('vendor','')}</div>"
+                    f"<div style='font-size:20px;font-weight:bold;"
+                    f"color:{_GRADE_COLOR.get(grade,'#333')};'>"
+                    f"{_GRADE_EMOJI.get(grade, grade)}</div>"
+                    f"<div style='font-size:22px;font-weight:900;"
+                    f"color:{_GRADE_COLOR.get(grade,'#333')};'>"
+                    f"{sc.get('total_score',0):.0f}점</div>"
+                    f"</div>", unsafe_allow_html=True
+                )
+    else:
+        st.info("안전관리 평가 데이터가 없습니다.")
+
+    st.divider()
+
+    # ── 스쿨존 위반 이력 ──────────────────────────────────────────────────
+    st.markdown("#### 🚨 스쿨존 위반 이력")
+    violations = get_violations(year_month=year_month)
+    if violations:
+        df_v = pd.DataFrame(violations)
+        show_v = [c for c in ['violation_date','vendor','driver','violation_type',
+                               'location','fine_amount'] if c in df_v.columns]
+        rename_v = {
+            'violation_date': '위반일', 'vendor': '업체', 'driver': '기사',
+            'violation_type': '유형', 'location': '장소', 'fine_amount': '과태료(원)',
+        }
+        st.dataframe(df_v[show_v].rename(columns=rename_v), use_container_width=True,
+                     hide_index=True)
+        st.metric("위반 건수", f"{len(violations)}건")
+    else:
+        st.info("해당 기간 스쿨존 위반 기록 없음")
+
+    st.divider()
+
+    # ── 안전교육 / 차량점검 요약 ──────────────────────────────────────────
+    st.markdown("#### 📋 안전교육·차량점검 현황")
+    m_str = str(month).zfill(2)
+
+    edu_data = db_get('safety_education')
+    edu_rows = [r for r in (edu_data or [])
+                if str(r.get('edu_date', '')).startswith(f"{year}-{m_str}")]
+
+    check_data = db_get('safety_checklist')
+    check_rows = [r for r in (check_data or [])
+                  if str(r.get('check_date', '')).startswith(f"{year}-{m_str}")]
+
+    accident_data = db_get('accident_report')
+    accident_rows = [r for r in (accident_data or [])
+                     if str(r.get('accident_date', '')).startswith(f"{year}-{m_str}")]
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("안전교육 이수", f"{len(edu_rows)}건")
+    with c2:
+        st.metric("차량점검 건수", f"{len(check_rows)}건")
+    with c3:
+        st.metric("사고 보고", f"{len(accident_rows)}건")
+
+    st.divider()
+
+    # ── 안전보건 점검 체크리스트 (HWP 기반) ──────────────────────────────
+    st.markdown("#### ✅ 안전보건 점검 체크리스트")
+    st.caption("중대재해예방점검 서류 기반 7개 항목입니다. PDF 보고서에 반영됩니다.")
+
+    checklist_items = [
+        "과업지시서(또는 계약서)에 '안전관리 및 예방조치 후 작업' 실시 내용 포함",
+        "공사(용역)업체에서 근로자에 대한 안전보건교육 실시",
+        "안전보호구(안전모, 안전대, 안전화 등) 착용 주지",
+        "위험사항(위험성평가 등)과 기계·기구·설비 안전점검 안내",
+        "학교 현장 이동 시 행정실(담당자) 안내 주지",
+        "유해·위험 작업 시 안전보건 점검표 제출 여부",
+        "안전·보건에 관한 종사자 의견청취 실시",
+    ]
+
+    checklist_results = []
+    for idx, item in enumerate(checklist_items):
+        result = st.radio(
+            f"{idx+1}. {item}",
+            ['예', '아니오'],
+            horizontal=True,
+            key=f"sch_safety_cl_{idx}",
+        )
+        checklist_results.append(result)
+
+    st.divider()
+
+    # ── PDF 다운로드 ──────────────────────────────────────────────────────
+    st.markdown("#### 📄 안전관리보고서 PDF 다운로드")
+    vendor_name = st.text_input("수거(용역) 업체명", value="하영자원",
+                                key="sch_safety_vendor")
+
+    if st.button("📄 안전관리보고서 PDF 생성", key="sch_safety_pdf_btn", type="primary"):
+        try:
+            from services.pdf_generator import generate_safety_report_pdf
+            pdf_bytes = generate_safety_report_pdf(
+                org_name=school,
+                org_type='school',
+                year=year,
+                month=month,
+                vendor_scores=scores or [],
+                violations=violations or [],
+                education_records=edu_rows,
+                checklist_records=check_rows,
+                accident_records=accident_rows,
+                vendor_name=vendor_name,
+                checklist_results=checklist_results,
+            )
+            st.download_button(
+                label="⬇️ PDF 다운로드",
+                data=pdf_bytes,
+                file_name=f"안전관리보고서_{school}_{year}년{month}월.pdf",
+                mime="application/pdf",
+                key="sch_safety_download",
+            )
+            st.success("✅ 안전관리보고서가 생성되었습니다.")
         except Exception as e:
             st.error(f"PDF 생성 오류: {e}")

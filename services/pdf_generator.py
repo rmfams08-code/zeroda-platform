@@ -11,13 +11,17 @@ def _get_korean_font():
     from reportlab.pdfbase.ttfonts import TTFont
     import os
 
-    # 1순위: 프로젝트 내 TTF 폰트
+    # 1순위: 프로젝트 내 TTF 폰트 (한글 완벽 지원)
+    import pathlib
+    _base = pathlib.Path(__file__).resolve().parent.parent
     ttf_candidates = [
+        str(_base / 'fonts' / 'NanumGothic.ttf'),
         'fonts/NanumGothic.ttf',
         'NanumGothic.ttf',
         '/usr/share/fonts/truetype/nanum/NanumGothic.ttf',
         '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
         'C:/Windows/Fonts/malgun.ttf',
+        'C:/Windows/Fonts/NanumGothic.ttf',
     ]
     for fp in ttf_candidates:
         if os.path.exists(fp):
@@ -28,7 +32,10 @@ def _get_korean_font():
                 continue
 
     # 2순위: reportlab 내장 CJK 폰트 (한국어 지원)
-    cid_candidates = ['HYSMyeongJo-Medium', 'HYGoThic-Medium', 'HeiseiKakuGo-W5']
+    # ※ CID 폰트는 PDF 뷰어에 한글 폰트가 설치된 환경에서 정상 표시됩니다.
+    #    Windows: 맑은고딕(malgun.ttf) 자동 매핑 / Mac: Apple SD Gothic Neo
+    #    완벽 임베딩을 원하면 fonts/NanumGothic.ttf 파일을 프로젝트에 추가하세요.
+    cid_candidates = ['HYGothic-Medium', 'HYSMyeongJo-Medium', 'HeiseiKakuGo-W5']
     for fname in cid_candidates:
         try:
             pdfmetrics.registerFont(UnicodeCIDFont(fname))
@@ -271,7 +278,8 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(P("* 본 거래명세서는 전자 발행된 문서입니다.", size=8, color=colors.grey))
 
     doc.build(story)
-    return buffer.getvalue()
+    pdf_bytes_result = buffer.getvalue()
+    return pdf_bytes_result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -693,6 +701,367 @@ def generate_edu_office_esg_pdf(edu_office_name: str, year: int, month_label: st
                    size=8, align=1, color=GRAY))
     story.append(P(f"수거 업체: {vendor or '하영자원'}  |  발행: {datetime.now().strftime('%Y-%m-%d')}",
                    size=8, align=1, color=GRAY))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 안전관리보고서 PDF 생성 (FEAT: 학교·교육청 안전관리 현황 리포트)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# HWP 원본 기반 안전보건 점검 7개 항목
+_SAFETY_CHECKLIST_ITEMS = [
+    "과업지시서(또는 계약서)에 '안전관리 및 예방조치 후 작업' 실시 내용 포함",
+    "공사(용역)업체에서 근로자에 대한 안전보건교육 실시",
+    "안전보호구(안전모, 안전대, 안전화 등) 착용 주지",
+    "위험사항(위험성평가 등)과 기계·기구·설비 안전점검 안내",
+    "학교 현장 이동 시 행정실(담당자) 안내 주지",
+    "유해·위험 작업 시 안전보건 점검표 제출 여부",
+    "안전·보건에 관한 종사자 의견청취 실시",
+]
+
+_GRADE_EMOJI_PDF = {'S': 'S등급(최우수)', 'A': 'A등급(우수)', 'B': 'B등급(보통)',
+                    'C': 'C등급(주의)', 'D': 'D등급(불량)'}
+_GRADE_COLOR_PDF = {'S': '#1565C0', 'A': '#2D7D46', 'B': '#F9A825',
+                    'C': '#E07B39', 'D': '#C0392B'}
+
+
+def generate_safety_report_pdf(
+    org_name: str,
+    org_type: str,
+    year: int,
+    month: int,
+    vendor_scores: list,
+    violations: list,
+    education_records: list,
+    checklist_records: list,
+    accident_records: list,
+    vendor_name: str = '',
+    checklist_results: list = None,
+) -> bytes:
+    """
+    안전관리보고서 PDF 생성 (학교·교육청 공용)
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                    Paragraph, Spacer, HRFlowable)
+    from reportlab.lib.styles import ParagraphStyle
+
+    font = _get_korean_font()
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=15*mm, leftMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+
+    def P(text, size=10, align=0, color=colors.black):
+        style = ParagraphStyle('s', fontName=font, fontSize=size,
+                               alignment=align, textColor=color,
+                               leading=size * 1.5)
+        return Paragraph(str(text), style)
+
+    NAVY   = colors.HexColor('#1a237e')
+    BLUE   = colors.HexColor('#1565c0')
+    RED    = colors.HexColor('#c62828')
+    GREEN  = colors.HexColor('#2d7d46')
+    ORANGE = colors.HexColor('#e65100')
+    GRAY   = colors.HexColor('#757575')
+    LGRAY  = colors.HexColor('#f5f5f5')
+    DGRAY  = colors.HexColor('#e0e0e0')
+    LBLUE  = colors.HexColor('#e3f2fd')
+
+    story = []
+    today = datetime.now().strftime('%Y년 %m월 %d일')
+
+    # ── 1. 헤더 ──────────────────────────────────────────────────────────────
+    story.append(P(org_name, size=13, align=1, color=NAVY))
+    story.append(P("월간 안전관리 보고서", size=20, align=1, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+    story.append(P(f"보고 기간: {year}년 {month}월          작성일: {today}",
+                   size=9, align=1, color=GRAY))
+    if vendor_name:
+        story.append(P(f"수거(용역) 업체: {vendor_name}", size=9, align=1, color=GRAY))
+    story.append(HRFlowable(width="100%", thickness=2.5, color=NAVY))
+    story.append(Spacer(1, 5*mm))
+
+    # ── 2. 안전관리 평가 등급 ────────────────────────────────────────────────
+    story.append(P("1. 안전관리 평가 등급", size=12, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+
+    if vendor_scores:
+        grade_header = [P(h, size=9, align=1, color=colors.white) for h in
+                        ['업체', '평가월', '스쿨존위반(40)', '차량점검(30)',
+                         '교육이수(30)', '총점', '등급']]
+        grade_data = [grade_header]
+        for sc in vendor_scores:
+            grade = sc.get('grade', 'D')
+            g_color = colors.HexColor(_GRADE_COLOR_PDF.get(grade, '#333'))
+            grade_data.append([
+                P(sc.get('vendor', ''), size=9),
+                P(sc.get('year_month', ''), size=9, align=1),
+                P(f"{sc.get('violation_score', 0):.0f}", size=9, align=2),
+                P(f"{sc.get('checklist_score', 0):.1f}", size=9, align=2),
+                P(f"{sc.get('education_score', 0):.1f}", size=9, align=2),
+                P(f"{sc.get('total_score', 0):.0f}", size=10, align=2, color=g_color),
+                P(_GRADE_EMOJI_PDF.get(grade, grade), size=9, align=1, color=g_color),
+            ])
+        cw_g = [30*mm, 22*mm, 24*mm, 22*mm, 22*mm, 18*mm, 30*mm]
+        grade_tbl = Table(grade_data, colWidths=cw_g)
+        grade_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  BLUE),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, LBLUE]),
+            ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(grade_tbl)
+    else:
+        story.append(P("평가 데이터 없음", size=10, color=GRAY))
+    story.append(Spacer(1, 6*mm))
+
+    # ── 3. 안전보건 점검 현황 (HWP 기반 7항목) ──────────────────────────────
+    story.append(P("2. 공사(용역) 안전보건 점검 현황", size=12, color=NAVY))
+    story.append(Spacer(1, 1*mm))
+    story.append(P("[학교(기관), 교육(지원)청에서 확인하여 자체 보관]",
+                   size=8, color=GRAY))
+    story.append(Spacer(1, 2*mm))
+
+    check_results = checklist_results or ['예'] * 7
+    cl_header = [P('번호', size=9, align=1, color=colors.white),
+                 P('점 검 내 용', size=9, align=1, color=colors.white),
+                 P('예', size=9, align=1, color=colors.white),
+                 P('아니오', size=9, align=1, color=colors.white)]
+    cl_data = [cl_header]
+    for i, item_text in enumerate(_SAFETY_CHECKLIST_ITEMS):
+        result = check_results[i] if i < len(check_results) else '예'
+        cl_data.append([
+            P(str(i+1), size=8, align=1),
+            P(item_text, size=8),
+            P('O' if result == '예' else '', size=9, align=1,
+              color=GREEN if result == '예' else colors.black),
+            P('O' if result != '예' else '', size=9, align=1,
+              color=RED if result != '예' else colors.black),
+        ])
+    cw_cl = [12*mm, 120*mm, 18*mm, 18*mm]
+    cl_tbl = Table(cl_data, colWidths=cw_cl)
+    cl_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  NAVY),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, LGRAY]),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 4),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(cl_tbl)
+    story.append(Spacer(1, 6*mm))
+
+    # ── 4. 스쿨존 위반 이력 ──────────────────────────────────────────────────
+    story.append(P("3. 스쿨존 위반 이력", size=12, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+
+    if violations:
+        v_header = [P(h, size=9, align=1, color=colors.white) for h in
+                    ['위반일', '업체', '기사', '유형', '장소', '과태료(원)']]
+        v_data = [v_header]
+        total_fine = 0
+        for v in violations:
+            fine = int(v.get('fine_amount', 0) or 0)
+            total_fine += fine
+            v_data.append([
+                P(str(v.get('violation_date', '')), size=8),
+                P(str(v.get('vendor', '')), size=8),
+                P(str(v.get('driver', '')), size=8),
+                P(str(v.get('violation_type', '')), size=8),
+                P(str(v.get('location', '')), size=8),
+                P(f"{fine:,}", size=8, align=2),
+            ])
+        v_data.append([
+            P('', size=9), P('합 계', size=9, align=1),
+            P(f"{len(violations)}건", size=9, align=1, color=RED),
+            P('', size=9), P('', size=9),
+            P(f"{total_fine:,}", size=9, align=2, color=RED),
+        ])
+        cw_v = [24*mm, 24*mm, 22*mm, 22*mm, 44*mm, 28*mm]
+        v_tbl = Table(v_data, colWidths=cw_v)
+        v_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  RED),
+            ('BACKGROUND', (0,-1),(-1,-1), colors.HexColor('#ffebee')),
+            ('ROWBACKGROUNDS', (0,1), (-1,-2), [colors.white, LGRAY]),
+            ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(v_tbl)
+    else:
+        story.append(P("해당 기간 스쿨존 위반 기록 없음", size=10, color=GREEN))
+    story.append(Spacer(1, 6*mm))
+
+    # ── 5. 안전교육 이수 현황 ────────────────────────────────────────────────
+    story.append(P("4. 안전교육 이수 현황", size=12, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+
+    if education_records:
+        e_header = [P(h, size=9, align=1, color=colors.white) for h in
+                    ['교육일', '업체', '기사', '교육내용', '이수여부']]
+        e_data = [e_header]
+        for ed in education_records[:20]:
+            e_data.append([
+                P(str(ed.get('edu_date', '')), size=8),
+                P(str(ed.get('vendor', '')), size=8),
+                P(str(ed.get('driver', '')), size=8),
+                P(str(ed.get('subject', '')), size=8),
+                P(str(ed.get('status', '')), size=8, align=1),
+            ])
+        cw_e = [26*mm, 26*mm, 24*mm, 58*mm, 26*mm]
+        e_tbl = Table(e_data, colWidths=cw_e)
+        e_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  GREEN),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, LGRAY]),
+            ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(e_tbl)
+        story.append(P(f"교육 이수 건수: {len(education_records)}건",
+                       size=9, color=GREEN))
+    else:
+        story.append(P("해당 기간 안전교육 기록 없음", size=10, color=GRAY))
+    story.append(Spacer(1, 6*mm))
+
+    # ── 6. 차량점검 현황 ─────────────────────────────────────────────────────
+    story.append(P("5. 차량 안전점검 현황", size=12, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+
+    if checklist_records:
+        ck_header = [P(h, size=9, align=1, color=colors.white) for h in
+                     ['점검일', '업체', '기사', '차량번호', '점검결과']]
+        ck_data = [ck_header]
+        for ck in checklist_records[:20]:
+            ck_data.append([
+                P(str(ck.get('check_date', '')), size=8),
+                P(str(ck.get('vendor', '')), size=8),
+                P(str(ck.get('driver', '')), size=8),
+                P(str(ck.get('vehicle', '')), size=8),
+                P(str(ck.get('result', '')), size=8, align=1),
+            ])
+        cw_ck = [26*mm, 28*mm, 24*mm, 40*mm, 42*mm]
+        ck_tbl = Table(ck_data, colWidths=cw_ck)
+        ck_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  BLUE),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, LBLUE]),
+            ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(ck_tbl)
+        story.append(P(f"점검 건수: {len(checklist_records)}건",
+                       size=9, color=BLUE))
+    else:
+        story.append(P("해당 기간 차량점검 기록 없음", size=10, color=GRAY))
+    story.append(Spacer(1, 6*mm))
+
+    # ── 7. 사고 보고 현황 ────────────────────────────────────────────────────
+    story.append(P("6. 사고 보고 현황", size=12, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+
+    if accident_records:
+        a_header = [P(h, size=9, align=1, color=colors.white) for h in
+                    ['사고일', '업체', '기사', '사고유형', '상태']]
+        a_data = [a_header]
+        for ac in accident_records[:20]:
+            a_data.append([
+                P(str(ac.get('accident_date', '')), size=8),
+                P(str(ac.get('vendor', '')), size=8),
+                P(str(ac.get('driver', '')), size=8),
+                P(str(ac.get('type', '')), size=8),
+                P(str(ac.get('status', '')), size=8, align=1),
+            ])
+        cw_a = [26*mm, 28*mm, 24*mm, 46*mm, 36*mm]
+        a_tbl = Table(a_data, colWidths=cw_a)
+        a_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  ORANGE),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, LGRAY]),
+            ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(a_tbl)
+        story.append(P(f"사고 보고 건수: {len(accident_records)}건",
+                       size=9, color=ORANGE))
+    else:
+        story.append(P("해당 기간 사고 보고 없음", size=10, color=GREEN))
+    story.append(Spacer(1, 6*mm))
+
+    # ── 8. 공사업체 확인서 ───────────────────────────────────────────────────
+    story.append(P("7. 공사업체 확인서", size=12, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+
+    confirm_text = (
+        "위 점검사항에 대해 안내를 받았으며 산업안전보건법규에 따라 "
+        "작업자에게 안전보건보호구 지급 및 안전수칙을 준수하여 "
+        "작업할 것을 확인합니다."
+    )
+    confirm_data = [
+        [P(confirm_text, size=9)],
+        [P(f"소속(회사): {vendor_name or '하영자원'}          "
+           f"공사(용역)업체 책임자:                    (서명)",
+           size=9)],
+    ]
+    conf_tbl = Table(confirm_data, colWidths=[168*mm])
+    conf_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,-1), LGRAY),
+        ('BOX',        (0,0), (-1,-1), 1, NAVY),
+        ('PADDING',    (0,0), (-1,-1), 10),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(conf_tbl)
+    story.append(Spacer(1, 3*mm))
+
+    # ── 결재란 ────────────────────────────────────────────────────────────
+    if org_type == 'school':
+        sign_headers = ['담당', '행정실장', '학교장']
+    else:
+        sign_headers = ['담당', '과장', '국장']
+    sign_data = [
+        [P(h, size=9, align=1, color=colors.white) for h in ['결재'] + sign_headers],
+        [P('', size=9)] + [P('', size=9)] * len(sign_headers),
+    ]
+    cw_sign = [20*mm] + [30*mm] * len(sign_headers)
+    sign_tbl = Table(sign_data, colWidths=cw_sign, rowHeights=[16, 30])
+    sign_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  NAVY),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.5, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 4),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(sign_tbl)
+    story.append(Spacer(1, 6*mm))
+
+    # ── 푸터 ──────────────────────────────────────────────────────────────
+    story.append(HRFlowable(width="100%", thickness=1, color=NAVY))
+    story.append(Spacer(1, 2*mm))
+    story.append(P("본 보고서는 zeroda 폐기물 데이터 플랫폼(zeroda2026.streamlit.app)에서 자동 생성되었습니다.",
+                   size=8, align=1, color=GRAY))
+    story.append(P(f"수거(용역) 업체: {vendor_name or '하영자원'}  |  발행: {datetime.now().strftime('%Y-%m-%d')}",
+                   size=8, align=1, color=GRAY))
+    story.append(P("※ 작성대상: 금액에 상관없이 1회성 소규모 수선 등 모든 공사, 용역 포함",
+                   size=7, align=1, color=GRAY))
 
     doc.build(story)
     return buffer.getvalue()
