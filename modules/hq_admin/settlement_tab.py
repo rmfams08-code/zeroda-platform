@@ -93,6 +93,9 @@ def _render_summary():
 
 def _render_send_settlement():
     st.markdown("### 정산서 이메일 발송")
+    from services.settlement_helpers import (
+        get_customer_match, build_price_map, correct_row_prices, build_biz_info
+    )
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -125,12 +128,23 @@ def _render_send_settlement():
     if school != '전체':
         rows = filter_rows_by_school(rows, school)
 
+    # 거래처 정보 조회 + 단가 보정 (공통 헬퍼 사용)
+    _custs = load_customers_from_db(vendor)
+    _cust_info = get_customer_match(vendor, school, _custs) if school != '전체' else {}
+    _ct = _cust_info.get('구분', '학교')
+    _price_map = build_price_map(_cust_info)
+    if _price_map:
+        rows = correct_row_prices(rows, _price_map)
+    _biz_info = build_biz_info(_cust_info, school) if school != '전체' else {}
+
+    # 데이터 표시
+    st.markdown(f"### {year}년 {month}월 · {school if school != '전체' else '전체'}")
     df = pd.DataFrame(rows)
-    show = [c for c in ['collect_date','school_name','item_type','weight','status'] if c in df.columns]
+    show = [c for c in ['collect_date','school_name','item_type','weight','unit_price','amount','driver','status'] if c in df.columns]
     st.dataframe(df[show], use_container_width=True, hide_index=True)
 
     total_weight = sum(float(r.get('weight', 0)) for r in rows)
-    total_amount = sum(float(r.get('weight', 0)) * float(r.get('unit_price', 0)) for r in rows)
+    total_amount = sum(float(r.get('amount', 0)) for r in rows)
     c1, c2 = st.columns(2)
     with c1:
         st.metric("총 수거량", f"{total_weight:,.1f} kg")
@@ -139,51 +153,70 @@ def _render_send_settlement():
 
     st.divider()
 
-    # 수신처 이메일
-    to_email = st.text_input("수신 이메일", key="send_email",
-                              placeholder="school@email.com")
+    # ── 수급자(학교) 정보 ────────────────
+    st.markdown("#### 수급자 정보 (학교)")
+    _bi_col1, _bi_col2 = st.columns(2)
+    with _bi_col1:
+        to_email = st.text_input("수신 이메일 *",
+                                  value=_biz_info.get('이메일', ''), key="send_email")
+        _rep     = st.text_input("대표자", value=_biz_info.get('대표자', ''), key="send_rep")
+        _biz_no  = st.text_input("사업자번호", value=_biz_info.get('사업자번호', ''), key="send_bizno")
+    with _bi_col2:
+        _addr     = st.text_input("주소", value=_biz_info.get('주소', ''), key="send_addr")
+        _biz_type = st.text_input("업태", value=_biz_info.get('업태', ''), key="send_btype")
+        _biz_item = st.text_input("종목", value=_biz_info.get('종목', ''), key="send_bitem")
+
+    # 입력값 반영
+    _biz_info.update({
+        '상호': school if school != '전체' else '전체', '이메일': to_email,
+        '대표자': _rep, '사업자번호': _biz_no, '주소': _addr,
+        '업태': _biz_type, '종목': _biz_item, '구분': _ct
+    })
+
+    st.divider()
+
+    # ── 공급자(업체) 정보 ────────────────
+    st.markdown("#### 공급자 정보 (업체)")
+    vendor_rows = db_get('vendor_info', {'vendor': vendor})
+    vinfo = vendor_rows[0] if vendor_rows else {}
+
+    _vi_col1, _vi_col2 = st.columns(2)
+    with _vi_col1:
+        _v_rep   = st.text_input("대표자", value=vinfo.get('rep', ''), key="send_vrep")
+        _v_bizno = st.text_input("사업자번호", value=vinfo.get('biz_no', ''), key="send_vbizno")
+    with _vi_col2:
+        _v_addr    = st.text_input("주소", value=vinfo.get('address', ''), key="send_vaddr")
+        _v_contact = st.text_input("연락처", value=vinfo.get('contact', ''), key="send_vcontact")
+
+    vinfo.update({
+        'biz_name': vinfo.get('biz_name', vendor),
+        'rep': _v_rep, 'biz_no': _v_bizno,
+        'address': _v_addr, 'contact': _v_contact
+    })
+
+    st.divider()
+
+    # ── 이메일 내용 ────────────────
+    st.markdown("#### 이메일 내용")
+    _school_label = school if school != '전체' else '전체'
     subject = st.text_input("제목",
-                             value=f"[하영자원] {year}년 {month}월 정산서 - {school if school != '전체' else '전체'}",
+                             value=f"[{vinfo.get('biz_name', vendor)}] {year}년 {month}월 거래명세서 - {_school_label}",
                              key="send_subject")
     body = st.text_area("본문",
-                         value=f"안녕하세요.\n\n{year}년 {month}월 정산서를 첨부하여 발송드립니다.\n\n감사합니다.",
-                         height=120, key="send_body")
+                         value=f"""{_school_label} 담당자님께,
 
-    # 거래처 구분 조회 (면세/과세 판단용)
-    _custs = load_customers_from_db(vendor)
-    if school != '전체':
-        _cust_match = _custs.get(school, {})
-        if not _cust_match:
-            for _ck, _cv in _custs.items():
-                if _cv.get('상호') == school:
-                    _cust_match = _cv
-                    break
-        _ct = _cust_match.get('구분', '학교')
-    else:
-        _ct = '학교'
+안녕하세요. {vinfo.get('biz_name', vendor)} 입니다.
 
-    # 거래처 정보 (biz_info) 조회 — PDF에 실제 데이터 전달 (외주업체와 동일)
-    _biz_info = {}
-    if school != '전체':
-        _cust_match2 = _custs.get(school, {})
-        if not _cust_match2:
-            for _ck2, _cv2 in _custs.items():
-                if _cv2.get('상호') == school:
-                    _cust_match2 = _cv2
-                    break
-        if _cust_match2:
-            _biz_info = {
-                '상호': _cust_match2.get('상호', school),
-                '사업자번호': _cust_match2.get('사업자번호', ''),
-                '대표자': _cust_match2.get('대표자', ''),
-                '주소': _cust_match2.get('주소', ''),
-                '업태': _cust_match2.get('업태', ''),
-                '종목': _cust_match2.get('종목', ''),
-                '이메일': _cust_match2.get('이메일', ''),
-                '구분': _cust_match2.get('구분', '학교'),
-            }
+{year}년 {month}월 거래명세서를 첨부하여 발송드립니다.
+확인 후 문의사항이 있으시면 연락 주시기 바랍니다.
 
-    _school_label = school if school != '전체' else '전체'
+감사합니다.
+{vinfo.get('biz_name', vendor)} 드림
+연락처: {_v_contact}""",
+                         height=150, key="send_body")
+
+    st.divider()
+
     _pdf_filename = f"거래명세서_{_school_label}_{year}{month_str}.pdf"
 
     col1, col2, col3 = st.columns(3)
@@ -192,8 +225,6 @@ def _render_send_settlement():
         if st.button("📥 PDF 다운로드", use_container_width=True, key="dl_pdf"):
             try:
                 from services.pdf_generator import generate_statement_pdf
-                vendor_rows = db_get('vendor_info', {'vendor': vendor})
-                vinfo = vendor_rows[0] if vendor_rows else {}
                 pdf = generate_statement_pdf(
                     vendor, _school_label,
                     year, month, rows, _biz_info, vinfo, cust_type=_ct
@@ -227,8 +258,6 @@ def _render_send_settlement():
                 try:
                     from services.pdf_generator import generate_statement_pdf
                     from services.email_service import send_statement_email
-                    vendor_rows = db_get('vendor_info', {'vendor': vendor})
-                    vinfo = vendor_rows[0] if vendor_rows else {}
                     pdf = generate_statement_pdf(
                         vendor, _school_label,
                         year, month, rows, _biz_info, vinfo, cust_type=_ct

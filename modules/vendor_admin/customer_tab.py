@@ -5,7 +5,7 @@ from database.db_manager import load_customers_from_db, save_customer_to_db, del
 
 
 def render_customer_tab(vendor):
-    st.markdown("## 거래처 관리 (학교)")
+    st.markdown("## 거래처 관리")
 
     customers = load_customers_from_db(vendor)
 
@@ -16,8 +16,15 @@ def render_customer_tab(vendor):
             st.info("등록된 거래처가 없습니다.")
         else:
             df = pd.DataFrame(customers.values())
-            st.dataframe(df, use_container_width=True)
-            st.caption(f"총 {len(customers)}개")
+            # 구분별 필터
+            cust_types = ['전체'] + sorted(set(
+                str(r.get('구분', '학교')) for r in customers.values() if r.get('구분')
+            ))
+            _ct_filter = st.selectbox("구분 필터", cust_types, key="cust_type_filter")
+            if _ct_filter != '전체' and '구분' in df.columns:
+                df = df[df['구분'] == _ct_filter]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.caption(f"표시: {len(df)}개 / 전체: {len(customers)}개")
 
         # ── 품목별 단가 입력/수정 ────────────────────────────────
         st.divider()
@@ -77,7 +84,7 @@ def render_customer_tab(vendor):
             name    = st.text_input("상호명 *")
             biz_no  = st.text_input("사업자번호")
             rep     = st.text_input("대표자")
-            ctype   = st.selectbox("구분", ["학교", "기업", "관공서", "기타"])
+            ctype   = st.selectbox("구분", ["학교", "기업", "관공서", "일반업장", "기타"])
         with col2:
             addr    = st.text_input("주소")
             biz_type= st.text_input("업태")

@@ -357,6 +357,55 @@ def migrate_csv_to_db():
 # FEAT-02: 안전관리 평가 테이블 마이그레이션 (추가 - 기존 코드 유지)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def migrate_biz_to_customer():
+    """
+    biz_customers 테이블의 데이터를 customer_info로 마이그레이션
+    (거래처+일반업장 통합) — 구분: '일반업장' 으로 이전
+    앱 시작 시 자동 실행, 이미 이전된 건은 건너뜀
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        # biz_customers 테이블 존재 여부 확인
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='biz_customers'")
+        if not c.fetchone():
+            conn.close()
+            return
+
+        biz_rows = c.execute("SELECT * FROM biz_customers").fetchall()
+        migrated = 0
+        for row in biz_rows:
+            vendor   = row['vendor'] if 'vendor' in row.keys() else ''
+            biz_name = row['biz_name'] if 'biz_name' in row.keys() else (row['name'] if 'name' in row.keys() else '')
+            if not biz_name:
+                continue
+
+            # 이미 customer_info에 같은 vendor+name 조합이 있으면 건너뜀
+            exists = c.execute(
+                "SELECT id FROM customer_info WHERE vendor=? AND name=?",
+                (vendor, biz_name)
+            ).fetchone()
+            if exists:
+                continue
+
+            c.execute(
+                """INSERT INTO customer_info
+                   (vendor, name, biz_no, rep, addr, biz_type, biz_item, email, cust_type)
+                   VALUES (?, ?, ?, '', '', '', '', '', '일반업장')""",
+                (vendor, biz_name, row['biz_no'] if 'biz_no' in row.keys() else '')
+            )
+            migrated += 1
+
+        if migrated > 0:
+            conn.commit()
+            print(f"[migrate_biz_to_customer] {migrated}건 일반업장 → customer_info 이전 완료")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_biz_to_customer] {e}")
+
+
 def migrate_safety_tables():
     """
     안전관리 평가용 테이블 2개 생성 (없는 경우에만)

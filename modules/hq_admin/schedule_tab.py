@@ -371,8 +371,9 @@ def render_schedule_tab():
             if 'status' in df.columns:
                 df['status'] = df['status'].map({
                     'draft':     '📋 임시저장',
-                    'submitted': '✅ 전송완료',
-                    'confirmed': '✔️ 확인완료',
+                    'submitted': '📤 전송완료',
+                    'confirmed': '✅ 확인완료',
+                    'rejected':  '❌ 반려',
                 }).fillna(df['status'])
             show = [c for c in ['school_name','vendor','item_type',
                                 'weight','driver','status'] if c in df.columns]
