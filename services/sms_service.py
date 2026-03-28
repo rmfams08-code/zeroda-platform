@@ -127,12 +127,12 @@ def build_summary_sms_text(vendor_name: str, school: str,
 
 def build_detail_sms_text(vendor_name: str, school: str,
                            year: int, month: int,
-                           item_details: list,
+                           rows: list,
                            total_weight: float, total_amount: float,
                            contact: str = '') -> str:
-    """상세 정산 문자 본문 생성 (LMS 장문용, 품목별 내역 포함)
+    """상세 정산 문자 본문 생성 (LMS 장문용, 일별 수거 내역 포함)
     Args:
-        item_details: [{'item_type': '음식물', 'weight': 100.0, 'unit_price': 100, 'amount': 10000}, ...]
+        rows: 수거 데이터 리스트 [{'collect_date': '2026-03-05', 'item_type': '음식물', 'weight': 50.0, ...}, ...]
     """
     vat = total_amount * 0.1
     total_with_vat = total_amount + vat
@@ -145,16 +145,23 @@ def build_detail_sms_text(vendor_name: str, school: str,
         f"\n"
     )
 
-    # 품목별 상세
-    for item in item_details:
-        itype = item.get('item_type', '')
-        iweight = float(item.get('weight', 0))
-        iprice = float(item.get('unit_price', 0))
-        iamount = float(item.get('amount', 0))
-        text += f"· {itype}: {iweight:,.1f}kg × {iprice:,.0f}원 = {iamount:,.0f}원\n"
+    # 일별 수거 내역 (날짜순 정렬)
+    sorted_rows = sorted(rows, key=lambda r: r.get('collect_date', ''))
+    for r in sorted_rows:
+        rdate = r.get('collect_date', '')
+        # 날짜에서 월-일만 표시 (2026-03-05 → 3/5)
+        try:
+            parts = rdate.split('-')
+            short_date = f"{int(parts[1])}/{int(parts[2])}"
+        except (IndexError, ValueError):
+            short_date = rdate
+        itype = r.get('item_type', '')
+        w = float(r.get('weight', 0))
+        text += f"{short_date} {itype} {w:,.1f}kg\n"
 
     text += (
         f"\n"
+        f"총 수거량: {total_weight:,.1f}kg\n"
         f"공급가액: {total_amount:,.0f}원\n"
         f"VAT(10%): {vat:,.0f}원\n"
         f"합계: {total_with_vat:,.0f}원\n"
