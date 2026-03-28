@@ -976,5 +976,21 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 65
+  },
+  {
+    "vendor": "hy",
+    "name": "송호고등학교",
+    "biz_no": "134-83-02191",
+    "rep": "학교장",
+    "addr": "경기도 안산시 상록구 광덕3로296",
+    "biz_type": "비영리",
+    "biz_item": "학교",
+    "email": "songho296@korea.kr",
+    "phone": "",
+    "cust_type": "학교",
+    "price_food": 180.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 66
   }
 ]
