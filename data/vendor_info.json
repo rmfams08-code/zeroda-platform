@@ -1,12 +1,3 @@
 [
-  {
-    "vendor": "hy",
-    "biz_name": "하영자원",
-    "rep": "정석완",
-    "biz_no": "405-11-42991",
-    "address": "경기도 화성시 남양읍 남양성지로219, 2층",
-    "contact": "010-3114-4030",
-    "email": "hyrecycling@naver.com",
-    "id": 1
-  }
+  {"vendor":"hy","biz_name":"하영자원","rep":"정석완","biz_no":"405-11-42991","address":"경기도 화성시 남양읍 남양성지로219, 2층","contact":"010-3114-4030","email":"hyrecycling@naver.com","id":1}
 ]

@@ -171,14 +171,20 @@ def github_upsert(table: str, data: dict):
 
 
 def github_delete(table: str, where_dict: dict):
-    """GitHub에서 조건에 맞는 행 삭제"""
+    """GitHub에서 조건에 맞는 행 삭제 (AND 조건: 모든 key-value 동시 일치하는 행만 삭제)"""
     rows, sha = _get_file(table)
     if not rows:
         return False
 
-    new_rows = rows.copy()
-    for k, v in where_dict.items():
-        new_rows = [r for r in new_rows if str(r.get(k, '')) != str(v)]
+    # AND 조건: where_dict의 모든 조건을 동시에 만족하는 행만 삭제
+    # 예) {'vendor': 'hy', 'month': '2026-03'} → vendor='hy' AND month='2026-03'인 행만 삭제
+    new_rows = [
+        r for r in rows
+        if not all(str(r.get(k, '')) == str(v) for k, v in where_dict.items())
+    ]
+
+    if len(new_rows) == len(rows):
+        return False  # 삭제 대상 없음
 
     success = _put_file(table, new_rows, sha)
     if success:
