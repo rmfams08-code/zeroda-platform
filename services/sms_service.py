@@ -1,6 +1,11 @@
 # services/sms_service.py
-# SOLAPI(CoolSMS) 공식 SDK 연동 - 거래명세서 문자 발송
+# SOLAPI REST API 직접 연동 - 거래명세서 문자 발송
 import os
+import hmac
+import hashlib
+import uuid
+import datetime
+import json
 
 
 def _get_coolsms_config():
@@ -12,7 +17,7 @@ def _get_coolsms_config():
     except Exception:
         api_key    = os.environ.get("COOLSMS_API_KEY", "")
         api_secret = os.environ.get("COOLSMS_API_SECRET", "")
-    return api_key, api_secret
+    return api_key.strip(), api_secret.strip()
 
 
 def _normalize_phone(phone: str) -> str:
@@ -25,14 +30,27 @@ def _normalize_phone(phone: str) -> str:
     return cleaned
 
 
+def _make_auth_header(api_key: str, api_secret: str) -> str:
+    """SOLAPI HMAC-SHA256 인증 헤더 생성 (UTC 기준)"""
+    date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    salt = uuid.uuid4().hex
+    data = date + salt
+    signature = hmac.new(
+        api_secret.encode('utf-8'),
+        data.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    return f"HMAC-SHA256 apiKey={api_key}, date={date}, salt={salt}, signature={signature}"
+
+
 def send_statement_sms(to_phone: str, message: str,
                        from_phone: str = '') -> tuple:
     """
-    거래명세서 문자(LMS) 발송 - SOLAPI 공식 SDK 사용
+    거래명세서 문자 발송 - SOLAPI REST API 직접 호출
     Args:
         to_phone:   수신 전화번호
-        message:    메시지 본문 (2,000자 이내 → LMS 자동)
-        from_phone: 발신 전화번호 (CoolSMS에 등록된 번호)
+        message:    메시지 본문
+        from_phone: 발신 전화번호 (SOLAPI에 등록된 번호)
     Returns: (success: bool, message: str)
     """
     api_key, api_secret = _get_coolsms_config()
@@ -45,32 +63,75 @@ def send_statement_sms(to_phone: str, message: str,
 
     from_clean = _normalize_phone(from_phone)
     if not from_clean or len(from_clean) < 10:
-        return False, "발신 전화번호가 없습니다. CoolSMS에 등록된 발신번호를 입력하세요."
+        return False, "발신 전화번호가 없습니다. SOLAPI에 등록된 발신번호를 입력하세요."
 
     try:
-        from solapi import SolapiMessageService
-        from solapi.model.request.message import Message
+        import httpx
 
-        message_service = SolapiMessageService(api_key, api_secret)
+        auth_header = _make_auth_header(api_key, api_secret)
+        headers = {
+            "Authorization": auth_header,
+            "Content-Type": "application/json",
+        }
 
-        # 90바이트 이하 → SMS(단문), 초과 → LMS(장문) 자동 판별
-        msg = Message(
-            to=to_clean,
-            **{'from': from_clean},
-            text=message,
-            auto_type_detect=True,
-        )
-        result = message_service.send(msg)
+        payload = {
+            "message": {
+                "to": to_clean,
+                "from": from_clean,
+                "text": message,
+            }
+        }
 
-        # 응답 확인
-        if hasattr(result, 'count') and hasattr(result.count, 'registered_failed'):
-            if result.count.registered_failed and result.count.registered_failed > 0:
-                return False, f"❌ 발송 실패: {result.count.registered_failed}건 실패"
-        group_id = getattr(result, 'group_id', '') or ''
-        return True, f"✅ {to_phone} 으로 문자 발송 완료 (GroupID: {group_id})"
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                "https://api.solapi.com/messages/v4/send",
+                headers=headers,
+                json=payload,
+            )
+
+        result = resp.json()
+
+        if resp.status_code >= 400:
+            err_code = result.get('errorCode', '')
+            err_msg = result.get('errorMessage', '알 수 없는 오류')
+            return False, f"❌ SOLAPI 오류 ({err_code}): {err_msg}"
+
+        # 성공 응답
+        group_id = result.get('groupId', '')
+        msg_id = result.get('messageId', '')
+        status_code = result.get('statusCode', '')
+        return True, f"✅ {to_phone} 으로 문자 발송 완료 (ID: {msg_id or group_id})"
 
     except ImportError:
-        return False, "❌ solapi 패키지 미설치. requirements.txt에 solapi를 추가하세요."
+        # httpx 없으면 urllib 사용
+        try:
+            import urllib.request
+            auth_header = _make_auth_header(api_key, api_secret)
+            payload = json.dumps({
+                "message": {
+                    "to": to_clean,
+                    "from": from_clean,
+                    "text": message,
+                }
+            }).encode('utf-8')
+
+            req = urllib.request.Request(
+                "https://api.solapi.com/messages/v4/send",
+                data=payload,
+                headers={
+                    "Authorization": auth_header,
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            resp = urllib.request.urlopen(req, timeout=10)
+            result = json.loads(resp.read().decode())
+            msg_id = result.get('messageId', '')
+            return True, f"✅ {to_phone} 으로 문자 발송 완료 (ID: {msg_id})"
+
+        except Exception as e2:
+            return False, f"❌ 문자 발송 실패: {e2}"
+
     except Exception as e:
         err_str = str(e)
         return False, f"❌ 문자 발송 실패: {err_str}"
