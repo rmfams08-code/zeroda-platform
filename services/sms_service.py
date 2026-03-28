@@ -49,24 +49,25 @@ def send_statement_sms(to_phone: str, message: str,
 
     try:
         from solapi import SolapiMessageService
+        from solapi.model.request.message import Message
 
         message_service = SolapiMessageService(api_key, api_secret)
-        result = message_service.send_one({
-            'to': to_clean,
-            'from': from_clean,
-            'text': message,
-        })
+
+        # 90바이트 이하 → SMS(단문), 초과 → LMS(장문) 자동 판별
+        msg = Message(
+            to=to_clean,
+            **{'from': from_clean},
+            text=message,
+            auto_type_detect=True,
+        )
+        result = message_service.send(msg)
 
         # 응답 확인
-        if isinstance(result, dict):
-            status_code = result.get('statusCode')
-            if status_code and str(status_code).startswith(('4', '5')):
-                err_msg = result.get('statusMessage', '') or result.get('errorMessage', '알 수 없는 오류')
-                return False, f"❌ 발송 실패: {err_msg}"
-            group_id = result.get('groupId', '')
-            msg_id = result.get('messageId', '')
-            return True, f"✅ {to_phone} 으로 문자 발송 완료 (ID: {msg_id or group_id})"
-        return True, f"✅ {to_phone} 으로 문자 발송 완료"
+        if hasattr(result, 'count') and hasattr(result.count, 'registered_failed'):
+            if result.count.registered_failed and result.count.registered_failed > 0:
+                return False, f"❌ 발송 실패: {result.count.registered_failed}건 실패"
+        group_id = getattr(result, 'group_id', '') or ''
+        return True, f"✅ {to_phone} 으로 문자 발송 완료 (GroupID: {group_id})"
 
     except ImportError:
         return False, "❌ solapi 패키지 미설치. requirements.txt에 solapi를 추가하세요."
