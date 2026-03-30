@@ -1350,5 +1350,21 @@
     "submitted_at": "2026-03-30 19:50:00",
     "created_at": "2026-03-30 19:50:00",
     "id": 85
+  },
+  {
+    "vendor": "hy",
+    "school_name": "송호고등학교",
+    "collect_date": "2026-03-30",
+    "collect_time": "19:47",
+    "item_type": "음식물",
+    "weight": 320.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-30 19:58:26",
+    "created_at": "2026-03-30 19:58:26",
+    "id": 86
   }
 ]
