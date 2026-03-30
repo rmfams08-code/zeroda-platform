@@ -1322,5 +1322,17 @@
     "status": "confirmed",
     "created_at": "2026-03-28 13:30:50",
     "id": 83
+  },
+  {
+    "vendor": "dj",
+    "school_name": "평택초등학교",
+    "collect_date": "2026-03-30",
+    "item_type": "음식물",
+    "weight": 120.0,
+    "driver": "",
+    "memo": "",
+    "status": "confirmed",
+    "created_at": "2026-03-30 01:13:36",
+    "id": 84
   }
 ]
