@@ -130,5 +130,16 @@
     "registered_by": "admin",
     "created_at": "2026-03-28 21:57:58",
     "id": 12
+  },
+  {
+    "vendor": "dj",
+    "month": "2026-03",
+    "weekdays": "[\"화\", \"목\", \"토\"]",
+    "schools": "[\"평택초등학교\"]",
+    "items": "[\"음식물\"]",
+    "driver": "",
+    "registered_by": "admin",
+    "created_at": "2026-03-30 10:12:28",
+    "id": 13
   }
 ]
