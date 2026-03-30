@@ -1,3 +1,22 @@
 [
-  {"vendor":"hy","biz_name":"하영자원","rep":"정석완","biz_no":"405-11-42991","address":"경기도 화성시 남양읍 남양성지로219, 2층","contact":"010-3114-4030","email":"hyrecycling@naver.com","id":1}
+  {
+    "vendor": "hy",
+    "biz_name": "하영자원",
+    "rep": "정석완",
+    "biz_no": "405-11-42991",
+    "address": "경기도 화성시 남양읍 남양성지로219, 2층",
+    "contact": "010-3114-4030",
+    "email": "hyrecycling@naver.com",
+    "id": 1
+  },
+  {
+    "vendor": "dj",
+    "biz_name": "더존환경",
+    "rep": "조숙현",
+    "biz_no": "388-14-01075",
+    "address": "경기도 평택시 서탄로 297, 2층",
+    "contact": "010-2429-9069",
+    "email": "ansdudska4@naver.com",
+    "id": 2
+  }
 ]
