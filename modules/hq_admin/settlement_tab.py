@@ -155,19 +155,20 @@ def _render_send_settlement():
 
     # ── 수급자(학교) 정보 ────────────────
     st.markdown("#### 수급자 정보 (학교)")
+    _skp = school.replace(" ", "_")  # key prefix — 학교 변경 시 위젯 자동 초기화
     _bi_col1, _bi_col2 = st.columns(2)
     with _bi_col1:
         to_email = st.text_input("수신 이메일",
-                                  value=_biz_info.get('이메일', ''), key="send_email")
-        _rep     = st.text_input("대표자", value=_biz_info.get('대표자', ''), key="send_rep")
-        _biz_no  = st.text_input("사업자번호", value=_biz_info.get('사업자번호', ''), key="send_bizno")
+                                  value=_biz_info.get('이메일', ''), key=f"send_email_{_skp}")
+        _rep     = st.text_input("대표자", value=_biz_info.get('대표자', ''), key=f"send_rep_{_skp}")
+        _biz_no  = st.text_input("사업자번호", value=_biz_info.get('사업자번호', ''), key=f"send_bizno_{_skp}")
     with _bi_col2:
         to_phone  = st.text_input("수신 전화번호 (문자 발송용)",
-                                   value=_biz_info.get('전화번호', ''), key="send_phone",
+                                   value=_biz_info.get('전화번호', ''), key=f"send_phone_{_skp}",
                                    placeholder="010-0000-0000")
-        _addr     = st.text_input("주소", value=_biz_info.get('주소', ''), key="send_addr")
-        _biz_type = st.text_input("업태", value=_biz_info.get('업태', ''), key="send_btype")
-        _biz_item = st.text_input("종목", value=_biz_info.get('종목', ''), key="send_bitem")
+        _addr     = st.text_input("주소", value=_biz_info.get('주소', ''), key=f"send_addr_{_skp}")
+        _biz_type = st.text_input("업태", value=_biz_info.get('업태', ''), key=f"send_btype_{_skp}")
+        _biz_item = st.text_input("종목", value=_biz_info.get('종목', ''), key=f"send_bitem_{_skp}")
 
     # 입력값 반영
     _biz_info.update({
