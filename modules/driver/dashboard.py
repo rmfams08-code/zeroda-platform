@@ -127,7 +127,15 @@ def _render_voice_input(schools: list, school_key_prefix: str,
             }
     _gps_js = json.dumps(_gps_data, ensure_ascii=False)
 
-    # ── (A) 리스너 iframe 제거됨 — 음성 iframe에서 직접 URL 변경 ──
+    # ── (A) 숨겨진 text_input 브릿지 (JS→Python 통신용) ──
+    _bridge_key = f"{school_key_prefix}_voice_bridge"
+    _gps_bridge_key = f"{school_key_prefix}_gps_bridge"
+    # 브릿지 input 렌더 (CSS로 숨김)
+    st.markdown("""<style>[data-testid="stTextInput"][data-st-key$="_voice_bridge"],
+    [data-testid="stTextInput"][data-st-key$="_gps_bridge"]{position:absolute;left:-9999px;height:0;overflow:hidden;}</style>""",
+    unsafe_allow_html=True)
+    st.text_input("voice_bridge", value="", key=_bridge_key, label_visibility="collapsed")
+    st.text_input("gps_bridge", value="", key=_gps_bridge_key, label_visibility="collapsed")
 
     # ── (B) 음성인식 + confirm 팝업 컴포넌트 ──
     _html = f"""
@@ -359,6 +367,34 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       return null;
     }}
 
+    // ── 부모 DOM의 숨겨진 input에 값 설정 → Streamlit rerun 유발 ──
+    function setBridgeValue(bridgeKeySuffix, jsonStr) {{
+      try {{
+        const doc = window.parent.document;
+        // data-st-key 속성으로 정확한 input 탐색
+        const container = doc.querySelector(
+          '[data-testid="stTextInput"][data-st-key$="' + bridgeKeySuffix + '"]'
+        );
+        if (!container) {{ console.error('Bridge not found:', bridgeKeySuffix); return false; }}
+        const inp = container.querySelector('input');
+        if (!inp) {{ console.error('Input not found in bridge'); return false; }}
+        // React 내부 value setter 사용 (React onChange 트리거)
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, 'value'
+        ).set;
+        setter.call(inp, jsonStr);
+        inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        // 약간 지연 후 change 이벤트도 발생 (Streamlit 확실한 감지)
+        setTimeout(function() {{
+          inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }}, 50);
+        return true;
+      }} catch(ex) {{
+        console.error('setBridgeValue error:', ex);
+        return false;
+      }}
+    }}
+
     function applyVoiceResult(school, item, weight) {{
       const el   = document.getElementById('mic-result');
       const btn  = document.getElementById('mic-btn');
@@ -366,7 +402,7 @@ def _render_voice_input(schools: list, school_key_prefix: str,
 
       // ── 카운트 타이머 + 프로그레스바 ──
       let sec = 0;
-      const MAX_SEC = 5;  // 예상 최대 소요시간
+      const MAX_SEC = 3;
       function updateUI() {{
         sec++;
         const pct = Math.min(100, Math.round((sec / MAX_SEC) * 100));
@@ -384,26 +420,19 @@ def _render_voice_input(schools: list, school_key_prefix: str,
           + '<b>' + sec + '초</b></div></div>';
         btn.textContent = '⏳ 전송 중... ' + sec + '초';
       }}
-      updateUI();  // 즉시 1초 표시
+      updateUI();
       const timer = setInterval(updateUI, 1000);
 
-      // 직접 부모 URL 파라미터 설정 → 즉시 리로드
-      // (리로드되면 iframe 파괴 → timer 자동 종료)
-      try {{
-        const url = new URL(window.parent.location.href);
-        url.searchParams.set('_vc', '1');
-        url.searchParams.set('_vc_school', school);
-        url.searchParams.set('_vc_weight', weight.toString());
-        url.searchParams.set('_vc_item', item);
-        window.parent.location.replace(url.toString());
-      }} catch(ex) {{
-        // fallback: postMessage (혹시 cross-origin 제한 시)
-        window.parent.postMessage({{
-          type: 'VOICE_CONFIRMED',
-          school: school,
-          item: item,
-          weight: weight
-        }}, '*');
+      // 숨겨진 input에 JSON 전달 → Streamlit rerun → Python에서 DB 저장
+      const data = JSON.stringify({{s: school, i: item, w: weight}});
+      const ok = setBridgeValue('_voice_bridge', data);
+      if (ok) {{
+        setTimeout(function() {{ clearInterval(timer); }}, 3000);
+      }} else {{
+        clearInterval(timer);
+        el.innerHTML = '<div style="color:#ea4335;font-weight:700;">⚠️ 전송 실패 — 다시 시도해주세요</div>';
+        btn.disabled = false;
+        btn.textContent = '🎤 다시 입력하기';
       }}
     }}
 
@@ -655,18 +684,18 @@ def render_dashboard(user: dict):
     today_str   = str(today)
     today_wd    = WEEKDAY_MAP[today.weekday()]
 
-    # ── 음성인식 자동입력 수신 처리 ──────────────────
-    _vc_params = st.query_params
-    if _vc_params.get('_vc') == '1':
-        _vc_school = _vc_params.get('_vc_school', '')
-        _vc_weight_str = _vc_params.get('_vc_weight', '0')
-        _vc_item = _vc_params.get('_vc_item', '음식물')
-        # 쿼리 파라미터 즉시 제거 (재진입 방지)
-        st.query_params.clear()
+    # ── 음성인식 자동입력 수신 처리 (session_state 브릿지 방식) ──
+    _vb_val = st.session_state.get("drv_voice_bridge", "")
+    if _vb_val and _vb_val.strip().startswith("{"):
         try:
-            _vc_weight = float(_vc_weight_str)
-        except (ValueError, TypeError):
-            _vc_weight = 0.0
+            _vb = json.loads(_vb_val)
+            _vc_school = _vb.get('s', '')
+            _vc_weight = float(_vb.get('w', 0))
+            _vc_item = _vb.get('i', '음식물')
+        except (json.JSONDecodeError, ValueError, TypeError):
+            _vc_school, _vc_weight, _vc_item = '', 0.0, '음식물'
+        # 브릿지 즉시 초기화 (재진입 방지)
+        st.session_state["drv_voice_bridge"] = ""
         if _vc_school and _vc_weight > 0:
             # ── 자동 본사전송: DB에 바로 submitted 상태로 저장 ──
             _vc_time = datetime.now(ZoneInfo('Asia/Seoul')).strftime("%H:%M")
@@ -700,22 +729,22 @@ def render_dashboard(user: dict):
                 {"date": today, "weight": 0.0, "item": _vc_item}
             ]
 
-    # ── GPS 좌표 저장 수신 처리 ──────────────────
-    if _vc_params.get('_gps_save') == '1':
-        _gps_school = _vc_params.get('_gps_school', '')
-        _gps_lat = _vc_params.get('_gps_lat', '0')
-        _gps_lng = _vc_params.get('_gps_lng', '0')
-        st.query_params.clear()
+    # ── GPS 좌표 저장 수신 처리 (session_state 브릿지 방식) ──
+    _gb_val = st.session_state.get("drv_gps_bridge", "")
+    if _gb_val and _gb_val.strip().startswith("{"):
         try:
-            _lat = float(_gps_lat)
-            _lng = float(_gps_lng)
-            if _gps_school and _lat != 0 and _lng != 0:
-                save_customer_gps(vendor, _gps_school, _lat, _lng)
-                st.session_state["_voice_success"] = (
-                    f"📍 위치 저장 완료: {_gps_school} ({_lat:.6f}, {_lng:.6f})"
-                )
-        except (ValueError, TypeError):
-            pass
+            _gb = json.loads(_gb_val)
+            _gps_school = _gb.get('school', '')
+            _gps_lat = float(_gb.get('lat', 0))
+            _gps_lng = float(_gb.get('lng', 0))
+        except (json.JSONDecodeError, ValueError, TypeError):
+            _gps_school, _gps_lat, _gps_lng = '', 0, 0
+        st.session_state["drv_gps_bridge"] = ""
+        if _gps_school and _gps_lat != 0 and _gps_lng != 0:
+            save_customer_gps(vendor, _gps_school, _gps_lat, _gps_lng)
+            st.session_state["_voice_success"] = (
+                f"📍 위치 저장 완료: {_gps_school} ({_gps_lat:.6f}, {_gps_lng:.6f})"
+            )
 
     # 음성입력 성공 알림 (rerun 후 1회 표시)
     _voice_msg = st.session_state.pop("_voice_success", None)
@@ -1022,18 +1051,42 @@ def render_dashboard(user: dict):
                     _gps_save_html = f"""
                     <button onclick="
                       if (navigator.geolocation) {{
-                        this.textContent = '📍 위치 확인 중...';
-                        this.disabled = true;
+                        var btn = this;
+                        btn.textContent = '📍 위치 확인 중...';
+                        btn.disabled = true;
                         navigator.geolocation.getCurrentPosition(
                           function(pos) {{
-                            var url = new URL(window.parent.location.href);
-                            url.searchParams.set('_gps_save', '1');
-                            url.searchParams.set('_gps_school', '{school}');
-                            url.searchParams.set('_gps_lat', pos.coords.latitude.toString());
-                            url.searchParams.set('_gps_lng', pos.coords.longitude.toString());
-                            window.parent.location.replace(url.toString());
+                            try {{
+                              var doc = window.parent.document;
+                              var container = doc.querySelector(
+                                '[data-testid=\\'stTextInput\\'][data-st-key$=\\'_gps_bridge\\']'
+                              );
+                              if (container) {{
+                                var inp = container.querySelector('input');
+                                if (inp) {{
+                                  var setter = Object.getOwnPropertyDescriptor(
+                                    window.HTMLInputElement.prototype, 'value'
+                                  ).set;
+                                  var data = JSON.stringify({{
+                                    school: '{school}',
+                                    lat: pos.coords.latitude,
+                                    lng: pos.coords.longitude
+                                  }});
+                                  setter.call(inp, data);
+                                  inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                  setTimeout(function() {{
+                                    inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                  }}, 50);
+                                  btn.textContent = '📍 저장 완료!';
+                                  return;
+                                }}
+                              }}
+                              alert('브릿지를 찾을 수 없습니다. 페이지를 새로고침 해주세요.');
+                            }} catch(ex) {{
+                              alert('위치 저장 오류: ' + ex.message);
+                            }}
                           }},
-                          function(err) {{ alert('위치 획득 실패: 위치 권한을 확인해 주세요'); }},
+                          function(err) {{ alert('위치 획득 실패: 위치 권한을 확인해 주세요'); btn.disabled = false; btn.textContent = '📍 현재 위치 저장 (첫 방문 시 1회)'; }},
                           {{ enableHighAccuracy: true, timeout: 5000 }}
                         );
                       }} else {{ alert('이 브라우저는 GPS를 지원하지 않습니다'); }}
