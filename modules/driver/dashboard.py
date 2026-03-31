@@ -130,12 +130,20 @@ def _render_voice_input(schools: list, school_key_prefix: str,
     # ── (A) 숨겨진 text_input 브릿지 (JS→Python 통신용) ──
     _bridge_key = f"{school_key_prefix}_voice_bridge"
     _gps_bridge_key = f"{school_key_prefix}_gps_bridge"
-    # 브릿지 input 렌더 (CSS로 숨김)
-    st.markdown("""<style>[data-testid="stTextInput"][data-st-key$="_voice_bridge"],
-    [data-testid="stTextInput"][data-st-key$="_gps_bridge"]{position:absolute;left:-9999px;height:0;overflow:hidden;}</style>""",
-    unsafe_allow_html=True)
-    st.text_input("voice_bridge", value="", key=_bridge_key, label_visibility="collapsed")
-    st.text_input("gps_bridge", value="", key=_gps_bridge_key, label_visibility="collapsed")
+    # 브릿지 input 렌더 (aria-label 기반 CSS 숨김)
+    st.markdown("""<style>
+    .voice-bridge-hide { position:absolute !important; left:-9999px !important;
+      height:0 !important; overflow:hidden !important; margin:0 !important; padding:0 !important; }
+    </style>""", unsafe_allow_html=True)
+    _vb_col1, _vb_col2 = st.columns(2)
+    with _vb_col1:
+        st.markdown('<div class="voice-bridge-hide">', unsafe_allow_html=True)
+        st.text_input("_vc_data_", value="", key=_bridge_key, label_visibility="collapsed")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with _vb_col2:
+        st.markdown('<div class="voice-bridge-hide">', unsafe_allow_html=True)
+        st.text_input("_gps_data_", value="", key=_gps_bridge_key, label_visibility="collapsed")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ── (B) 음성인식 + confirm 팝업 컴포넌트 ──
     _html = f"""
@@ -368,26 +376,26 @@ def _render_voice_input(schools: list, school_key_prefix: str,
     }}
 
     // ── 부모 DOM의 숨겨진 input에 값 설정 → Streamlit rerun 유발 ──
-    function setBridgeValue(bridgeKeySuffix, jsonStr) {{
+    function setBridgeValue(ariaLabel, jsonStr) {{
       try {{
         const doc = window.parent.document;
-        // data-st-key 속성으로 정확한 input 탐색
-        const container = doc.querySelector(
-          '[data-testid="stTextInput"][data-st-key$="' + bridgeKeySuffix + '"]'
-        );
-        if (!container) {{ console.error('Bridge not found:', bridgeKeySuffix); return false; }}
-        const inp = container.querySelector('input');
-        if (!inp) {{ console.error('Input not found in bridge'); return false; }}
+        // aria-label 속성으로 input 직접 탐색
+        const inp = doc.querySelector('input[aria-label="' + ariaLabel + '"]');
+        if (!inp) {{
+          console.error('Bridge input not found:', ariaLabel);
+          return false;
+        }}
         // React 내부 value setter 사용 (React onChange 트리거)
-        const setter = Object.getOwnPropertyDescriptor(
+        const nativeSetter = Object.getOwnPropertyDescriptor(
           window.HTMLInputElement.prototype, 'value'
         ).set;
-        setter.call(inp, jsonStr);
+        nativeSetter.call(inp, jsonStr);
         inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-        // 약간 지연 후 change 이벤트도 발생 (Streamlit 확실한 감지)
+        // 약간 지연 후 change·blur 이벤트도 발생 (Streamlit 확실한 감지)
         setTimeout(function() {{
           inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
-        }}, 50);
+          inp.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+        }}, 100);
         return true;
       }} catch(ex) {{
         console.error('setBridgeValue error:', ex);
@@ -425,7 +433,7 @@ def _render_voice_input(schools: list, school_key_prefix: str,
 
       // 숨겨진 input에 JSON 전달 → Streamlit rerun → Python에서 DB 저장
       const data = JSON.stringify({{s: school, i: item, w: weight}});
-      const ok = setBridgeValue('_voice_bridge', data);
+      const ok = setBridgeValue('_vc_data_', data);
       if (ok) {{
         setTimeout(function() {{ clearInterval(timer); }}, 3000);
       }} else {{
@@ -1058,30 +1066,26 @@ def render_dashboard(user: dict):
                           function(pos) {{
                             try {{
                               var doc = window.parent.document;
-                              var container = doc.querySelector(
-                                '[data-testid=\\'stTextInput\\'][data-st-key$=\\'_gps_bridge\\']'
-                              );
-                              if (container) {{
-                                var inp = container.querySelector('input');
-                                if (inp) {{
-                                  var setter = Object.getOwnPropertyDescriptor(
-                                    window.HTMLInputElement.prototype, 'value'
-                                  ).set;
-                                  var data = JSON.stringify({{
-                                    school: '{school}',
-                                    lat: pos.coords.latitude,
-                                    lng: pos.coords.longitude
-                                  }});
-                                  setter.call(inp, data);
-                                  inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                  setTimeout(function() {{
-                                    inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                  }}, 50);
-                                  btn.textContent = '📍 저장 완료!';
-                                  return;
-                                }}
+                              var inp = doc.querySelector('input[aria-label=\\'_gps_data_\\']');
+                              if (inp) {{
+                                var nativeSetter = Object.getOwnPropertyDescriptor(
+                                  window.HTMLInputElement.prototype, 'value'
+                                ).set;
+                                var data = JSON.stringify({{
+                                  school: '{school}',
+                                  lat: pos.coords.latitude,
+                                  lng: pos.coords.longitude
+                                }});
+                                nativeSetter.call(inp, data);
+                                inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                setTimeout(function() {{
+                                  inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                  inp.dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                                }}, 100);
+                                btn.textContent = '📍 저장 완료!';
+                              }} else {{
+                                alert('브릿지를 찾을 수 없습니다. 페이지를 새로고침 해주세요.');
                               }}
-                              alert('브릿지를 찾을 수 없습니다. 페이지를 새로고침 해주세요.');
                             }} catch(ex) {{
                               alert('위치 저장 오류: ' + ex.message);
                             }}
