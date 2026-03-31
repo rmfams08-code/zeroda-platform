@@ -1446,5 +1446,21 @@
     "submitted_at": "2026-03-31 11:10:06",
     "created_at": "2026-03-31 11:10:06",
     "id": 91
+  },
+  {
+    "vendor": "dj",
+    "school_name": "평택초등학교",
+    "collect_date": "2026-03-31",
+    "collect_time": "11:10",
+    "item_type": "음식물",
+    "weight": 240.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "더존기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-03-31 11:10:08",
+    "created_at": "2026-03-31 11:10:08",
+    "id": 92
   }
 ]
