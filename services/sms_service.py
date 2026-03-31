@@ -9,15 +9,17 @@ import json
 
 
 def _get_coolsms_config():
-    """CoolSMS/SOLAPI API 인증정보 조회"""
+    """CoolSMS/SOLAPI API 인증정보 + 대표 발신번호 조회"""
     try:
         import streamlit as st
         api_key    = st.secrets.get("COOLSMS_API_KEY", "")
         api_secret = st.secrets.get("COOLSMS_API_SECRET", "")
+        main_phone = st.secrets.get("COOLSMS_SENDER_PHONE", "")
     except Exception:
         api_key    = os.environ.get("COOLSMS_API_KEY", "")
         api_secret = os.environ.get("COOLSMS_API_SECRET", "")
-    return api_key.strip(), api_secret.strip()
+        main_phone = os.environ.get("COOLSMS_SENDER_PHONE", "")
+    return api_key.strip(), api_secret.strip(), main_phone.strip()
 
 
 def _normalize_phone(phone: str) -> str:
@@ -44,16 +46,21 @@ def _make_auth_header(api_key: str, api_secret: str) -> str:
 
 
 def send_statement_sms(to_phone: str, message: str,
-                       from_phone: str = '') -> tuple:
+                       from_phone: str = '',
+                       vendor_name: str = '',
+                       vendor_contact: str = '') -> tuple:
     """
     거래명세서 문자 발송 - SOLAPI REST API 직접 호출
+    ※ 발신번호는 항상 하영자원 대표번호(COOLSMS_SENDER_PHONE)로 고정
     Args:
-        to_phone:   수신 전화번호
-        message:    메시지 본문
-        from_phone: 발신 전화번호 (SOLAPI에 등록된 번호)
+        to_phone:       수신 전화번호
+        message:        메시지 본문
+        from_phone:     (무시됨, 하위호환용) → 대표번호로 대체
+        vendor_name:    외주업체명 (본문 하단에 표시)
+        vendor_contact: 외주업체 연락처 (본문 하단에 표시)
     Returns: (success: bool, message: str)
     """
-    api_key, api_secret = _get_coolsms_config()
+    api_key, api_secret, main_phone = _get_coolsms_config()
     if not api_key or not api_secret:
         return False, "CoolSMS 설정 없음. Secrets에 COOLSMS_API_KEY, COOLSMS_API_SECRET을 등록하세요."
 
@@ -61,9 +68,17 @@ def send_statement_sms(to_phone: str, message: str,
     if not to_clean or len(to_clean) < 10:
         return False, f"수신 전화번호가 올바르지 않습니다: {to_phone}"
 
-    from_clean = _normalize_phone(from_phone)
+    # 발신번호: 항상 하영자원 대표번호 (Secrets에 등록된 COOLSMS_SENDER_PHONE)
+    from_clean = _normalize_phone(main_phone)
     if not from_clean or len(from_clean) < 10:
-        return False, "발신 전화번호가 없습니다. SOLAPI에 등록된 발신번호를 입력하세요."
+        return False, "대표 발신번호가 없습니다. Secrets에 COOLSMS_SENDER_PHONE을 등록하세요."
+
+    # 본문 하단에 실제 외주업체 정보 추가
+    if vendor_name:
+        footer = f"\n\n─────────────\n담당: {vendor_name}"
+        if vendor_contact:
+            footer += f" ({vendor_contact})"
+        message = message + footer
 
     try:
         import httpx

@@ -159,8 +159,9 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(P("■ 수거 내역", size=11, color=BLUE))
     story.append(Spacer(1, 2*mm))
 
-    header = ['날짜', '학교명', '품목', '수거량(kg)', '단가(원)', '금액(원)']
-    tdata = [[P(h, size=9, align=1, color=colors.white) for h in header]]
+    header = ['날짜', '품목', '수거량\n(kg)', '단가\n(원)', '금액\n(원)',
+              '재활용방법', '재활용자\n(처리자)', '수집운반자', '비고']
+    tdata = [[P(h, size=7, align=1, color=colors.white) for h in header]]
 
     # customer_info에서 학교별 품목 단가 조회 (load_customers_from_db 방식)
     try:
@@ -184,14 +185,17 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     except Exception:
         _price_cache = {}
 
+    # 재활용방법 매핑 (품목 → 재활용방법)
+    _recycle_method_map = {
+        '음식물': '퇴비화및비료생산', '음식물쓰레기': '퇴비화및비료생산',
+        '재활용': '선별 후 재활용', '일반': '소각/매립', '사업장폐기물': '소각/매립',
+    }
+
     total_weight = 0.0
     total_amount = 0.0
 
     for r in rows:
         weight     = float(r.get('weight') or r.get('음식물(kg)') or 0)
-        # 1순위: customer_info 단가 (실시간 조회)
-        # 2순위: real_collection 저장값
-        # 3순위: 0
         _item = str(
             r.get('item_type', '')
             or r.get('품목', '')
@@ -206,33 +210,52 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
         amount     = round(weight * unit_price, 0)
         total_weight += weight
         total_amount += amount
+
+        # 재활용방법: row에 직접 있으면 사용, 없으면 품목별 기본값
+        _r_method = str(r.get('recycle_method', r.get('재활용방법', '')) or '')
+        if not _r_method:
+            _r_method = _recycle_method_map.get(_item, '')
+        # 재활용자(처리자): row에 직접 있으면 사용
+        _r_recycler = str(r.get('recycler', r.get('재활용자', '')) or '')
+        # 수집운반자: row에 직접 있으면 사용, 없으면 공급자(업체)
+        _r_collector = str(r.get('collector', r.get('수집운반자', '')) or '')
+        if not _r_collector:
+            _r_collector = vendor_info.get('biz_name', vendor)
+        # 비고: 기사 특이사항 메모
+        _r_memo = str(r.get('memo', r.get('비고', '')) or '')
+
         tdata.append([
-            P(str(r.get('collect_date', r.get('날짜', ''))), size=8),
-            P(str(r.get('school_name', r.get('학교명', school_name))), size=8),
-            P(str(r.get('item_type', r.get('재활용방법', ''))), size=8),
-            P(f"{weight:,.1f}", size=8, align=2),
-            P(f"{unit_price:,.0f}", size=8, align=2),
-            P(f"{amount:,.0f}", size=8, align=2),
+            P(str(r.get('collect_date', r.get('날짜', ''))), size=7),
+            P(_item, size=7, align=1),
+            P(f"{weight:,.1f}", size=7, align=2),
+            P(f"{unit_price:,.0f}", size=7, align=2),
+            P(f"{amount:,.0f}", size=7, align=2),
+            P(_r_method, size=6, align=1),
+            P(_r_recycler, size=6, align=1),
+            P(_r_collector, size=6, align=1),
+            P(_r_memo, size=6),
         ])
 
     # 합계 행
     tdata.append([
-        P('', size=9), P('합  계', size=9, align=1),
-        P('', size=9),
-        P(f"{total_weight:,.1f}", size=9, align=2),
-        P('', size=9),
-        P(f"{total_amount:,.0f}", size=9, align=2),
+        P('총  계', size=8, align=1), P('', size=8),
+        P(f"{total_weight:,.1f}", size=8, align=2),
+        P('', size=8),
+        P(f"{total_amount:,.0f}", size=8, align=2),
+        P('-', size=8, align=1), P('-', size=8, align=1),
+        P('-', size=8, align=1), P('', size=8),
     ])
 
-    cw = [28*mm, 42*mm, 28*mm, 24*mm, 22*mm, 26*mm]
-    detail_tbl = Table(tdata, colWidths=cw)
+    # A4 가로 폭(210mm) - 좌우마진(30mm) = 180mm
+    cw = [30*mm, 14*mm, 14*mm, 14*mm, 18*mm, 26*mm, 22*mm, 20*mm, 22*mm]
+    detail_tbl = Table(tdata, colWidths=cw, repeatRows=1)
     detail_tbl.setStyle(TableStyle([
         ('FONTNAME',   (0,0), (-1,-1), font),
         ('BACKGROUND', (0,0), (-1,0),  GREEN),
         ('BACKGROUND', (0,-1),(-1,-1), LGRAY),
         ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
         ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
-        ('PADDING',    (0,0), (-1,-1), 4),
+        ('PADDING',    (0,0), (-1,-1), 3),
         ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
     ]))
     story.append(detail_tbl)

@@ -314,13 +314,13 @@ def _render_vendor_send(vendor):
                     )
                     sms_text = build_summary_sms_text(
                         vinfo.get('biz_name', vendor), school,
-                        year, month, _total_w, _total_a,
-                        contact=v_contact
+                        year, month, _total_w, _total_a
                     )
                     with st.spinner("문자 발송 중..."):
                         success, msg = send_statement_sms(
                             to_phone, sms_text,
-                            from_phone=vinfo.get('contact', '')
+                            vendor_name=vinfo.get('biz_name', vendor),
+                            vendor_contact=v_contact
                         )
                     if success:
                         st.success(msg)
@@ -345,13 +345,13 @@ def _render_vendor_send(vendor):
                     )
                     sms_text = build_detail_sms_text(
                         vinfo.get('biz_name', vendor), school,
-                        year, month, rows, _total_w, _total_a,
-                        contact=v_contact
+                        year, month, rows, _total_w, _total_a
                     )
                     with st.spinner("상세 문자 발송 중..."):
                         success, msg = send_statement_sms(
                             to_phone, sms_text,
-                            from_phone=vinfo.get('contact', '')
+                            vendor_name=vinfo.get('biz_name', vendor),
+                            vendor_contact=v_contact
                         )
                     if success:
                         st.success(msg)

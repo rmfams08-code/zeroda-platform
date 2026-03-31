@@ -290,13 +290,13 @@ def _render_send_settlement():
                     _total_a = sum(float(r.get('amount', 0)) for r in rows)
                     sms_text = build_summary_sms_text(
                         vinfo.get('biz_name', vendor), _school_label,
-                        year, month, _total_w, _total_a,
-                        contact=_v_contact
+                        year, month, _total_w, _total_a
                     )
                     with st.spinner("문자 발송 중..."):
                         success, msg = send_statement_sms(
                             to_phone, sms_text,
-                            from_phone=vinfo.get('contact', '')
+                            vendor_name=vinfo.get('biz_name', vendor),
+                            vendor_contact=_v_contact
                         )
                     if success:
                         st.success(msg)
@@ -316,13 +316,13 @@ def _render_send_settlement():
                     _total_a = sum(float(r.get('amount', 0)) for r in rows)
                     sms_text = build_detail_sms_text(
                         vinfo.get('biz_name', vendor), _school_label,
-                        year, month, rows, _total_w, _total_a,
-                        contact=_v_contact
+                        year, month, rows, _total_w, _total_a
                     )
                     with st.spinner("상세 문자 발송 중..."):
                         success, msg = send_statement_sms(
                             to_phone, sms_text,
-                            from_phone=vinfo.get('contact', '')
+                            vendor_name=vinfo.get('biz_name', vendor),
+                            vendor_contact=_v_contact
                         )
                     if success:
                         st.success(msg)
