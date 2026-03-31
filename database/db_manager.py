@@ -293,6 +293,8 @@ def load_customers_from_db(vendor):
         '이메일': r.get('email', ''), '전화번호': r.get('phone', ''),
         '구분': r.get('cust_type', '학교'),
         '재활용자': r.get('recycler', ''),
+        'latitude':  float(r.get('latitude', 0) or 0),
+        'longitude': float(r.get('longitude', 0) or 0),
         'price_food':    float(r.get('price_food', 0) or 0),
         'price_recycle': float(r.get('price_recycle', 0) or 0),
         'price_general': float(r.get('price_general', 0) or 0),
@@ -311,9 +313,20 @@ def save_customer_to_db(vendor, name, info):
         'phone':     info.get('전화번호', ''),
         'cust_type': info.get('구분', '학교'),
         'recycler':  info.get('재활용자', ''),
+        'latitude':  float(info.get('latitude', 0) or 0),
+        'longitude': float(info.get('longitude', 0) or 0),
         'price_food':    float(info.get('price_food', 0) or 0),
         'price_recycle': float(info.get('price_recycle', 0) or 0),
         'price_general': float(info.get('price_general', 0) or 0),
+    })
+
+
+def save_customer_gps(vendor, name, lat, lng):
+    """거래처 GPS 좌표만 업데이트 (기사 현장 위치 저장용)"""
+    return db_upsert('customer_info', {
+        'vendor': vendor, 'name': name,
+        'latitude': float(lat),
+        'longitude': float(lng),
     })
 
 

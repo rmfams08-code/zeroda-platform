@@ -84,9 +84,9 @@ def _render_vendor_summary(vendor):
 
 
 def _render_vendor_send(vendor):
-    """외주업체 거래명세서 발송 (기존 기능 유지)"""
+    """외주업체 거래명세서 발송 — 구분별 필터 지원"""
     # ── 필터 ──────────────────────────────
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         year = st.selectbox("연도", [2024, 2025, 2026],
                             index=[2024,2025,2026].index(CURRENT_YEAR) if CURRENT_YEAR in [2024,2025,2026] else 1,
@@ -94,12 +94,30 @@ def _render_vendor_send(vendor):
     with col2:
         month = st.selectbox("월", list(range(1, 13)),
                              index=CURRENT_MONTH - 1, key="stmt_month")
-    with col3:
-        schools = get_schools_by_vendor(vendor)
-        if not schools:
-            st.warning("담당 학교가 없습니다.")
+
+    # ── 거래처 구분 필터 + 하위 거래처 선택 ──
+    _all_customers = load_customers_from_db(vendor)
+    _cust_type_options = ["학교", "기업", "관공서", "일반업장"]
+    col_t, col_s = st.columns(2)
+    with col_t:
+        _sel_type = st.selectbox("거래처 구분", _cust_type_options, key="stmt_cust_type")
+    with col_s:
+        # 선택한 구분에 해당하는 거래처 목록
+        _type_customers = [
+            name for name, info in _all_customers.items()
+            if str(info.get('구분', '학교')) == _sel_type
+        ]
+        if _sel_type == '학교':
+            # 학교는 기존 get_schools_by_vendor 목록과 합침
+            _school_list = get_schools_by_vendor(vendor)
+            _type_customers = sorted(set(_type_customers + _school_list))
+        else:
+            _type_customers = sorted(_type_customers)
+
+        if not _type_customers:
+            st.warning(f"'{_sel_type}' 구분의 등록된 거래처가 없습니다.")
             return
-        school = st.selectbox("학교 선택", schools, key="stmt_school")
+        school = st.selectbox("거래처 선택", _type_customers, key=f"stmt_cust_{_sel_type}")
 
     # ── 수거 데이터 조회 + 단가 보정 (공통 헬퍼 사용) ──
     from services.settlement_helpers import (
@@ -111,13 +129,15 @@ def _render_vendor_send(vendor):
             if r.get('vendor') == vendor
             and str(r.get('collect_date', '')).startswith(f"{year}-{month_str}")]
 
-    _all_customers = load_customers_from_db(vendor)
     _cust_info = get_customer_match(vendor, school, _all_customers)
     _price_map = build_price_map(_cust_info)
     if _price_map:
         rows = correct_row_prices(rows, _price_map)
 
     st.markdown(f"### {year}년 {month}월 · {school}")
+
+    # 면세/과세 판별 — 학교=면세, 그 외=부가세 10%
+    _is_school = (_sel_type == '학교')
 
     if rows:
         df = pd.DataFrame(rows)
@@ -129,29 +149,40 @@ def _render_vendor_send(vendor):
             (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
             for r in rows
         )
-        c1, c2 = st.columns(2)
-        with c1:
-            st.metric("총 수거량", f"{total_weight:,.1f} kg")
-        with c2:
-            st.metric("공급가액", f"{total_amount:,.0f} 원")
+        if _is_school:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("총 수거량", f"{total_weight:,.1f} kg")
+            with c2:
+                st.metric("공급가액 (면세)", f"{total_amount:,.0f} 원")
+        else:
+            _vat = round(total_amount * 0.1)
+            _total_with_vat = round(total_amount + _vat)
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("총 수거량", f"{total_weight:,.1f} kg")
+            with c2:
+                st.metric("공급가액", f"{total_amount:,.0f} 원")
+            with c3:
+                st.metric("부가세 (10%)", f"{_vat:,.0f} 원")
+            with c4:
+                st.metric("합계 (VAT포함)", f"{_total_with_vat:,.0f} 원")
     else:
         st.warning("해당 기간 수거 데이터가 없습니다. 데이터 입력 후 발송하세요.")
 
     st.divider()
 
-    # ── 수급자(학교) 정보 ─────────────────
-    customers = load_customers_from_db(vendor)
-    # customer_info 테이블 key가 'name' 컬럼 기준
-    biz_info = customers.get(school, {})
+    # ── 수급자(거래처) 정보 ─────────────────
+    biz_info = _all_customers.get(school, {})
     if not biz_info:
-        # school_name으로도 시도
-        for k, v in customers.items():
+        for k, v in _all_customers.items():
             if k == school or v.get('상호') == school:
                 biz_info = v
                 break
 
-    st.markdown("#### 수급자 정보 (학교)")
-    _skp = school.replace(" ", "_")  # key prefix — 학교 변경 시 위젯 자동 초기화
+    _type_label = "학교" if _is_school else _sel_type
+    st.markdown(f"#### 수급자 정보 ({_type_label})")
+    _skp = school.replace(" ", "_")  # key prefix — 거래처 변경 시 위젯 자동 초기화
     col1, col2 = st.columns(2)
     with col1:
         to_email = st.text_input("수신 이메일",
@@ -166,8 +197,8 @@ def _render_vendor_send(vendor):
         biz_type = st.text_input("업태", value=biz_info.get('업태', ''), key=f"stmt_btype_{_skp}")
         biz_item = st.text_input("종목", value=biz_info.get('종목', ''), key=f"stmt_bitem_{_skp}")
 
-    # 거래처 구분 (면세/과세 판단용)
-    _cust_type = _cust_info.get('구분', '학교')
+    # 거래처 구분 (면세/과세 판단용) — 필터에서 선택한 구분 사용
+    _cust_type = _sel_type
 
     # 수급자 정보 업데이트
     biz_info.update({

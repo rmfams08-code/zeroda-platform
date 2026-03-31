@@ -6,7 +6,7 @@ import urllib.parse
 import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-from database.db_manager import db_insert, db_get, get_schools_by_vendor
+from database.db_manager import db_insert, db_get, get_schools_by_vendor, save_customer_gps
 from config.settings import COMMON_CSS
 
 WEEKDAY_MAP = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
@@ -107,49 +107,42 @@ def _render_numpad(dr_key: str, school: str):
 import streamlit.components.v1 as components
 import re
 
-def _render_voice_input(schools: list, school_key_prefix: str):
+def _render_voice_input(schools: list, school_key_prefix: str,
+                        cust_gps_map: dict = None):
     """
     마이크 버튼 → 음성 인식 → '거래처명 품목 수거량' 파싱
     → confirm 팝업 → 확인 시 postMessage 로 부모에 전달
     → 숨겨진 리스너 컴포넌트가 session_state 에 저장 → 자동 입력
-    (하드 리로드 없음 — 튕김 현상 해결)
+    cust_gps_map: {거래처명: {cust_type, lat, lng}} — GPS 근접 매칭용
     """
     _schools_js = json.dumps(schools, ensure_ascii=False)
+    # GPS 좌표 + 구분 데이터를 JS로 전달
+    _gps_data = {}
+    if cust_gps_map:
+        for name, info in cust_gps_map.items():
+            _gps_data[name] = {
+                'type': info.get('cust_type', '학교'),
+                'lat': info.get('lat', 0),
+                'lng': info.get('lng', 0),
+            }
+    _gps_js = json.dumps(_gps_data, ensure_ascii=False)
 
     # ── (A) 메시지 수신 리스너 (부모 페이지에 삽입, 높이 0) ──
     _listener_html = """
     <script>
     window.addEventListener('message', function(e) {
       if (e.data && e.data.type === 'VOICE_CONFIRMED') {
-        // Streamlit 의 setComponentValue 가 없으므로
-        // hidden input → form submit 패턴으로 session_state 전달
         const d = e.data;
         const frame = window.parent;
         try {
-          // Streamlit 내부 API: query_params 를 soft 하게 설정
+          // URL 파라미터 설정 후 즉시 리로드 (가장 안정적)
           const url = new URL(frame.location.href);
           url.searchParams.set('_vc', '1');
           url.searchParams.set('_vc_school', d.school);
           url.searchParams.set('_vc_weight', d.weight.toString());
           url.searchParams.set('_vc_item', d.item);
-          // history.replaceState 는 페이지 리로드 없이 URL 만 변경
-          frame.history.replaceState(null, '', url.toString());
-          // Streamlit 의 soft rerun 트리거
-          // StreamlitのWidgetManager 에 rerun 시그널
-          const rerunBtn = frame.document.querySelector(
-            '[data-testid="stRerunButton"], [data-testid="stStatusWidget"] button'
-          );
-          if (rerunBtn) { rerunBtn.click(); }
-          else {
-            // fallback: 키보드 이벤트로 rerun
-            frame.document.dispatchEvent(
-              new KeyboardEvent('keydown', {key: 'r', ctrlKey: false})
-            );
-            // 최종 fallback: soft reload
-            setTimeout(function() { frame.location.reload(); }, 300);
-          }
+          frame.location.replace(url.toString());
         } catch(ex) {
-          // sandbox 제한 시 fallback
           frame.location.reload();
         }
       }
@@ -173,14 +166,128 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     </div>
     <script>
     const schools = {_schools_js};
+    const gpsData = {_gps_js};
     const itemKeywords = {{
       '음식물': ['음식물', '음식', '잔반', '급식'],
       '재활용': ['재활용', '분리수거', '페트', '캔'],
       '일반':   ['일반', '종량제', '생활']
     }};
+    // 키워드 → 거래처 구분 매핑 (GPS 근접 검색용)
+    const typeKeywords = {{
+      '학교': ['학교', '초등학교', '중학교', '고등학교', '초등', '중등', '고등'],
+      '기업': ['기업', '회사', '공장', '사무실', '오피스'],
+      '관공서': ['관공서', '구청', '시청', '주민센터', '동사무소', '관청'],
+      '일반업장': ['식당', '마트', '백화점', '매장', '업장', '가게', '편의점', '카페']
+    }};
     let recognition = null;
+    let currentGPS = null;  // {{lat, lng}} 현재 위치
+
+    // ── Haversine 거리 계산 (미터 단위) ──
+    function haversine(lat1, lng1, lat2, lng2) {{
+      const R = 6371000;
+      const toRad = x => x * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a = Math.sin(dLat/2)**2
+              + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2))
+              * Math.sin(dLng/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }}
+
+    // ── GPS 기반 근접 거래처 검색 ──
+    function findNearbyByKeyword(text) {{
+      if (!currentGPS) return null;
+      // 텍스트에서 구분 키워드 감지
+      let matchedType = null;
+      for (const [ctype, keywords] of Object.entries(typeKeywords)) {{
+        for (const kw of keywords) {{
+          if (text.includes(kw)) {{ matchedType = ctype; break; }}
+        }}
+        if (matchedType) break;
+      }}
+      if (!matchedType) return null;
+
+      // 해당 구분 + GPS 좌표 있는 거래처 → 거리 계산
+      const candidates = [];
+      for (const [name, info] of Object.entries(gpsData)) {{
+        if (info.type === matchedType && info.lat !== 0 && info.lng !== 0) {{
+          const dist = haversine(currentGPS.lat, currentGPS.lng, info.lat, info.lng);
+          candidates.push({{ name, dist, type: info.type }});
+        }}
+      }}
+      if (candidates.length === 0) return null;
+
+      // 거리순 정렬
+      candidates.sort((a, b) => a.dist - b.dist);
+
+      // 100m 이내 → 200m → 300m 자동 확장
+      for (const radius of [100, 200, 300]) {{
+        const nearby = candidates.filter(c => c.dist <= radius);
+        if (nearby.length > 0) {{
+          return {{ candidates: nearby, radius, keyword: matchedType }};
+        }}
+      }}
+      // 300m 초과 시 가장 가까운 1개라도 반환 (확인 필요)
+      if (candidates[0].dist <= 1000) {{
+        return {{ candidates: [candidates[0]], radius: Math.round(candidates[0].dist), keyword: matchedType }};
+      }}
+      return null;
+    }}
+
+    // ── GPS 획득 (음성 시작 시 자동 실행) ──
+    function acquireGPS() {{
+      if (navigator.geolocation) {{
+        navigator.geolocation.getCurrentPosition(
+          function(pos) {{
+            currentGPS = {{ lat: pos.coords.latitude, lng: pos.coords.longitude }};
+          }},
+          function(err) {{ currentGPS = null; }},
+          {{ enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 }}
+        );
+      }}
+    }}
+    // 페이지 로드 시 GPS 미리 획득
+    acquireGPS();
+
+    // ── 유사도 계산 (Levenshtein → 0~1 비율) ──
+    function levenshtein(a, b) {{
+      const m = a.length, n = b.length;
+      if (m === 0) return n;
+      if (n === 0) return m;
+      const d = Array.from({{length: m+1}}, (_, i) => [i]);
+      for (let j = 1; j <= n; j++) d[0][j] = j;
+      for (let i = 1; i <= m; i++) {{
+        for (let j = 1; j <= n; j++) {{
+          const cost = a[i-1] === b[j-1] ? 0 : 1;
+          d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost);
+        }}
+      }}
+      return d[m][n];
+    }}
+    function similarity(a, b) {{
+      const maxLen = Math.max(a.length, b.length);
+      if (maxLen === 0) return 1.0;
+      return 1.0 - levenshtein(a, b) / maxLen;
+    }}
+
+    // ── 한글 초성 추출 (ㄱ~ㅎ) ──
+    function getChosung(str) {{
+      const CHO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ',
+                   'ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+      let result = '';
+      for (const ch of str) {{
+        const code = ch.charCodeAt(0) - 0xAC00;
+        if (code >= 0 && code <= 11171) {{
+          result += CHO[Math.floor(code / 588)];
+        }} else {{
+          result += ch;
+        }}
+      }}
+      return result;
+    }}
 
     function findSchool(text) {{
+      // 1단계: 정확 매칭 (기존)
       let best = null, bestLen = 0;
       for (const s of schools) {{
         if (text.includes(s) && s.length > bestLen) {{
@@ -188,16 +295,73 @@ def _render_voice_input(schools: list, school_key_prefix: str):
           bestLen = s.length;
         }}
       }}
-      if (!best) {{
-        for (const s of schools) {{
-          const short = s.replace(/등학교|학교|중$|고$/, '');
-          if (short.length >= 2 && text.includes(short) && short.length > bestLen) {{
-            best = s;
-            bestLen = short.length;
+      if (best) return {{ name: best, confidence: 1.0, method: 'exact' }};
+
+      // 2단계: 단축명 매칭 — "송호고"→"송호고등학교", "송호중"→"송호중학교" 등
+      // 2-a: 음성 텍스트에서 "~고", "~중", "~초" 패턴 추출 → 풀네임 확장 시도
+      const shortPatterns = [
+        {{ suffix: '고', expand: ['고등학교'] }},
+        {{ suffix: '중', expand: ['중학교'] }},
+        {{ suffix: '초', expand: ['초등학교'] }},
+      ];
+      for (const sp of shortPatterns) {{
+        // 텍스트에서 "OO고", "OO중", "OO초" 패턴 찾기 (한글2~6자 + 고/중/초)
+        const re = new RegExp('([가-힣]{{2,6}})' + sp.suffix + '(?!등|학)', 'g');
+        let m;
+        while ((m = re.exec(text)) !== null) {{
+          const stem = m[1];  // 예: "송호"
+          for (const s of schools) {{
+            for (const ex of sp.expand) {{
+              if (s === stem + ex) {{
+                return {{ name: s, confidence: 0.97, method: 'short_expand' }};
+              }}
+            }}
           }}
         }}
       }}
-      return best;
+
+      // 2-b: 접미사 제거 후 포함 매칭 (기존)
+      for (const s of schools) {{
+        const short = s.replace(/등학교|학교/g, '').replace(/중$|고$/, '');
+        if (short.length >= 2 && text.includes(short) && short.length > bestLen) {{
+          best = s;
+          bestLen = short.length;
+        }}
+      }}
+      if (best) return {{ name: best, confidence: 0.95, method: 'short' }};
+
+      // 3단계: Fuzzy Matching — STT 오인식 대응
+      // 음성 텍스트에서 학교명 후보 추출 (숫자/품목 키워드 제거)
+      let cleaned = text
+        .replace(/\\d+/g, '')
+        .replace(/음식물|음식|잔반|급식|재활용|분리수거|페트|캔|일반|종량제|생활/g, '')
+        .replace(/킬로|키로|kg/gi, '')
+        .trim();
+
+      let bestFuzzy = null, bestScore = 0;
+      for (const s of schools) {{
+        // 전체 이름 vs 정제된 텍스트
+        const score1 = similarity(cleaned, s);
+        // 접미사 제거 비교
+        const short = s.replace(/등학교|학교|중$|고$/, '');
+        const cleanedShort = cleaned.replace(/등학교|학교|중|고/g, '');
+        const score2 = short.length >= 2 ? similarity(cleanedShort, short) : 0;
+        // 초성 비교 (보조)
+        const score3 = similarity(getChosung(cleaned), getChosung(s)) * 0.9;
+        const maxScore = Math.max(score1, score2, score3);
+        if (maxScore > bestScore) {{
+          bestScore = maxScore;
+          bestFuzzy = s;
+        }}
+      }}
+
+      if (bestFuzzy && bestScore >= 0.80) {{
+        return {{ name: bestFuzzy, confidence: bestScore, method: 'fuzzy_auto' }};
+      }}
+      if (bestFuzzy && bestScore >= 0.55) {{
+        return {{ name: bestFuzzy, confidence: bestScore, method: 'fuzzy_confirm' }};
+      }}
+      return null;
     }}
 
     function findItem(text) {{
@@ -218,16 +382,41 @@ def _render_voice_input(schools: list, school_key_prefix: str):
     }}
 
     function applyVoiceResult(school, item, weight) {{
-      // postMessage 로 부모 프레임의 리스너에 전달 (하드 리로드 없음)
+      const el   = document.getElementById('mic-result');
+      const btn  = document.getElementById('mic-btn');
+      btn.disabled = true;
+
+      // ── 카운트 타이머 + 프로그레스바 ──
+      let sec = 0;
+      const MAX_SEC = 5;  // 예상 최대 소요시간
+      function updateUI() {{
+        sec++;
+        const pct = Math.min(100, Math.round((sec / MAX_SEC) * 100));
+        el.innerHTML =
+          '<div style="text-align:center">'
+          + '<div style="font-size:17px;color:#1a73e8;font-weight:700;margin-bottom:6px;">'
+          + '⏳ ' + school + ' / ' + item + ' / ' + weight + 'kg'
+          + '</div>'
+          + '<div style="background:#e0e0e0;border-radius:8px;height:10px;'
+          + 'width:100%;max-width:320px;margin:0 auto 6px;">'
+          + '<div style="background:linear-gradient(90deg,#1a73e8,#34a853);'
+          + 'height:100%;border-radius:8px;width:' + pct + '%;'
+          + 'transition:width 0.3s ease;"></div></div>'
+          + '<div style="font-size:14px;color:#666;">전송 중... '
+          + '<b>' + sec + '초</b></div></div>';
+        btn.textContent = '⏳ 전송 중... ' + sec + '초';
+      }}
+      updateUI();  // 즉시 1초 표시
+      const timer = setInterval(updateUI, 1000);
+
+      // postMessage 로 부모 프레임의 리스너에 전달 → 즉시 리로드
+      // (리로드되면 iframe 파괴 → timer 자동 종료)
       window.parent.postMessage({{
         type: 'VOICE_CONFIRMED',
         school: school,
         item: item,
         weight: weight
       }}, '*');
-      document.getElementById('mic-result').innerHTML =
-        '<span style="color:#34a853;font-size:18px;">✅ ' + school
-        + ' / ' + item + ' / ' + weight + 'kg 등록 중...</span>';
     }}
 
     function startVoice() {{
@@ -281,35 +470,153 @@ def _render_voice_input(schools: list, school_key_prefix: str):
           status.textContent = '🔊 ' + interim_text;
         }}
         if (final_text) {{
-          const school = findSchool(final_text);
+          // GPS 선택 후 수거량만 말한 경우 (예: "음식물 200")
+          if (window._gps_selected) {{
+            const w = findWeight(final_text);
+            const it = findItem(final_text);
+            if (w !== null && w > 0) {{
+              const gs = window._gps_selected;
+              result.innerHTML = '📍 <b>' + gs + '</b> / 📦 <b>' + it + '</b> / ⚖️ <b>' + w + 'kg</b>';
+              window._gps_selected = null;
+              setTimeout(function() {{
+                const ok = confirm(gs + ' / ' + it + ' / ' + w + 'kg\\n\\n수거 등록하시겠습니까?');
+                if (ok) {{ applyVoiceResult(gs, it, w); }}
+                else {{ status.textContent = '❌ 취소됨'; }}
+              }}, 200);
+              return;
+            }}
+          }}
+
+          const match = findSchool(final_text);
           const weight = findWeight(final_text);
           const item   = findItem(final_text);
 
-          if (school && weight !== null && weight > 0) {{
-            result.innerHTML = '🗣️ "' + final_text + '"<br>'
-              + '📍 <b>' + school + '</b> / '
-              + '📦 <b>' + item + '</b> / '
-              + '⚖️ <b>' + weight + 'kg</b>';
+          if (match && weight !== null && weight > 0) {{
+            const school = match.name;
+            const conf = match.confidence;
+            const method = match.method;
 
-            setTimeout(function() {{
-              const ok = confirm(
-                school + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
-                + '수거 등록하시겠습니까?'
-              );
-              if (ok) {{
-                applyVoiceResult(school, item, weight);
-              }} else {{
-                status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
+            // fuzzy_confirm(55~80%): 추천 확인 팝업
+            if (method === 'fuzzy_confirm') {{
+              const pct = Math.round(conf * 100);
+              result.innerHTML = '🗣️ "' + final_text + '"<br>'
+                + '🔍 유사 매칭: <b>' + school + '</b> (유사도 ' + pct + '%)';
+
+              setTimeout(function() {{
+                const ok = confirm(
+                  '인식: "' + final_text + '"\\n\\n'
+                  + '혹시 "' + school + '" 맞으십니까? (유사도 ' + pct + '%)\\n\\n'
+                  + '확인 → 등록 / 취소 → 다시 말하기'
+                );
+                if (ok) {{
+                  // 확인 후 등록 진행
+                  const ok2 = confirm(
+                    school + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
+                    + '수거 등록하시겠습니까?'
+                  );
+                  if (ok2) {{
+                    applyVoiceResult(school, item, weight);
+                  }} else {{
+                    status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
+                  }}
+                }} else {{
+                  status.textContent = '🎤 다시 말씀해 주세요';
+                }}
+              }}, 200);
+            }} else {{
+              // exact / short / fuzzy_auto(80%+): 바로 등록 확인
+              let matchLabel = '';
+              if (method === 'fuzzy_auto') {{
+                matchLabel = ' (자동매칭 ' + Math.round(conf * 100) + '%)';
               }}
-            }}, 200);
+              result.innerHTML = '🗣️ "' + final_text + '"<br>'
+                + '📍 <b>' + school + '</b>' + matchLabel + ' / '
+                + '📦 <b>' + item + '</b> / '
+                + '⚖️ <b>' + weight + 'kg</b>';
+
+              setTimeout(function() {{
+                const ok = confirm(
+                  school + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
+                  + '수거 등록하시겠습니까?'
+                );
+                if (ok) {{
+                  applyVoiceResult(school, item, weight);
+                }} else {{
+                  status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
+                }}
+              }}, 200);
+            }}
           }} else {{
-            let msg = '🗣️ "' + final_text + '"<br>';
-            if (!school) msg += '⚠️ 거래처 인식 실패&nbsp;&nbsp;';
-            else msg += '📍 거래처: <b>' + school + '</b>&nbsp;&nbsp;';
-            if (weight === null || weight <= 0) msg += '⚠️ 수거량 인식 실패';
-            else msg += '⚖️ 수거량: <b>' + weight + 'kg</b>';
-            msg += '<br><span style="font-size:13px;color:#888;">다시 말씀해 주세요 (예: "강남중학교 음식물 200")</span>';
-            result.innerHTML = msg;
+            // ── GPS 근접 매칭 시도 (이름 매칭 실패 시) ──
+            const nearby = findNearbyByKeyword(final_text);
+            const weight2 = weight || findWeight(final_text);
+            const item2   = item || findItem(final_text);
+
+            if (nearby && nearby.candidates.length > 0) {{
+              // GPS 근접 거래처 발견
+              if (nearby.candidates.length === 1) {{
+                // 1개: 바로 확인
+                const c = nearby.candidates[0];
+                const distTxt = c.dist < 1000 ? Math.round(c.dist) + 'm' : (c.dist/1000).toFixed(1) + 'km';
+                result.innerHTML = '🗣️ "' + final_text + '"<br>'
+                  + '📍 GPS 매칭: <b>' + c.name + '</b> (' + distTxt + ')';
+
+                setTimeout(function() {{
+                  if (weight2 !== null && weight2 > 0) {{
+                    const ok = confirm(
+                      '📍 ' + c.name + ' (' + distTxt + ')\\n'
+                      + '📦 ' + item2 + ' / ⚖️ ' + weight2 + 'kg\\n\\n'
+                      + '수거 등록하시겠습니까?'
+                    );
+                    if (ok) {{ applyVoiceResult(c.name, item2, weight2); }}
+                    else {{ status.textContent = '❌ 취소됨'; }}
+                  }} else {{
+                    // 수거량 없으면 거래처만 확인 후 수거량 재입력 안내
+                    const ok = confirm(c.name + ' (' + distTxt + ')\\n\\n맞으십니까?');
+                    if (ok) {{
+                      status.textContent = '✅ ' + c.name + ' 선택됨 — 수거량을 말씀해 주세요 (예: "음식물 200")';
+                      // 선택 기억
+                      window._gps_selected = c.name;
+                    }} else {{ status.textContent = '🎤 다시 말씀해 주세요'; }}
+                  }}
+                }}, 200);
+              }} else {{
+                // 2개+: 선택지 표시
+                let list = nearby.candidates.slice(0, 4).map(function(c, i) {{
+                  const d = c.dist < 1000 ? Math.round(c.dist) + 'm' : (c.dist/1000).toFixed(1) + 'km';
+                  return (i+1) + '. ' + c.name + ' (' + d + ')';
+                }}).join('\\n');
+
+                setTimeout(function() {{
+                  const pick = prompt(
+                    '📍 반경 ' + nearby.radius + 'm 내 ' + nearby.keyword + ' ' + nearby.candidates.length + '곳 발견:\\n\\n'
+                    + list + '\\n\\n번호를 입력하세요 (1~' + Math.min(4, nearby.candidates.length) + '):'
+                  );
+                  const idx = parseInt(pick) - 1;
+                  if (idx >= 0 && idx < nearby.candidates.length) {{
+                    const chosen = nearby.candidates[idx].name;
+                    if (weight2 !== null && weight2 > 0) {{
+                      applyVoiceResult(chosen, item2, weight2);
+                    }} else {{
+                      status.textContent = '✅ ' + chosen + ' 선택됨 — 수거량을 말씀해 주세요';
+                      window._gps_selected = chosen;
+                    }}
+                  }} else {{
+                    status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
+                  }}
+                }}, 200);
+              }}
+            }} else {{
+              // GPS 근접도 실패 — 기존 안내
+              let msg = '🗣️ "' + final_text + '"<br>';
+              if (!match) msg += '⚠️ 거래처 인식 실패&nbsp;&nbsp;';
+              else msg += '📍 거래처: <b>' + match.name + '</b>&nbsp;&nbsp;';
+              if (weight === null || weight <= 0) msg += '⚠️ 수거량 인식 실패';
+              else msg += '⚖️ 수거량: <b>' + weight + 'kg</b>';
+              if (!currentGPS) msg += '<br><span style="font-size:12px;color:#e67700;">📍 GPS 미획득 — 위치 권한을 확인해 주세요</span>';
+              msg += '<br><span style="font-size:13px;color:#888;">다시 말씀해 주세요 (예: "강남중학교 음식물 200")</span>';
+              result.innerHTML = msg;
+            }}
           }}
         }}
       }};
@@ -373,29 +680,54 @@ def render_dashboard(user: dict):
         except (ValueError, TypeError):
             _vc_weight = 0.0
         if _vc_school and _vc_weight > 0:
-            _dr_key = f"drv_date_rows_{_vc_school}"
-            if _dr_key not in st.session_state:
-                st.session_state[_dr_key] = [
-                    {"date": today, "weight": 0.0, "item": _vc_item}
-                ]
-            _rows = st.session_state[_dr_key]
-            _applied = False
-            for _r in _rows:
-                if _r["weight"] == 0.0:
-                    _r["weight"] = _vc_weight
-                    _r["item"] = _vc_item
-                    _applied = True
-                    break
-            if not _applied:
-                # 빈 행이 없으면 새 행 추가
-                st.session_state[_dr_key].append(
-                    {"date": today, "weight": _vc_weight, "item": _vc_item}
-                )
-                _applied = True
-            if _applied:
+            # ── 자동 본사전송: DB에 바로 submitted 상태로 저장 ──
+            _vc_time = datetime.now(ZoneInfo('Asia/Seoul')).strftime("%H:%M")
+            _vc_saved = _save(
+                vendor, _vc_school, today, _vc_time,
+                _vc_item, _vc_weight, 0, driver_name, '', 'submitted'
+            )
+            if _vc_saved:
                 st.session_state["_voice_success"] = (
-                    f"✅ 음성입력 완료: {_vc_school} / {_vc_item} / {_vc_weight}kg"
+                    f"✅ 음성입력 → 본사전송 완료: {_vc_school} / {_vc_item} / {_vc_weight}kg"
                 )
+                # 다음 미완료 거래처로 자동 스크롤 설정
+                _vc_all_schools = get_schools_by_vendor(vendor)
+                _vc_done = {r.get('school_name') for r in db_get('real_collection')
+                            if r.get('driver') == driver_name
+                            and str(r.get('collect_date', '')) == today_str
+                            and r.get('status') in ('submitted', 'confirmed')}
+                _vc_done.add(_vc_school)  # 방금 전송한 것도 포함
+                _vc_remain = [s for s in _vc_all_schools if s not in _vc_done]
+                if _vc_remain:
+                    st.session_state["drv_active_school"] = _vc_remain[0]
+                else:
+                    st.session_state["drv_active_school"] = ""
+            else:
+                st.session_state["_voice_success"] = (
+                    f"⚠️ 음성입력 저장 실패: {_vc_school} / {_vc_item} / {_vc_weight}kg"
+                )
+            # 기존 session_state 행도 초기화 (중복 방지)
+            _dr_key = f"drv_date_rows_{_vc_school}"
+            st.session_state[_dr_key] = [
+                {"date": today, "weight": 0.0, "item": _vc_item}
+            ]
+
+    # ── GPS 좌표 저장 수신 처리 ──────────────────
+    if _vc_params.get('_gps_save') == '1':
+        _gps_school = _vc_params.get('_gps_school', '')
+        _gps_lat = _vc_params.get('_gps_lat', '0')
+        _gps_lng = _vc_params.get('_gps_lng', '0')
+        st.query_params.clear()
+        try:
+            _lat = float(_gps_lat)
+            _lng = float(_gps_lng)
+            if _gps_school and _lat != 0 and _lng != 0:
+                save_customer_gps(vendor, _gps_school, _lat, _lng)
+                st.session_state["_voice_success"] = (
+                    f"📍 위치 저장 완료: {_gps_school} ({_lat:.6f}, {_lng:.6f})"
+                )
+        except (ValueError, TypeError):
+            pass
 
     # 음성입력 성공 알림 (rerun 후 1회 표시)
     _voice_msg = st.session_state.pop("_voice_success", None)
@@ -609,10 +941,26 @@ def render_dashboard(user: dict):
 
         st.divider()
 
-        # ── 음성 입력 (전체 거래처 대상 · 자동 매칭) ─────────
+        # ── GPS 좌표 맵 구성 (음성 근접 매칭용) ─────────
+        _cust_gps_map = {}
+        for _s in schools:
+            _ci = _cust_info_map.get(_s, {})
+            _cust_full = {}
+            # customer_info에서 좌표 가져오기
+            for _cr in (_cust_rows if isinstance(_cust_rows, list) else []):
+                if _cr.get('name') == _s:
+                    _cust_full = _cr
+                    break
+            _cust_gps_map[_s] = {
+                'cust_type': _ci.get('cust_type', '학교'),
+                'lat': float(_cust_full.get('latitude', 0) or 0),
+                'lng': float(_cust_full.get('longitude', 0) or 0),
+            }
+
+        # ── 음성 입력 (전체 거래처 대상 · 자동 매칭 + GPS) ─────────
         with st.expander("🎤 음성으로 수거량 입력 (자동 등록)", expanded=False):
-            st.caption("예: \"안산고등학교 음식물 200\" → 자동 매칭 → 확인 팝업 → 등록 완료")
-            _render_voice_input(schools, "drv")
+            st.caption('예: "안산고 음식물 200" · "학교" · "마트" → GPS 자동 매칭')
+            _render_voice_input(schools, "drv", cust_gps_map=_cust_gps_map)
 
         # 활성 거래처 (자동 스크롤용)
         _active_school = st.session_state.get("drv_active_school", "")
@@ -676,6 +1024,38 @@ def render_dashboard(user: dict):
                         f'background:#03C75A;color:#fff;padding:8px;border-radius:8px;'
                         f'text-decoration:none;font-size:13px;font-weight:700;">🟢 네이버지도</a>',
                         unsafe_allow_html=True)
+
+                # 📍 현재 위치 저장 버튼 (GPS 좌표 미등록 거래처만 표시)
+                _gps_info = _cust_gps_map.get(school, {})
+                _has_gps = (_gps_info.get('lat', 0) != 0 and _gps_info.get('lng', 0) != 0)
+                if _has_gps:
+                    st.caption(f"📍 위치 등록됨")
+                else:
+                    _gps_save_html = f"""
+                    <button onclick="
+                      if (navigator.geolocation) {{
+                        this.textContent = '📍 위치 확인 중...';
+                        this.disabled = true;
+                        navigator.geolocation.getCurrentPosition(
+                          function(pos) {{
+                            var url = new URL(window.parent.location.href);
+                            url.searchParams.set('_gps_save', '1');
+                            url.searchParams.set('_gps_school', '{school}');
+                            url.searchParams.set('_gps_lat', pos.coords.latitude.toString());
+                            url.searchParams.set('_gps_lng', pos.coords.longitude.toString());
+                            window.parent.location.replace(url.toString());
+                          }},
+                          function(err) {{ alert('위치 획득 실패: 위치 권한을 확인해 주세요'); }},
+                          {{ enableHighAccuracy: true, timeout: 5000 }}
+                        );
+                      }} else {{ alert('이 브라우저는 GPS를 지원하지 않습니다'); }}
+                    " style="width:100%;padding:8px;font-size:13px;font-weight:700;
+                       border:1px dashed #1a73e8;border-radius:8px;background:#f0f7ff;
+                       color:#1a73e8;cursor:pointer;margin-bottom:4px;">
+                      📍 현재 위치 저장 (첫 방문 시 1회)
+                    </button>
+                    """
+                    components.html(_gps_save_html, height=44)
 
                 # 수거 입력 (인라인 expander)
                 _is_active = (_active_school == school)

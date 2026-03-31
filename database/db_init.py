@@ -47,6 +47,30 @@ def migrate_customer_recycler():
         print(f"[migrate_customer_recycler] {e}")
 
 
+def migrate_customer_gps():
+    """
+    customer_info 테이블에 latitude/longitude 컬럼이 없으면 추가
+    GPS 기반 근접 거래처 매칭용 — 앱 시작 시 자동 실행
+    """
+    import sqlite3
+    from config.settings import DB_PATH
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(customer_info)").fetchall()]
+        if 'latitude' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN latitude REAL DEFAULT 0")
+            conn.commit()
+            print("[migrate] customer_info latitude 컬럼 추가")
+        if 'longitude' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN longitude REAL DEFAULT 0")
+            conn.commit()
+            print("[migrate] customer_info longitude 컬럼 추가")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_customer_gps] {e}")
+
+
 def migrate_school_alias():
     """
     school_master 테이블에 alias 컬럼이 없으면 추가 (기존 DB 마이그레이션)

@@ -121,21 +121,44 @@ def _render_send_settlement():
         st.warning("해당 기간 수거 데이터가 없습니다.")
         return
 
-    # 학교 선택
-    schools = list(set(r.get('school_name', '') for r in rows if r.get('school_name')))
-    school = st.selectbox("학교 선택", ['전체'] + sorted(schools), key="send_school")
+    # ── 거래처 구분 필터 + 하위 거래처 선택 ──
+    _custs = load_customers_from_db(vendor)
+    _cust_type_options = ["학교", "기업", "관공서", "일반업장"]
+    col_t, col_s = st.columns(2)
+    with col_t:
+        _sel_type = st.selectbox("거래처 구분", _cust_type_options, key="send_cust_type")
+    with col_s:
+        # 선택한 구분에 해당하는 거래처 목록
+        _type_custs = [
+            name for name, info in _custs.items()
+            if str(info.get('구분', '학교')) == _sel_type
+        ]
+        if _sel_type == '학교':
+            # 학교: 수거 데이터에서 추출한 학교도 합산
+            _data_schools = list(set(r.get('school_name', '') for r in rows if r.get('school_name')))
+            _type_custs = sorted(set(_type_custs + _data_schools))
+        else:
+            _type_custs = sorted(_type_custs)
+
+        if not _type_custs:
+            st.warning(f"'{_sel_type}' 구분의 등록된 거래처가 없습니다.")
+            return
+        _send_choices = ['전체'] + _type_custs
+        school = st.selectbox("거래처 선택", _send_choices, key=f"send_cust_{_sel_type}")
 
     if school != '전체':
         rows = filter_rows_by_school(rows, school)
 
     # 거래처 정보 조회 + 단가 보정 (공통 헬퍼 사용)
-    _custs = load_customers_from_db(vendor)
     _cust_info = get_customer_match(vendor, school, _custs) if school != '전체' else {}
-    _ct = _cust_info.get('구분', '학교')
+    _ct = _sel_type  # 필터에서 선택한 구분 사용
     _price_map = build_price_map(_cust_info)
     if _price_map:
         rows = correct_row_prices(rows, _price_map)
     _biz_info = build_biz_info(_cust_info, school) if school != '전체' else {}
+
+    # 면세/과세 판별 — 학교=면세, 그 외=부가세 10%
+    _is_school = (_sel_type == '학교')
 
     # 데이터 표시
     st.markdown(f"### {year}년 {month}월 · {school if school != '전체' else '전체'}")
@@ -145,17 +168,32 @@ def _render_send_settlement():
 
     total_weight = sum(float(r.get('weight', 0)) for r in rows)
     total_amount = sum(float(r.get('amount', 0)) for r in rows)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.metric("총 수거량", f"{total_weight:,.1f} kg")
-    with c2:
-        st.metric("공급가액", f"{total_amount:,.0f} 원")
+
+    if _is_school:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("총 수거량", f"{total_weight:,.1f} kg")
+        with c2:
+            st.metric("공급가액 (면세)", f"{total_amount:,.0f} 원")
+    else:
+        _vat = round(total_amount * 0.1)
+        _total_with_vat = round(total_amount + _vat)
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("총 수거량", f"{total_weight:,.1f} kg")
+        with c2:
+            st.metric("공급가액", f"{total_amount:,.0f} 원")
+        with c3:
+            st.metric("부가세 (10%)", f"{_vat:,.0f} 원")
+        with c4:
+            st.metric("합계 (VAT포함)", f"{_total_with_vat:,.0f} 원")
 
     st.divider()
 
-    # ── 수급자(학교) 정보 ────────────────
-    st.markdown("#### 수급자 정보 (학교)")
-    _skp = school.replace(" ", "_")  # key prefix — 학교 변경 시 위젯 자동 초기화
+    # ── 수급자(거래처) 정보 ────────────────
+    _type_label = "학교" if _is_school else _sel_type
+    st.markdown(f"#### 수급자 정보 ({_type_label})")
+    _skp = school.replace(" ", "_")  # key prefix — 거래처 변경 시 위젯 자동 초기화
     _bi_col1, _bi_col2 = st.columns(2)
     with _bi_col1:
         to_email = st.text_input("수신 이메일",
