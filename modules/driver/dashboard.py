@@ -379,23 +379,44 @@ def _render_voice_input(schools: list, school_key_prefix: str,
     function setBridgeValue(ariaLabel, jsonStr) {{
       try {{
         const doc = window.parent.document;
-        // aria-label 속성으로 input 직접 탐색
         const inp = doc.querySelector('input[aria-label="' + ariaLabel + '"]');
         if (!inp) {{
           console.error('Bridge input not found:', ariaLabel);
           return false;
         }}
-        // React 내부 value setter 사용 (React onChange 트리거)
+        // 1. 포커스
+        inp.focus();
+        // 2. React native value setter
         const nativeSetter = Object.getOwnPropertyDescriptor(
           window.HTMLInputElement.prototype, 'value'
         ).set;
         nativeSetter.call(inp, jsonStr);
+        // 3. React 내부 onChange 핸들러 직접 호출
+        const reactKey = Object.keys(inp).find(function(k) {{
+          return k.startsWith('__reactProps$');
+        }});
+        if (reactKey && inp[reactKey] && inp[reactKey].onChange) {{
+          inp[reactKey].onChange({{ target: inp }});
+        }}
+        // 4. 네이티브 이벤트 (백업)
         inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-        // 약간 지연 후 change·blur 이벤트도 발생 (Streamlit 확실한 감지)
+        // 5. Enter 키 시뮬레이션 → Streamlit text_input 값 커밋
+        setTimeout(function() {{
+          inp.dispatchEvent(new KeyboardEvent('keydown', {{
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+          }}));
+          inp.dispatchEvent(new KeyboardEvent('keypress', {{
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+          }}));
+          inp.dispatchEvent(new KeyboardEvent('keyup', {{
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true
+          }}));
+        }}, 50);
+        // 6. blur → 최종 커밋 보장
         setTimeout(function() {{
           inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
-          inp.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-        }}, 100);
+          inp.blur();
+        }}, 200);
         return true;
       }} catch(ex) {{
         console.error('setBridgeValue error:', ex);
@@ -1068,6 +1089,7 @@ def render_dashboard(user: dict):
                               var doc = window.parent.document;
                               var inp = doc.querySelector('input[aria-label=\\'_gps_data_\\']');
                               if (inp) {{
+                                inp.focus();
                                 var nativeSetter = Object.getOwnPropertyDescriptor(
                                   window.HTMLInputElement.prototype, 'value'
                                 ).set;
@@ -1077,11 +1099,16 @@ def render_dashboard(user: dict):
                                   lng: pos.coords.longitude
                                 }});
                                 nativeSetter.call(inp, data);
+                                var rk = Object.keys(inp).find(function(k) {{ return k.startsWith('__reactProps$'); }});
+                                if (rk && inp[rk] && inp[rk].onChange) {{ inp[rk].onChange({{ target: inp }}); }}
                                 inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
                                 setTimeout(function() {{
+                                  inp.dispatchEvent(new KeyboardEvent('keydown', {{ key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true }}));
+                                }}, 50);
+                                setTimeout(function() {{
                                   inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                  inp.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                                }}, 100);
+                                  inp.blur();
+                                }}, 200);
                                 btn.textContent = '📍 저장 완료!';
                               }} else {{
                                 alert('브릿지를 찾을 수 없습니다. 페이지를 새로고침 해주세요.');
