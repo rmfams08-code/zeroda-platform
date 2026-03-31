@@ -130,23 +130,23 @@ def _render_voice_input(schools: list, school_key_prefix: str,
     # ── (A) 숨겨진 text_input 브릿지 (JS→Python 통신용) ──
     _bridge_key = f"{school_key_prefix}_voice_bridge"
     _gps_bridge_key = f"{school_key_prefix}_gps_bridge"
-    # 브릿지 input 렌더 (aria-label 기반 CSS 숨김)
+    # :has() 셀렉터로 Streamlit 컨테이너째 완전히 숨김
     st.markdown("""<style>
-    .voice-bridge-hide { position:absolute !important; left:-9999px !important;
-      height:0 !important; overflow:hidden !important; margin:0 !important; padding:0 !important; }
+    div[data-testid="stTextInput"]:has(input[aria-label="_vc_data_"]),
+    div[data-testid="stTextInput"]:has(input[aria-label="_gps_data_"]) {
+      position:absolute !important; left:-9999px !important;
+      height:0 !important; overflow:hidden !important;
+      margin:0 !important; padding:0 !important; opacity:0 !important;
+    }
     </style>""", unsafe_allow_html=True)
-    _vb_col1, _vb_col2 = st.columns(2)
-    with _vb_col1:
-        st.markdown('<div class="voice-bridge-hide">', unsafe_allow_html=True)
-        st.text_input("_vc_data_", value="", key=_bridge_key, label_visibility="collapsed")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with _vb_col2:
-        st.markdown('<div class="voice-bridge-hide">', unsafe_allow_html=True)
-        st.text_input("_gps_data_", value="", key=_gps_bridge_key, label_visibility="collapsed")
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.text_input("_vc_data_", value="", key=_bridge_key, label_visibility="collapsed")
+    st.text_input("_gps_data_", value="", key=_gps_bridge_key, label_visibility="collapsed")
 
     # ── (B) 음성인식 + confirm 팝업 컴포넌트 ──
+    import time as _time
+    _render_id = int(_time.time() * 1000)  # 매 rerun마다 변경 → iframe 강제 재생성
     _html = f"""
+    <!-- render_id={_render_id} -->
     <div id="voice-box" style="text-align:center;padding:8px 0">
       <button id="mic-btn" onclick="startVoice()" style="
         width:100%;max-width:400px;padding:14px 20px;font-size:18px;font-weight:700;
