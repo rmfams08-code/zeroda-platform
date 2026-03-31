@@ -8,7 +8,7 @@ from config.settings import ROLES, ROLE_ICONS
 from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
                                migrate_school_alias, migrate_customer_price,
                                migrate_safety_tables, migrate_schedules_unique,
-                               migrate_biz_to_customer)
+                               migrate_biz_to_customer, migrate_customer_recycler)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -28,6 +28,7 @@ def startup():
     migrate_customer_price()  # customer_info 단가 컬럼 자동 추가
     migrate_safety_tables()   # 안전관리 평가 테이블 자동 생성 (FEAT-02)
     migrate_biz_to_customer()  # 일반업장 → 거래처 통합 마이그레이션
+    migrate_customer_recycler()  # customer_info recycler(재활용자) 컬럼 자동 추가
     return True
 
 startup()

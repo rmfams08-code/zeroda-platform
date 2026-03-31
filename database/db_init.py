@@ -27,6 +27,26 @@ def migrate_customer_price():
     except Exception as e:
         print(f"[migrate_customer_price] {e}")
 
+def migrate_customer_recycler():
+    """
+    customer_info 테이블에 recycler(재활용자/처리자) 컬럼이 없으면 추가
+    앱 시작 시 자동 실행
+    """
+    import sqlite3
+    from config.settings import DB_PATH
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(customer_info)").fetchall()]
+        if 'recycler' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN recycler TEXT DEFAULT ''")
+            conn.commit()
+            print("[migrate] customer_info recycler 컬럼 추가")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_customer_recycler] {e}")
+
+
 def migrate_school_alias():
     """
     school_master 테이블에 alias 컬럼이 없으면 추가 (기존 DB 마이그레이션)

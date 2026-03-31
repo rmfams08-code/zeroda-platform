@@ -215,8 +215,10 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
         _r_method = str(r.get('recycle_method', r.get('재활용방법', '')) or '')
         if not _r_method:
             _r_method = _recycle_method_map.get(_item, '')
-        # 재활용자(처리자): row에 직접 있으면 사용
+        # 재활용자(처리자): row에 직접 있으면 사용, 없으면 customer_info에서 조회
         _r_recycler = str(r.get('recycler', r.get('재활용자', '')) or '')
+        if not _r_recycler and _cust_info:
+            _r_recycler = str(_cust_info.get('재활용자', '') or '')
         # 수집운반자: row에 직접 있으면 사용, 없으면 공급자(업체)
         _r_collector = str(r.get('collector', r.get('수집운반자', '')) or '')
         if not _r_collector:

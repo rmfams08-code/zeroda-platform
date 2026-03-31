@@ -100,6 +100,7 @@ def render_customer_tab(vendor):
                 biz_item= st.text_input("종목", key="new_cust_bizitem")
                 email   = st.text_input("이메일", key="new_cust_email")
                 phone   = st.text_input("전화번호", placeholder="010-0000-0000", key="new_cust_phone")
+            recycler = st.text_input("♻️ 재활용자(처리자)", placeholder="예: 청명제2공장", key="new_cust_recycler")
 
             if st.button("💾 신규 저장", type="primary", key="new_cust_save"):
                 if not name:
@@ -110,7 +111,7 @@ def render_customer_tab(vendor):
                     ok = save_customer_to_db(vendor, name, {
                         '사업자번호': biz_no, '대표자': rep, '주소': addr,
                         '업태': biz_type, '종목': biz_item, '이메일': email,
-                        '전화번호': phone, '구분': ctype
+                        '전화번호': phone, '구분': ctype, '재활용자': recycler
                     })
                     if ok:
                         st.success(f"'{name}' 신규 등록 완료!")
@@ -207,6 +208,14 @@ def render_customer_tab(vendor):
                             placeholder="010-0000-0000", key=f"ec_phone_{_kp}"
                         )
 
+                    # ── 재활용자(처리자) ──
+                    edit_recycler = st.text_input(
+                        "♻️ 재활용자(처리자)",
+                        value=str(ci.get('재활용자', '') or ''),
+                        placeholder="예: 청명제2공장",
+                        key=f"ec_recycler_{_kp}"
+                    )
+
                     # ── 단가 정보도 함께 표시/수정 ──
                     st.markdown("**💰 단가 정보**")
                     pcol1, pcol2, pcol3 = st.columns(3)
@@ -248,6 +257,7 @@ def render_customer_tab(vendor):
                                     '이메일': edit_email,
                                     '전화번호': edit_phone,
                                     '구분': edit_ctype,
+                                    '재활용자': edit_recycler,
                                     'price_food': edit_price_food,
                                     'price_recycle': edit_price_recycle,
                                     'price_general': edit_price_general,
