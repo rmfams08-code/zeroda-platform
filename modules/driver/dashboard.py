@@ -127,29 +127,7 @@ def _render_voice_input(schools: list, school_key_prefix: str,
             }
     _gps_js = json.dumps(_gps_data, ensure_ascii=False)
 
-    # ── (A) 메시지 수신 리스너 (부모 페이지에 삽입, 높이 0) ──
-    _listener_html = """
-    <script>
-    window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'VOICE_CONFIRMED') {
-        const d = e.data;
-        const frame = window.parent;
-        try {
-          // URL 파라미터 설정 후 즉시 리로드 (가장 안정적)
-          const url = new URL(frame.location.href);
-          url.searchParams.set('_vc', '1');
-          url.searchParams.set('_vc_school', d.school);
-          url.searchParams.set('_vc_weight', d.weight.toString());
-          url.searchParams.set('_vc_item', d.item);
-          frame.location.replace(url.toString());
-        } catch(ex) {
-          frame.location.reload();
-        }
-      }
-    });
-    </script>
-    """
-    components.html(_listener_html, height=0)
+    # ── (A) 리스너 iframe 제거됨 — 음성 iframe에서 직접 URL 변경 ──
 
     # ── (B) 음성인식 + confirm 팝업 컴포넌트 ──
     _html = f"""
@@ -409,14 +387,24 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       updateUI();  // 즉시 1초 표시
       const timer = setInterval(updateUI, 1000);
 
-      // postMessage 로 부모 프레임의 리스너에 전달 → 즉시 리로드
+      // 직접 부모 URL 파라미터 설정 → 즉시 리로드
       // (리로드되면 iframe 파괴 → timer 자동 종료)
-      window.parent.postMessage({{
-        type: 'VOICE_CONFIRMED',
-        school: school,
-        item: item,
-        weight: weight
-      }}, '*');
+      try {{
+        const url = new URL(window.parent.location.href);
+        url.searchParams.set('_vc', '1');
+        url.searchParams.set('_vc_school', school);
+        url.searchParams.set('_vc_weight', weight.toString());
+        url.searchParams.set('_vc_item', item);
+        window.parent.location.replace(url.toString());
+      }} catch(ex) {{
+        // fallback: postMessage (혹시 cross-origin 제한 시)
+        window.parent.postMessage({{
+          type: 'VOICE_CONFIRMED',
+          school: school,
+          item: item,
+          weight: weight
+        }}, '*');
+      }}
     }}
 
     function startVoice() {{
