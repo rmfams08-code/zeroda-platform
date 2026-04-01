@@ -251,6 +251,9 @@ def generate_monthly_settlement_excel(
     for i, w in enumerate([6, 10, 14, 12, 14, 12, 14, 12, 14], 1):
         ws1.column_dimensions[get_column_letter(i)].width = w
 
+    # AutoFilter (구분 컬럼 필터)
+    ws1.auto_filter.ref = f'A3:I{last_data_row}'
+
     # ═══════════════════════════════════════
     # Sheet 2: 지출내역
     # ═══════════════════════════════════════

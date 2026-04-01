@@ -460,15 +460,33 @@ def _render_monthly_settlement(vendor):
 
     st.divider()
 
-    # ── 미리보기: 구분별 요약 ──
-    st.markdown("#### 구분별 수거 현황 (미리보기)")
+    # ── 구분 필터 ──
+    _available_types = sorted(set(
+        info.get('구분', '학교') for info in _all_customers.values()
+    ))
+    _sel_types = st.multiselect(
+        "구분 필터", _available_types, default=_available_types,
+        key="ms_cust_filter"
+    )
+    if not _sel_types:
+        _sel_types = _available_types
+
+    # 필터 적용된 거래처
+    _filtered_customers = {
+        name: info for name, info in _all_customers.items()
+        if info.get('구분', '학교') in _sel_types
+    }
+
+    # ── 구분별 요약 ──
     _preview = {}
     for r in _month_rows:
         sn = r.get('school_name', '')
-        if sn in _all_customers:
-            ct = _all_customers[sn].get('구분', '학교')
+        if sn in _filtered_customers:
+            ct = _filtered_customers[sn].get('구분', '학교')
+        elif sn in _all_customers:
+            continue  # 필터에서 제외된 구분
         else:
-            ct = '기타'
+            continue
         w = float(r.get('weight', 0) or 0)
         if ct not in _preview:
             _preview[ct] = {'건수': 0, '수거량': 0}
@@ -484,13 +502,13 @@ def _render_monthly_settlement(vendor):
 
     st.divider()
 
-    # ── 수입내역 (엑셀과 동일한 HTML 테이블) ──
+    # ── 수입내역 (필터 적용된 HTML 테이블) ──
     st.markdown("#### 수입내역")
     _revenue_total = 0
     try:
         _html, _grand = generate_settlement_html(
             month=_ms_month,
-            customers_dict=_all_customers,
+            customers_dict=_filtered_customers,
             collection_rows=_month_rows
         )
         st.markdown(_html, unsafe_allow_html=True)
