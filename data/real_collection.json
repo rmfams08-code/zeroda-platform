@@ -1782,5 +1782,21 @@
     "submitted_at": "2026-04-01 23:32:20",
     "created_at": "2026-04-01 23:32:20",
     "id": 112
+  },
+  {
+    "vendor": "hy",
+    "school_name": "다온정",
+    "collect_date": "2026-04-01",
+    "collect_time": "23:32",
+    "item_type": "음식물",
+    "weight": 60.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-04-01 23:32:48",
+    "created_at": "2026-04-01 23:32:48",
+    "id": 113
   }
 ]
