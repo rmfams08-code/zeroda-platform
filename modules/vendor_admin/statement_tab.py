@@ -6,7 +6,7 @@ from datetime import datetime
 from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db, filter_rows_by_school, get_unit_price
 from services.pdf_generator import generate_statement_pdf
 from services.excel_generator import generate_collection_excel
-from services.settlement_excel import generate_monthly_settlement_excel
+from services.settlement_excel import generate_monthly_settlement_excel, generate_settlement_html
 from services.email_service import send_statement_email
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
@@ -468,6 +468,20 @@ def _render_monthly_settlement(vendor):
             for k, v in _preview.items()
         ])
         st.dataframe(_prev_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── 수입내역 미리보기 (엑셀과 동일한 HTML 테이블) ──
+    st.markdown("#### 수입내역 미리보기")
+    try:
+        _html = generate_settlement_html(
+            month=_ms_month,
+            customers_dict=_all_customers,
+            collection_rows=_month_rows
+        )
+        st.markdown(_html, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"미리보기 생성 실패: {e}")
 
     st.divider()
 

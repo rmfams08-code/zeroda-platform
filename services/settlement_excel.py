@@ -1,5 +1,5 @@
 # services/settlement_excel.py
-# 월말정산 엑셀 생성 — 수입내역(구분별 부가세) + 지출내역
+# 월말정산 엑셀 생성 + HTML 미리보기 — 수입내역(구분별 부가세) + 지출내역
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -331,3 +331,163 @@ def generate_monthly_settlement_excel(
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
+
+
+# ═══════════════════════════════════════════════════
+# HTML 미리보기 (엑셀과 동일한 레이아웃)
+# ═══════════════════════════════════════════════════
+
+_CTYPE_BG = {
+    '학교':     '#DAEEF3',
+    '공공기관':  '#E2EFDA',
+    '기업':     '#FCE4D6',
+    '일반업장':  '#F2DCDB',
+}
+
+
+def generate_settlement_html(month, customers_dict, collection_rows):
+    """
+    월말정산 수입내역을 엑셀과 동일한 HTML 테이블로 반환.
+
+    Returns
+    -------
+    str  (HTML)
+    """
+    # ── 누적 수거량 집계 ──
+    agg = {}
+    for r in collection_rows:
+        sn = r.get('school_name', '')
+        it_raw = r.get('item_type', '음식물')
+        w = float(r.get('weight', 0) or 0)
+        agg[(sn, it_raw)] = agg.get((sn, it_raw), 0) + w
+
+    # ── 거래처별 행 데이터 구성 ──
+    type_order = {'기업': 0, '일반업장': 1, '공공기관': 2, '학교': 3}
+    sorted_custs = sorted(
+        customers_dict.items(),
+        key=lambda x: (type_order.get(x[1].get('구분', '학교'), 9), x[0])
+    )
+
+    table_rows = []       # [(cust_name, ctype, item_label, kg, price, supply, vat, total, rowspan)]
+    subtotals = {}        # {ctype: {kg, supply, vat, total}}
+    grand = {'kg': 0, 'supply': 0, 'vat': 0, 'total': 0}
+
+    for cust_name, cust_info in sorted_custs:
+        ctype = cust_info.get('구분', '학교')
+        vat_apply = VAT_RULE.get(ctype, False)
+
+        items = []
+        for label, price_key in ITEM_PRICE_MAP:
+            price = float(cust_info.get(price_key, 0) or 0)
+            if price > 0:
+                match_keys = []
+                if price_key == 'price_food':
+                    match_keys = ['food_waste', '음식물', '음식물쓰레기']
+                elif price_key == 'price_recycle':
+                    match_keys = ['recycle', '재활용']
+                elif price_key == 'price_general':
+                    match_keys = ['general', '사업장', '사업장폐기물', '일반폐기물']
+                total_kg = sum(agg.get((cust_name, mk), 0) for mk in match_keys)
+                items.append((label, price, total_kg))
+
+        if not items:
+            items = [('음식물', 0, 0)]
+
+        rowspan = len(items)
+        first = True
+        for item_label, price, kg in items:
+            supply = round(kg * price)
+            vat = round(supply * 0.1) if vat_apply else 0
+            total = supply + vat
+
+            if ctype not in subtotals:
+                subtotals[ctype] = {'kg': 0, 'supply': 0, 'vat': 0, 'total': 0}
+            subtotals[ctype]['kg'] += kg
+            subtotals[ctype]['supply'] += supply
+            subtotals[ctype]['vat'] += vat
+            subtotals[ctype]['total'] += total
+            grand['kg'] += kg
+            grand['supply'] += supply
+            grand['vat'] += vat
+            grand['total'] += total
+
+            table_rows.append({
+                'name': cust_name if first else None,
+                'ctype': ctype if first else None,
+                'rowspan': rowspan if first else 0,
+                'item': item_label,
+                'kg': kg,
+                'price': price,
+                'supply': supply,
+                'vat': vat,
+                'total': total,
+                'vat_apply': vat_apply,
+            })
+            first = False
+
+    # ── HTML 생성 ──
+    css = """
+<style>
+.stbl{border-collapse:collapse;width:100%;font-family:'맑은 고딕',sans-serif;font-size:13px}
+.stbl th{background:#4472C4;color:#fff;padding:6px 8px;text-align:center;border:1px solid #ccc;font-weight:bold}
+.stbl td{padding:5px 8px;border:1px solid #ddd;vertical-align:middle}
+.stbl .r{text-align:right}.stbl .c{text-align:center}
+.stbl .sub{font-weight:bold}.stbl .grand{font-weight:bold;background:#FFF2CC}
+.stbl .vat-yes{color:#c00}.stbl .vat-no{color:#888}
+.stbl .blue{color:#0000FF}
+</style>
+"""
+    h = css
+    h += f'<h4 style="text-align:center;margin-bottom:8px">( {month} )月 월말정산서 — 수입내역</h4>\n'
+    h += '<table class="stbl"><thead><tr>'
+    for hdr in ['No', '구분', '거래처명', '품목', '누적수거량(kg)',
+                '단가(원)', '공급가(원)', '부가세(원)', '정산금액(원)']:
+        h += f'<th>{hdr}</th>'
+    h += '</tr></thead><tbody>\n'
+
+    no = 0
+    for row in table_rows:
+        no += 1
+        bg = _CTYPE_BG.get(row.get('ctype', ''), '')
+        h += '<tr>'
+        h += f'<td class="c">{no}</td>'
+        if row['rowspan'] > 0:
+            rs = f' rowspan="{row["rowspan"]}"' if row['rowspan'] > 1 else ''
+            bg_style = f' style="background:{bg}"' if bg else ''
+            h += f'<td class="c"{rs}{bg_style}>{row["ctype"]}</td>'
+            h += f'<td{rs}>{row["name"]}</td>'
+        h += f'<td class="c">{row["item"]}</td>'
+        h += f'<td class="r">{row["kg"]:,.0f}</td>'
+        h += f'<td class="r blue">{row["price"]:,.0f}</td>'
+        h += f'<td class="r">{row["supply"]:,.0f}</td>'
+        vat_cls = 'vat-yes' if row['vat_apply'] else 'vat-no'
+        vat_label = f'{row["vat"]:,.0f}' if row['vat_apply'] else '면세'
+        h += f'<td class="r {vat_cls}">{vat_label}</td>'
+        h += f'<td class="r">{row["total"]:,.0f}</td>'
+        h += '</tr>\n'
+
+    # 구분별 소계
+    for ctype_label in ['기업', '일반업장', '공공기관', '학교']:
+        if ctype_label not in subtotals:
+            continue
+        s = subtotals[ctype_label]
+        bg = _CTYPE_BG.get(ctype_label, '')
+        h += f'<tr class="sub" style="background:{bg}">'
+        h += f'<td colspan="4" class="c">{ctype_label} 소계</td>'
+        h += f'<td class="r">{s["kg"]:,.0f}</td><td></td>'
+        h += f'<td class="r">{s["supply"]:,.0f}</td>'
+        h += f'<td class="r">{s["vat"]:,.0f}</td>'
+        h += f'<td class="r">{s["total"]:,.0f}</td>'
+        h += '</tr>\n'
+
+    # 총합계
+    h += '<tr class="grand">'
+    h += '<td colspan="4" class="c">총 합계</td>'
+    h += f'<td class="r">{grand["kg"]:,.0f}</td><td></td>'
+    h += f'<td class="r">{grand["supply"]:,.0f}</td>'
+    h += f'<td class="r">{grand["vat"]:,.0f}</td>'
+    h += f'<td class="r">{grand["total"]:,.0f}</td>'
+    h += '</tr>\n'
+
+    h += '</tbody></table>'
+    return h
