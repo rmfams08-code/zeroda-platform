@@ -1654,5 +1654,21 @@
     "submitted_at": "2026-04-01 22:06:20",
     "created_at": "2026-04-01 22:06:20",
     "id": 104
+  },
+  {
+    "vendor": "hy",
+    "school_name": "인계동태온병원",
+    "collect_date": "2026-04-01",
+    "collect_time": "22:06",
+    "item_type": "음식물",
+    "weight": 280.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-04-01 22:06:53",
+    "created_at": "2026-04-01 22:06:53",
+    "id": 105
   }
 ]
