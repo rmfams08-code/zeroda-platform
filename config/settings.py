@@ -52,7 +52,7 @@ ROLES = {
     "vendor_admin":     "외주업체 관리자",
     "driver":           "수거기사",
     "school_admin":     "학교 행정실",
-    "school_nutrition": "학교 영양사",
+    "school_nutrition": "급식 담당(영양사)",
     "edu_office":       "교육청/교육지원청",
     "meal_manager":     "단체급식 담당",
 }
@@ -62,7 +62,7 @@ ROLE_GROUPS = {
     "vendor_admin":     "vendor_admin",
     "driver":           "driver",
     "school_admin":     "edu_school",
-    "school_nutrition": "edu_school",
+    "school_nutrition": "meal",
     "edu_office":       "edu_school",
     "meal_manager":     "meal",
 }
@@ -73,7 +73,7 @@ ROLE_ICONS = {
     "vendor_admin":     "[업체]",
     "driver":           "[기사]",
     "school_admin":     "[학교]",
-    "school_nutrition": "[영양]",
+    "school_nutrition": "[급식]",
     "edu_office":       "[교육청]",
     "meal_manager":     "[급식]",
 }

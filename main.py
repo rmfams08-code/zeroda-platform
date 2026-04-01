@@ -10,7 +10,7 @@ from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
                                migrate_safety_tables, migrate_schedules_unique,
                                migrate_biz_to_customer, migrate_customer_recycler,
                                migrate_customer_gps, migrate_expenses_table,
-                               migrate_meal_tables)
+                               migrate_meal_tables, migrate_school_nutrition_to_meal)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -34,6 +34,7 @@ def startup():
     migrate_customer_gps()       # customer_info GPS 좌표 컬럼 자동 추가
     migrate_expenses_table()     # 월말정산 지출내역 테이블 자동 생성
     migrate_meal_tables()        # 단체급식 관리 테이블 자동 생성
+    migrate_school_nutrition_to_meal()  # school_nutrition → meal_manager 역할 전환
     return True
 
 startup()
@@ -175,7 +176,7 @@ elif role == 'driver':
     from modules.driver.dashboard import render_dashboard
     render_dashboard(user)
 
-elif role in ('school_admin', 'school_nutrition'):
+elif role == 'school_admin':
     menu = [("대시보드", "dashboard")]
     page = render_sidebar(menu)
     from modules.school.dashboard import render_dashboard
@@ -187,12 +188,15 @@ elif role == 'edu_office':
     from modules.edu_office.dashboard import render_dashboard
     render_dashboard(user)
 
-elif role == 'meal_manager':
+elif role in ('meal_manager', 'school_nutrition'):
     menu = [
         ("식단 등록",     "menu_register"),
         ("잔반 분석",     "waste_analysis"),
         ("AI 추천식단",   "ai_recommend"),
         ("월말명세서",    "statement"),
+        ("수거 현황",     "collection"),
+        ("정산 확인",     "settlement"),
+        ("ESG 보고서",    "esg"),
     ]
     page = render_sidebar(menu)
 
@@ -208,6 +212,15 @@ elif role == 'meal_manager':
     elif page == "statement":
         from modules.meal_manager.statement_tab import render_statement_tab
         render_statement_tab(user)
+    elif page == "collection":
+        from modules.meal_manager.school_view import render_school_collection
+        render_school_collection(user)
+    elif page == "settlement":
+        from modules.meal_manager.school_view import render_school_settlement
+        render_school_settlement(user)
+    elif page == "esg":
+        from modules.meal_manager.school_view import render_school_esg
+        render_school_esg(user)
 
 else:
     st.error(f"알 수 없는 역할: {role}")

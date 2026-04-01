@@ -543,6 +543,25 @@ def migrate_meal_tables():
         print(f"[migrate_meal_tables] {e}")
 
 
+def migrate_school_nutrition_to_meal():
+    """
+    기존 school_nutrition 역할 계정을 meal_manager로 자동 전환
+    (school_nutrition은 더 이상 독립 화면이 없으며, meal_manager와 동일 메뉴 사용)
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users WHERE role='school_nutrition'")
+        cnt = c.fetchone()[0]
+        if cnt > 0:
+            c.execute("UPDATE users SET role='meal_manager' WHERE role='school_nutrition'")
+            conn.commit()
+            print(f"[migrate_school_nutrition_to_meal] {cnt}건 school_nutrition → meal_manager 전환 완료")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_school_nutrition_to_meal] {e}")
+
+
 def migrate_expenses_table():
     """월말정산 지출내역 테이블 생성 (없는 경우에만)"""
     try:
