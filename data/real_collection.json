@@ -1734,5 +1734,21 @@
     "submitted_at": "2026-04-01 22:59:39",
     "created_at": "2026-04-01 22:59:39",
     "id": 109
+  },
+  {
+    "vendor": "hy",
+    "school_name": "짬뽕집",
+    "collect_date": "2026-04-01",
+    "collect_time": "23:12",
+    "item_type": "음식물",
+    "weight": 100.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-04-01 23:12:21",
+    "created_at": "2026-04-01 23:12:21",
+    "id": 110
   }
 ]
