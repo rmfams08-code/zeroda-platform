@@ -1750,5 +1750,21 @@
     "submitted_at": "2026-04-01 23:12:21",
     "created_at": "2026-04-01 23:12:21",
     "id": 110
+  },
+  {
+    "vendor": "hy",
+    "school_name": "김치찌개",
+    "collect_date": "2026-04-01",
+    "collect_time": "23:12",
+    "item_type": "음식물",
+    "weight": 100.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-04-01 23:12:34",
+    "created_at": "2026-04-01 23:12:34",
+    "id": 111
   }
 ]
