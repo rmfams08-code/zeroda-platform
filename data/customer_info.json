@@ -1028,5 +1028,24 @@
     "price_recycle": 0.0,
     "price_general": 0.0,
     "id": 69
+  },
+  {
+    "vendor": "hy",
+    "name": "비봉고등학교",
+    "biz_no": "",
+    "rep": "",
+    "addr": "",
+    "biz_type": "",
+    "biz_item": "",
+    "email": "",
+    "phone": "",
+    "cust_type": "학교",
+    "recycler": "",
+    "latitude": 0.0,
+    "longitude": 0.0,
+    "price_food": 170.0,
+    "price_recycle": 0.0,
+    "price_general": 0.0,
+    "id": 70
   }
 ]
