@@ -3,10 +3,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db, filter_rows_by_school, get_unit_price
+from database.db_manager import (
+    db_get, db_upsert, db_delete,
+    get_schools_by_vendor, load_customers_from_db,
+    filter_rows_by_school, get_unit_price
+)
 from services.pdf_generator import generate_statement_pdf
 from services.excel_generator import generate_collection_excel
-from services.settlement_excel import generate_monthly_settlement_excel, generate_settlement_html
+from services.settlement_excel import (
+    generate_monthly_settlement_excel, generate_settlement_html,
+    generate_expense_html
+)
 from services.email_service import send_statement_email
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
@@ -14,7 +21,10 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 def render_statement_tab(vendor):
     st.markdown("## 정산 관리")
 
-    stab1, stab2, stab3 = st.tabs(["📊 정산 현황", "📧 거래명세서 발송", "📋 월말정산(엑셀)"])
+    stab1, stab2, stab3, stab4 = st.tabs([
+        "📊 정산 현황", "📧 거래명세서 발송",
+        "📋 월말정산(엑셀)", "💰 지출내역"
+    ])
 
     with stab1:
         _render_vendor_summary(vendor)
@@ -24,6 +34,9 @@ def render_statement_tab(vendor):
 
     with stab3:
         _render_monthly_settlement(vendor)
+
+    with stab4:
+        _render_expense_manage(vendor)
 
 
 def _render_vendor_summary(vendor):
@@ -471,17 +484,46 @@ def _render_monthly_settlement(vendor):
 
     st.divider()
 
-    # ── 수입내역 미리보기 (엑셀과 동일한 HTML 테이블) ──
-    st.markdown("#### 수입내역 미리보기")
+    # ── 수입내역 (엑셀과 동일한 HTML 테이블) ──
+    st.markdown("#### 수입내역")
+    _revenue_total = 0
     try:
-        _html = generate_settlement_html(
+        _html, _grand = generate_settlement_html(
             month=_ms_month,
             customers_dict=_all_customers,
             collection_rows=_month_rows
         )
         st.markdown(_html, unsafe_allow_html=True)
+        _revenue_total = _grand.get('total', 0)
     except Exception as e:
-        st.error(f"미리보기 생성 실패: {e}")
+        st.error(f"수입내역 생성 실패: {e}")
+
+    st.divider()
+
+    # ── 지출내역 (DB 기반 HTML 테이블) ──
+    st.markdown("#### 지출내역")
+    _ym = f"{_ms_year}-{_ms_month_str}"
+    _expense_rows = [
+        r for r in db_get('expenses')
+        if r.get('vendor') == vendor and r.get('year_month') == _ym
+    ]
+    _expense_data = [
+        {'item': r.get('item', ''), 'amount': float(r.get('amount', 0) or 0),
+         'pay_date': r.get('pay_date', ''), 'memo': r.get('memo', '')}
+        for r in _expense_rows
+    ]
+    try:
+        _exp_html = generate_expense_html(
+            month=_ms_month,
+            expense_rows=_expense_data,
+            revenue_total=_revenue_total
+        )
+        st.markdown(_exp_html, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"지출내역 생성 실패: {e}")
+
+    if not _expense_data:
+        st.caption("💡 '지출내역' 탭에서 지출 항목을 등록하세요.")
 
     st.divider()
 
@@ -496,7 +538,7 @@ def _render_monthly_settlement(vendor):
                     month=_ms_month,
                     customers_dict=_all_customers,
                     collection_rows=_month_rows,
-                    expenses=None
+                    expenses=_expense_data if _expense_data else None
                 )
                 _fname = f"월말정산_{vendor}_{_ms_year}{_ms_month_str}.xlsx"
                 st.download_button(
@@ -511,3 +553,97 @@ def _render_monthly_settlement(vendor):
                 st.success("엑셀 생성 완료! 위 버튼을 눌러 다운로드하세요.")
             except Exception as e:
                 st.error(f"엑셀 생성 실패: {e}")
+
+
+def _render_expense_manage(vendor):
+    """지출내역 등록/수정/삭제 관리"""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    col1, col2 = st.columns(2)
+    with col1:
+        _ey = st.selectbox(
+            "연도", [2024, 2025, 2026],
+            index=[2024, 2025, 2026].index(CURRENT_YEAR)
+            if CURRENT_YEAR in [2024, 2025, 2026] else 1,
+            key="exp_year"
+        )
+    with col2:
+        _em = st.selectbox(
+            "월", list(range(1, 13)),
+            index=CURRENT_MONTH - 1, key="exp_month"
+        )
+
+    _ym = f"{_ey}-{str(_em).zfill(2)}"
+
+    # ── 기존 지출 목록 ──
+    _all_exp = db_get('expenses')
+    _exp_rows = [r for r in _all_exp
+                 if r.get('vendor') == vendor and r.get('year_month') == _ym]
+
+    st.markdown(f"#### {_ey}년 {_em}월 지출내역")
+
+    if _exp_rows:
+        _total = sum(float(r.get('amount', 0) or 0) for r in _exp_rows)
+        st.info(f"등록 {len(_exp_rows)}건 · 합계 {abs(_total):,.0f}원")
+
+        for idx, r in enumerate(_exp_rows):
+            _rid = r.get('id', idx)
+            _amt = float(r.get('amount', 0) or 0)
+            with st.expander(
+                f"{r.get('item', '(항목없음)')} — {abs(_amt):,.0f}원",
+                expanded=False
+            ):
+                c1, c2, c3 = st.columns([3, 2, 1])
+                with c1:
+                    st.text(f"결제일: {r.get('pay_date', '-')}")
+                with c2:
+                    st.text(f"비고: {r.get('memo', '-')}")
+                with c3:
+                    if st.button("삭제", key=f"exp_del_{_rid}",
+                                 use_container_width=True):
+                        try:
+                            db_delete('expenses', {'id': _rid})
+                            st.success("삭제 완료")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"삭제 실패: {e}")
+    else:
+        st.warning("등록된 지출 내역이 없습니다.")
+
+    st.divider()
+
+    # ── 신규 등록 폼 ──
+    st.markdown("#### 지출 항목 등록")
+    with st.form("exp_add_form", clear_on_submit=True):
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            _new_item = st.text_input("지출항목", placeholder="예: 차량할부, 유류비",
+                                      key="exp_new_item")
+            _new_amt = st.number_input("금액 (음수로 입력)", value=0,
+                                       step=10000, key="exp_new_amt")
+        with fc2:
+            _new_date = st.text_input("결제일", placeholder="예: 5일, 매월10일",
+                                      key="exp_new_date")
+            _new_memo = st.text_input("비고", key="exp_new_memo")
+
+        _submitted = st.form_submit_button("등록", type="primary",
+                                           use_container_width=True)
+        if _submitted:
+            if not _new_item.strip():
+                st.error("지출항목을 입력하세요.")
+            elif _new_amt == 0:
+                st.error("금액을 입력하세요.")
+            else:
+                _now = _dt.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+                db_upsert('expenses', {
+                    'vendor': vendor,
+                    'year_month': _ym,
+                    'item': _new_item.strip(),
+                    'amount': _new_amt,
+                    'pay_date': _new_date.strip(),
+                    'memo': _new_memo.strip(),
+                    'created_at': _now
+                })
+                st.success(f"'{_new_item}' 등록 완료!")
+                st.rerun()

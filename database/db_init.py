@@ -488,3 +488,27 @@ def migrate_safety_tables():
         print("[migrate_safety_tables] 안전관리 평가 테이블 준비 완료")
     except Exception as e:
         print(f"[migrate_safety_tables] {e}")
+
+
+def migrate_expenses_table():
+    """월말정산 지출내역 테이블 생성 (없는 경우에만)"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor TEXT NOT NULL,
+                year_month TEXT NOT NULL,
+                item TEXT NOT NULL DEFAULT '',
+                amount REAL DEFAULT 0,
+                pay_date TEXT DEFAULT '',
+                memo TEXT DEFAULT '',
+                created_at TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print("[migrate_expenses_table] 지출내역 테이블 준비 완료")
+    except Exception as e:
+        print(f"[migrate_expenses_table] {e}")

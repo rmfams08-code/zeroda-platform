@@ -490,4 +490,80 @@ def generate_settlement_html(month, customers_dict, collection_rows):
     h += '</tr>\n'
 
     h += '</tbody></table>'
+    return h, grand
+
+
+def generate_expense_html(month, expense_rows, revenue_total=0):
+    """
+    월말정산 지출내역을 엑셀과 동일한 HTML 테이블로 반환.
+
+    Parameters
+    ----------
+    month : int
+    expense_rows : list[dict]
+        DB expenses 테이블 행 [{item, amount, pay_date, memo}, ...]
+    revenue_total : float
+        수입내역 총 정산금액 (순수익 계산용)
+
+    Returns
+    -------
+    str  (HTML)
+    """
+    css = """
+<style>
+.etbl{border-collapse:collapse;width:100%;font-family:'맑은 고딕',sans-serif;font-size:13px}
+.etbl th{background:#4472C4;color:#fff;padding:6px 8px;text-align:center;border:1px solid #ccc;font-weight:bold}
+.etbl td{padding:5px 8px;border:1px solid #ddd;vertical-align:middle}
+.etbl .r{text-align:right}.etbl .c{text-align:center}
+.etbl .red{color:#c00}.etbl .grand{font-weight:bold;background:#FFF2CC}
+.etbl .profit{font-weight:bold;font-size:14px;border-top:3px double #333;border-bottom:3px double #333}
+</style>
+"""
+    h = css
+    h += f'<h4 style="text-align:center;margin-bottom:8px">( {month} )月 월말정산서 — 지출내역</h4>\n'
+    h += '<table class="etbl"><thead><tr>'
+    for hdr in ['No', '지출항목', '금액(원)', '결제일', '비고']:
+        h += f'<th>{hdr}</th>'
+    h += '</tr></thead><tbody>\n'
+
+    total_exp = 0
+    for i, e in enumerate(expense_rows, 1):
+        amt = float(e.get('amount', 0) or 0)
+        total_exp += amt
+        amt_str = f'{abs(amt):,.0f}'
+        if amt < 0:
+            amt_str = f'({abs(amt):,.0f})'
+        h += '<tr>'
+        h += f'<td class="c">{i}</td>'
+        h += f'<td>{e.get("item", "")}</td>'
+        h += f'<td class="r red">{amt_str}</td>'
+        h += f'<td class="c">{e.get("pay_date", "")}</td>'
+        h += f'<td>{e.get("memo", "")}</td>'
+        h += '</tr>\n'
+
+    if not expense_rows:
+        h += '<tr><td colspan="5" class="c" style="color:#888;padding:12px">'
+        h += '등록된 지출 내역이 없습니다.</td></tr>\n'
+
+    # 지출합계
+    exp_str = f'{abs(total_exp):,.0f}'
+    if total_exp < 0:
+        exp_str = f'({abs(total_exp):,.0f})'
+    h += '<tr class="grand">'
+    h += '<td colspan="2" class="c">지출 합계</td>'
+    h += f'<td class="r red">{exp_str}</td>'
+    h += '<td></td><td></td></tr>\n'
+
+    # 순수익
+    profit = revenue_total + total_exp
+    profit_color = '#c00' if profit < 0 else '#006600'
+    profit_str = f'{abs(profit):,.0f}'
+    if profit < 0:
+        profit_str = f'({abs(profit):,.0f})'
+    h += '<tr class="profit">'
+    h += '<td colspan="2" class="c">순수익 (매출 - 지출)</td>'
+    h += f'<td class="r" style="color:{profit_color};font-size:14px">{profit_str}</td>'
+    h += '<td></td><td></td></tr>\n'
+
+    h += '</tbody></table>'
     return h
