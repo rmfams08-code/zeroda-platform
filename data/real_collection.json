@@ -1494,5 +1494,21 @@
     "submitted_at": "2026-04-01 00:04:24",
     "created_at": "2026-04-01 00:04:24",
     "id": 94
+  },
+  {
+    "vendor": "dj",
+    "school_name": "하루고등학교",
+    "collect_date": "2026-04-01",
+    "collect_time": "09:06",
+    "item_type": "음식물",
+    "weight": 240.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "더존기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-04-01 09:06:32",
+    "created_at": "2026-04-01 09:06:32",
+    "id": 95
   }
 ]
