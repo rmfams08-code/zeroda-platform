@@ -1606,5 +1606,21 @@
     "submitted_at": "2026-04-01 21:05:05",
     "created_at": "2026-04-01 21:05:05",
     "id": 101
+  },
+  {
+    "vendor": "hy",
+    "school_name": "안양남초등학교",
+    "collect_date": "2026-04-01",
+    "collect_time": "20:46",
+    "item_type": "음식물",
+    "weight": 60.0,
+    "unit_price": 0,
+    "amount": 0.0,
+    "driver": "하영기사1",
+    "memo": "",
+    "status": "submitted",
+    "submitted_at": "2026-04-01 21:16:15",
+    "created_at": "2026-04-01 21:16:15",
+    "id": 102
   }
 ]
