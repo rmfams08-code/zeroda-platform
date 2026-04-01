@@ -54,6 +54,7 @@ ROLES = {
     "school_admin":     "학교 행정실",
     "school_nutrition": "학교 영양사",
     "edu_office":       "교육청/교육지원청",
+    "meal_manager":     "단체급식 담당",
 }
 
 ROLE_GROUPS = {
@@ -63,6 +64,7 @@ ROLE_GROUPS = {
     "school_admin":     "edu_school",
     "school_nutrition": "edu_school",
     "edu_office":       "edu_school",
+    "meal_manager":     "meal",
 }
 
 # 이모지 제거 - 텍스트로 대체
@@ -73,6 +75,7 @@ ROLE_ICONS = {
     "school_admin":     "[학교]",
     "school_nutrition": "[영양]",
     "edu_office":       "[교육청]",
+    "meal_manager":     "[급식]",
 }
 
 # DB 허용 테이블
@@ -81,6 +84,7 @@ ALLOWED_TABLES = {
     'schedule_data', 'today_schedule', 'customer_info',
     'biz_customers', 'vendor_info', 'users',
     'real_collection', 'sim_collection', 'school_master', 'schedules',
+    'meal_menus', 'meal_analysis',
 }
 
 # 한글 폰트 후보

@@ -203,13 +203,26 @@ def _render_voice_input(schools: list, school_key_prefix: str,
 
       // 해당 구분 + GPS 좌표 있는 거래처 → 거리 계산
       const candidates = [];
+      let totalOfType = 0;   // 해당 타입의 전체 거래처 수
+      let noGpsCount = 0;    // GPS 미등록 거래처 수
       for (const [name, info] of Object.entries(gpsData)) {{
-        if (info.type === matchedType && info.lat !== 0 && info.lng !== 0) {{
-          const dist = haversine(currentGPS.lat, currentGPS.lng, info.lat, info.lng);
-          candidates.push({{ name, dist, type: info.type }});
+        if (info.type === matchedType) {{
+          totalOfType++;
+          if (info.lat === 0 && info.lng === 0) {{
+            noGpsCount++;
+          }} else {{
+            const dist = haversine(currentGPS.lat, currentGPS.lng, info.lat, info.lng);
+            candidates.push({{ name, dist, type: info.type }});
+          }}
         }}
       }}
-      if (candidates.length === 0) return null;
+      if (candidates.length === 0) {{
+        // GPS 미등록 원인 정보를 포함하여 반환
+        if (noGpsCount > 0) {{
+          return {{ candidates: [], keyword: matchedType, noGps: true, noGpsCount: noGpsCount }};
+        }}
+        return null;
+      }}
 
       // 거리순 정렬
       candidates.sort((a, b) => a.dist - b.dist);
@@ -291,16 +304,17 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       }}
       if (best) return {{ name: best, confidence: 1.0, method: 'exact' }};
 
-      // 2단계: 단축명 매칭 — "송호고"→"송호고등학교", "송호중"→"송호중학교" 등
-      // 2-a: 음성 텍스트에서 "~고", "~중", "~초" 패턴 추출 → 풀네임 확장 시도
+      // 2단계: 단축명 매칭 — "송호고"→"송호고등학교", "송호초등"→"송호초등학교" 등
+      // 2-a: 음성 텍스트에서 약칭 패턴 추출 → 풀네임 확장 (긴 suffix 우선)
       const shortPatterns = [
-        {{ suffix: '고', expand: ['고등학교'] }},
-        {{ suffix: '중', expand: ['중학교'] }},
-        {{ suffix: '초', expand: ['초등학교'] }},
+        {{ suffix: '고등', expand: ['고등학교'], lookahead: '(?!학)' }},
+        {{ suffix: '초등', expand: ['초등학교'], lookahead: '(?!학)' }},
+        {{ suffix: '고',   expand: ['고등학교'], lookahead: '(?!등|학)' }},
+        {{ suffix: '중',   expand: ['중학교'],   lookahead: '(?!등|학)' }},
+        {{ suffix: '초',   expand: ['초등학교'], lookahead: '(?!등|학)' }},
       ];
       for (const sp of shortPatterns) {{
-        // 텍스트에서 "OO고", "OO중", "OO초" 패턴 찾기 (한글2~6자 + 고/중/초)
-        const re = new RegExp('([가-힣]{{2,6}})' + sp.suffix + '(?!등|학)', 'g');
+        const re = new RegExp('([가-힣]{{2,6}})' + sp.suffix + sp.lookahead, 'g');
         let m;
         while ((m = re.exec(text)) !== null) {{
           const stem = m[1];  // 예: "송호"
@@ -314,10 +328,10 @@ def _render_voice_input(schools: list, school_key_prefix: str,
         }}
       }}
 
-      // 2-b: 접미사 제거 후 포함 매칭 (기존)
+      // 2-b: 접미사 제거 후 포함 매칭 (긴 패턴 우선 제거 + 3자 이상만 허용)
       for (const s of schools) {{
-        const short = s.replace(/등학교|학교/g, '').replace(/중$|고$/, '');
-        if (short.length >= 2 && text.includes(short) && short.length > bestLen) {{
+        const short = s.replace(/초등학교|고등학교|중학교|학교/g, '');
+        if (short.length >= 3 && text.includes(short) && short.length > bestLen) {{
           best = s;
           bestLen = short.length;
         }}
@@ -325,20 +339,24 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       if (best) return {{ name: best, confidence: 0.95, method: 'short' }};
 
       // 3단계: Fuzzy Matching — STT 오인식 대응
-      // 음성 텍스트에서 학교명 후보 추출 (숫자/품목 키워드 제거)
+      // 음성 텍스트에서 학교명 후보 추출 (숫자/품목/단독타입 키워드 제거)
       let cleaned = text
         .replace(/\\d+/g, '')
         .replace(/음식물|음식|잔반|급식|재활용|분리수거|페트|캔|일반|종량제|생활/g, '')
         .replace(/킬로|키로|kg/gi, '')
+        .replace(/학교|기업|회사|공장|관공서|구청|시청|주민센터|동사무소|식당|마트|백화점|업장|가게|편의점|카페/g, '')
         .trim();
+
+      // cleaned가 2자 미만이면 Fuzzy 스킵 → GPS 근접 검색으로 자연 전환
+      if (cleaned.length < 2) return null;
 
       let bestFuzzy = null, bestScore = 0;
       for (const s of schools) {{
         // 전체 이름 vs 정제된 텍스트
         const score1 = similarity(cleaned, s);
-        // 접미사 제거 비교
-        const short = s.replace(/등학교|학교|중$|고$/, '');
-        const cleanedShort = cleaned.replace(/등학교|학교|중|고/g, '');
+        // 접미사 제거 비교 (긴 패턴 우선)
+        const short = s.replace(/초등학교|고등학교|중학교|학교/, '');
+        const cleanedShort = cleaned.replace(/초등학교|고등학교|중학교|학교/g, '');
         const score2 = short.length >= 2 ? similarity(cleanedShort, short) : 0;
         // 초성 비교 (보조)
         const score3 = similarity(getChosung(cleaned), getChosung(s)) * 0.9;
@@ -373,6 +391,30 @@ def _render_voice_input(schools: list, school_key_prefix: str,
         return parseFloat(nums[nums.length - 1]);
       }}
       return null;
+    }}
+
+    // ── GPS 키워드 우선 감지: 구체적 학교명 없이 타입 키워드만 있는지 판별 ──
+    function checkTypeKeywordOnly(text) {{
+      // 숫자, 품목 키워드, 단위 제거
+      let rest = text
+        .replace(/\\d+\\.?\\d*/g, '')
+        .replace(/음식물|음식|잔반|급식|재활용|분리수거|페트|캔|일반|종량제|생활/g, '')
+        .replace(/킬로|키로|kg/gi, '')
+        .replace(/\\s+/g, '')
+        .trim();
+      if (rest.length === 0) return false;
+      // typeKeywords의 모든 키워드 제거
+      const allTypeKw = ['초등학교','고등학교','중학교','학교','초등','중등','고등',
+        '기업','회사','공장','사무실','오피스',
+        '관공서','구청','시청','주민센터','동사무소','관청',
+        '식당','마트','백화점','매장','업장','가게','편의점','카페'];
+      for (const kw of allTypeKw) {{
+        rest = rest.split(kw).join('');
+      }}
+      rest = rest.trim();
+      // 남은 한글이 1자 이하면 → 타입 키워드만 있었다고 판단
+      const hangul = rest.replace(/[^가-힣]/g, '');
+      return hangul.length <= 1;
     }}
 
     // ── 부모 DOM의 숨겨진 input에 값 설정 → Streamlit rerun 유발 ──
@@ -533,9 +575,12 @@ def _render_voice_input(schools: list, school_key_prefix: str,
             }}
           }}
 
-          const match = findSchool(final_text);
           const weight = findWeight(final_text);
           const item   = findItem(final_text);
+
+          // ── GPS 키워드 우선 감지: "학교", "기업" 등 단독 키워드면 GPS 직행 ──
+          const isTypeOnly = checkTypeKeywordOnly(final_text);
+          const match = isTypeOnly ? null : findSchool(final_text);
 
           if (match && weight !== null && weight > 0) {{
             const school = match.name;
@@ -652,6 +697,13 @@ def _render_voice_input(schools: list, school_key_prefix: str,
                   }}
                 }}, 200);
               }}
+            }} else if (nearby && nearby.noGps) {{
+              // GPS 좌표 미등록 거래처 안내
+              let msg = '🗣️ "' + final_text + '"<br>';
+              msg += '<span style="color:#e67700;font-weight:700;">📍 ' + nearby.keyword + ' '
+                + nearby.noGpsCount + '곳의 GPS 좌표가 등록되지 않았습니다</span><br>';
+              msg += '<span style="font-size:13px;color:#888;">거래처 카드에서 "📍 현재 위치 저장"을 먼저 해주세요</span>';
+              result.innerHTML = msg;
             }} else {{
               // GPS 근접도 실패 — 기존 안내
               let msg = '🗣️ "' + final_text + '"<br>';

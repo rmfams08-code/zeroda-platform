@@ -698,6 +698,171 @@ def get_today_schools_for_driver(driver_name):
         return []
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 단체급식 관리 함수 (meal_menus, meal_analysis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_meal_menu(site_name, meal_date, meal_type, menu_items,
+                   calories=0, nutrition_info=None, servings=0, site_type='학교'):
+    """일별 식단 저장 (UPSERT: site_name+meal_date+meal_type 기준)"""
+    year_month = meal_date[:7] if len(meal_date) >= 7 else ''
+    data = {
+        'site_name':      site_name,
+        'site_type':      site_type,
+        'meal_date':      meal_date,
+        'meal_type':      meal_type,
+        'menu_items':     json.dumps(menu_items, ensure_ascii=False) if isinstance(menu_items, list) else menu_items,
+        'calories':       float(calories or 0),
+        'nutrition_info': json.dumps(nutrition_info or {}, ensure_ascii=False),
+        'servings':       int(servings or 0),
+        'year_month':     year_month,
+        'created_at':     datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    try:
+        conn = _conn()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO meal_menus
+                (site_name, site_type, meal_date, meal_type, menu_items,
+                 calories, nutrition_info, servings, year_month, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(site_name, meal_date, meal_type) DO UPDATE SET
+                menu_items=excluded.menu_items,
+                calories=excluded.calories,
+                nutrition_info=excluded.nutrition_info,
+                servings=excluded.servings,
+                site_type=excluded.site_type,
+                created_at=excluded.created_at
+        """, (data['site_name'], data['site_type'], data['meal_date'],
+              data['meal_type'], data['menu_items'], data['calories'],
+              data['nutrition_info'], data['servings'], data['year_month'],
+              data['created_at']))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[save_meal_menu] {e}")
+        return False
+
+
+def get_meal_menus(site_name, year_month=None):
+    """식단 조회. year_month 지정 시 해당 월만."""
+    where = {'site_name': site_name}
+    if year_month:
+        where['year_month'] = year_month
+    return db_get('meal_menus', where)
+
+
+def delete_meal_menu(site_name, meal_date, meal_type='중식'):
+    """특정 날짜 식단 삭제"""
+    try:
+        conn = _conn()
+        c = conn.cursor()
+        c.execute("DELETE FROM meal_menus WHERE site_name=? AND meal_date=? AND meal_type=?",
+                  (site_name, meal_date, meal_type))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def analyze_meal_waste(site_name, year_month):
+    """
+    식단↔수거량 매칭 분석.
+    meal_menus(일별 메뉴) × real_collection(일별 음식물 수거량)을 날짜로 매칭.
+    결과를 meal_analysis 테이블에 캐시 저장 후 반환.
+    """
+    menus = get_meal_menus(site_name, year_month)
+    if not menus:
+        return []
+
+    # 해당 월 수거 데이터 (음식물만)
+    all_collections = db_get('real_collection')
+    collections_map = {}
+    for r in all_collections:
+        # school_name 또는 학교명 매칭
+        r_school = r.get('school_name', '') or r.get('학교명', '')
+        r_date = str(r.get('collect_date', '') or r.get('날짜', ''))
+        r_item = str(r.get('item_type', '')).strip()
+        if r_school == site_name and r_date.startswith(year_month):
+            if r_item in ('음식물', '음식물쓰레기', 'food_waste', ''):
+                w = float(r.get('weight', 0) or r.get('음식물(kg)', 0) or 0)
+                collections_map[r_date] = collections_map.get(r_date, 0) + w
+
+    results = []
+    now_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+
+    for m in menus:
+        meal_date = m.get('meal_date', '')
+        waste_kg = collections_map.get(meal_date, 0)
+        servings = int(m.get('servings', 0) or 0)
+        waste_per_person = round((waste_kg * 1000) / servings, 1) if servings > 0 else 0
+        # 잔반율: 1인당 잔반량 기준 등급 (g/인)
+        if waste_per_person == 0 and waste_kg == 0:
+            grade = '-'
+            waste_rate = 0
+        elif waste_per_person <= 30:
+            grade = 'A'
+            waste_rate = round(waste_per_person / 100 * 100, 1)
+        elif waste_per_person <= 60:
+            grade = 'B'
+            waste_rate = round(waste_per_person / 100 * 100, 1)
+        elif waste_per_person <= 100:
+            grade = 'C'
+            waste_rate = round(waste_per_person / 100 * 100, 1)
+        else:
+            grade = 'D'
+            waste_rate = round(waste_per_person / 100 * 100, 1)
+
+        row = {
+            'site_name':        site_name,
+            'year_month':       year_month,
+            'meal_date':        meal_date,
+            'menu_items':       m.get('menu_items', '[]'),
+            'waste_kg':         waste_kg,
+            'waste_per_person': waste_per_person,
+            'waste_rate':       waste_rate,
+            'grade':            grade,
+            'created_at':       now_str,
+        }
+        results.append(row)
+
+        # meal_analysis에 캐시 저장
+        try:
+            conn = _conn()
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO meal_analysis
+                    (site_name, year_month, meal_date, menu_items,
+                     waste_kg, waste_per_person, waste_rate, grade, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(site_name, meal_date) DO UPDATE SET
+                    menu_items=excluded.menu_items,
+                    waste_kg=excluded.waste_kg,
+                    waste_per_person=excluded.waste_per_person,
+                    waste_rate=excluded.waste_rate,
+                    grade=excluded.grade,
+                    created_at=excluded.created_at
+            """, (row['site_name'], row['year_month'], row['meal_date'],
+                  row['menu_items'], row['waste_kg'], row['waste_per_person'],
+                  row['waste_rate'], row['grade'], row['created_at']))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[analyze_meal_waste] cache save: {e}")
+
+    return results
+
+
+def get_meal_analysis(site_name, year_month=None):
+    """잔반 분석 캐시 조회"""
+    where = {'site_name': site_name}
+    if year_month:
+        where['year_month'] = year_month
+    return db_get('meal_analysis', where)
+
+
 def save_schedule_by_vendor(vendor, month, weekdays,
                             schools, items, driver=''):
     """

@@ -9,7 +9,8 @@ from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
                                migrate_school_alias, migrate_customer_price,
                                migrate_safety_tables, migrate_schedules_unique,
                                migrate_biz_to_customer, migrate_customer_recycler,
-                               migrate_customer_gps, migrate_expenses_table)
+                               migrate_customer_gps, migrate_expenses_table,
+                               migrate_meal_tables)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -32,6 +33,7 @@ def startup():
     migrate_customer_recycler()  # customer_info recycler(재활용자) 컬럼 자동 추가
     migrate_customer_gps()       # customer_info GPS 좌표 컬럼 자동 추가
     migrate_expenses_table()     # 월말정산 지출내역 테이블 자동 생성
+    migrate_meal_tables()        # 단체급식 관리 테이블 자동 생성
     return True
 
 startup()
@@ -184,6 +186,28 @@ elif role == 'edu_office':
     page = render_sidebar(menu)
     from modules.edu_office.dashboard import render_dashboard
     render_dashboard(user)
+
+elif role == 'meal_manager':
+    menu = [
+        ("식단 등록",     "menu_register"),
+        ("잔반 분석",     "waste_analysis"),
+        ("AI 추천식단",   "ai_recommend"),
+        ("월말명세서",    "statement"),
+    ]
+    page = render_sidebar(menu)
+
+    if page == "menu_register":
+        from modules.meal_manager.menu_register import render_menu_register
+        render_menu_register(user)
+    elif page == "waste_analysis":
+        from modules.meal_manager.waste_analysis import render_waste_analysis
+        render_waste_analysis(user)
+    elif page == "ai_recommend":
+        from modules.meal_manager.ai_recommend import render_ai_recommend
+        render_ai_recommend(user)
+    elif page == "statement":
+        from modules.meal_manager.statement_tab import render_statement_tab
+        render_statement_tab(user)
 
 else:
     st.error(f"알 수 없는 역할: {role}")

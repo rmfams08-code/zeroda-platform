@@ -490,6 +490,59 @@ def migrate_safety_tables():
         print(f"[migrate_safety_tables] {e}")
 
 
+def migrate_meal_tables():
+    """
+    단체급식 관리용 테이블 2개 생성 (없는 경우에만)
+    - meal_menus: 일별 식단 등록 (메뉴명, 칼로리, 영양정보)
+    - meal_analysis: 잔반 분석 결과 캐시 (메뉴↔수거량 매칭)
+    앱 시작 시 자동 실행
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # 일별 식단 등록 테이블
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS meal_menus (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                site_name TEXT NOT NULL,
+                site_type TEXT DEFAULT '학교',
+                meal_date TEXT NOT NULL,
+                meal_type TEXT DEFAULT '중식',
+                menu_items TEXT DEFAULT '[]',
+                calories REAL DEFAULT 0,
+                nutrition_info TEXT DEFAULT '{}',
+                servings INTEGER DEFAULT 0,
+                year_month TEXT DEFAULT '',
+                created_at TEXT,
+                UNIQUE(site_name, meal_date, meal_type)
+            )
+        """)
+
+        # 잔반 분석 결과 캐시 테이블
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS meal_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                site_name TEXT NOT NULL,
+                year_month TEXT NOT NULL,
+                meal_date TEXT NOT NULL,
+                menu_items TEXT DEFAULT '[]',
+                waste_kg REAL DEFAULT 0,
+                waste_per_person REAL DEFAULT 0,
+                waste_rate REAL DEFAULT 0,
+                grade TEXT DEFAULT '-',
+                created_at TEXT,
+                UNIQUE(site_name, meal_date)
+            )
+        """)
+
+        conn.commit()
+        conn.close()
+        print("[migrate_meal_tables] 단체급식 관리 테이블 준비 완료")
+    except Exception as e:
+        print(f"[migrate_meal_tables] {e}")
+
+
 def migrate_expenses_table():
     """월말정산 지출내역 테이블 생성 (없는 경우에만)"""
     try:

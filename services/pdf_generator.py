@@ -308,6 +308,248 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 급식 월말명세서 PDF 생성 (단체급식 담당용)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_meal_statement_pdf(site_name: str, year: int, month: int,
+                                 analysis_rows: list, menu_ranking: dict = None,
+                                 ai_recommendation: list = None) -> bytes:
+    """
+    급식 월말명세서 PDF 생성
+    - 1페이지: 기관정보 + 일별 식단↔잔반량 테이블 + 월간 요약
+    - 2페이지(선택): AI 추천식단 (ai_recommendation이 있을 때만)
+    """
+    import json
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer, HRFlowable, PageBreak)
+    from reportlab.lib.styles import ParagraphStyle
+
+    font = _get_korean_font()
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=15*mm, leftMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+
+    def P(text, size=10, bold=False, align=0, color=colors.black):
+        style = ParagraphStyle('s', fontName=font, fontSize=size,
+                               alignment=align, textColor=color,
+                               leading=size * 1.4)
+        return Paragraph(str(text), style)
+
+    BLUE   = colors.HexColor('#1a73e8')
+    GREEN  = colors.HexColor('#34a853')
+    ORANGE = colors.HexColor('#fbbc05')
+    RED    = colors.HexColor('#ea4335')
+    LGRAY  = colors.HexColor('#f5f5f5')
+    DGRAY  = colors.HexColor('#e0e0e0')
+
+    story = []
+
+    # ── 1페이지: 제목 ──
+    story.append(P("급식 잔반 분석 명세서", size=20, align=1, color=BLUE))
+    story.append(Spacer(1, 3*mm))
+    today = datetime.now().strftime('%Y년 %m월 %d일')
+    story.append(P(f"발행일: {today}　　분석기간: {year}년 {month}월", size=9, align=2))
+    story.append(HRFlowable(width="100%", thickness=2, color=BLUE))
+    story.append(Spacer(1, 4*mm))
+
+    # ── 기관 정보 ──
+    info_data = [
+        [P('기관명', size=9, align=1, color=colors.white),
+         P(site_name, size=10)],
+        [P('분석기간', size=9, align=1, color=colors.white),
+         P(f"{year}년 {month}월", size=10)],
+    ]
+    info_tbl = Table(info_data, colWidths=[35*mm, 145*mm])
+    info_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (0,-1),  BLUE),
+        ('BACKGROUND', (1,0), (1,-1),  LGRAY),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 5),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(info_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── 월간 요약 ──
+    story.append(P("■ 월간 요약", size=11, color=BLUE))
+    story.append(Spacer(1, 2*mm))
+
+    total_waste = sum(float(r.get('waste_kg', 0) or 0) for r in analysis_rows)
+    valid_days = [r for r in analysis_rows if float(r.get('waste_per_person', 0) or 0) > 0]
+    avg_pp = sum(float(r['waste_per_person']) for r in valid_days) / len(valid_days) if valid_days else 0
+    matched_cnt = len([r for r in analysis_rows if float(r.get('waste_kg', 0) or 0) > 0])
+
+    grade_counts = {}
+    for r in analysis_rows:
+        g = r.get('grade', '-')
+        grade_counts[g] = grade_counts.get(g, 0) + 1
+    main_grade = max(grade_counts, key=grade_counts.get) if grade_counts else '-'
+
+    sum_data = [
+        [P('총 잔반량', size=8, align=1, color=colors.white),
+         P('1인당 평균', size=8, align=1, color=colors.white),
+         P('매칭 일수', size=8, align=1, color=colors.white),
+         P('주요 등급', size=8, align=1, color=colors.white)],
+        [P(f"{total_waste:.1f} kg", size=11, align=1),
+         P(f"{avg_pp:.1f} g", size=11, align=1),
+         P(f"{matched_cnt} / {len(analysis_rows)}일", size=11, align=1),
+         P(main_grade, size=14, align=1,
+           color=GREEN if main_grade == 'A' else (ORANGE if main_grade == 'B' else RED))],
+    ]
+    sum_tbl = Table(sum_data, colWidths=[45*mm]*4)
+    sum_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  BLUE),
+        ('BACKGROUND', (0,1), (-1,1),  LGRAY),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 5),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(sum_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── 일별 상세 ──
+    story.append(P("■ 일별 식단 × 잔반량", size=11, color=BLUE))
+    story.append(Spacer(1, 2*mm))
+
+    header = ['날짜', '메뉴', '잔반량(kg)', '1인당(g)', '등급']
+    tdata = [[P(h, size=7, align=1, color=colors.white) for h in header]]
+
+    for r in analysis_rows:
+        try:
+            menus = json.loads(r.get('menu_items', '[]'))
+        except (json.JSONDecodeError, TypeError):
+            menus = []
+        menu_str = ", ".join(menus[:3])
+        if len(menus) > 3:
+            menu_str += f" 외 {len(menus)-3}"
+
+        wkg = float(r.get('waste_kg', 0) or 0)
+        wpp = float(r.get('waste_per_person', 0) or 0)
+        grade = r.get('grade', '-')
+        grade_color = GREEN if grade == 'A' else (ORANGE if grade == 'B' else (RED if grade == 'D' else colors.black))
+
+        tdata.append([
+            P(r.get('meal_date', '')[-5:], size=7, align=1),
+            P(menu_str, size=6),
+            P(f"{wkg:.1f}", size=7, align=2),
+            P(f"{wpp:.1f}", size=7, align=2),
+            P(grade, size=8, align=1, color=grade_color),
+        ])
+
+    detail_tbl = Table(tdata, colWidths=[20*mm, 85*mm, 22*mm, 22*mm, 16*mm])
+    detail_style = [
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  BLUE),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 3),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]
+    for i in range(1, len(tdata)):
+        bg = LGRAY if i % 2 == 0 else colors.white
+        detail_style.append(('BACKGROUND', (0, i), (-1, i), bg))
+    detail_tbl.setStyle(TableStyle(detail_style))
+    story.append(detail_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── 메뉴별 순위 (잔반 적은 TOP 5 / 많은 TOP 5) ──
+    if menu_ranking:
+        story.append(P("■ 메뉴별 잔반 순위", size=11, color=BLUE))
+        story.append(Spacer(1, 2*mm))
+
+        good = menu_ranking.get('good', [])[:5]
+        bad = menu_ranking.get('bad', [])[:5]
+
+        rank_header = [P('순위', size=7, align=1, color=colors.white),
+                       P('메뉴 (잔반 적은)', size=7, align=1, color=colors.white),
+                       P('평균(g)', size=7, align=1, color=colors.white),
+                       P('', size=7),
+                       P('메뉴 (잔반 많은)', size=7, align=1, color=colors.white),
+                       P('평균(g)', size=7, align=1, color=colors.white)]
+        rank_data = [rank_header]
+        for i in range(5):
+            g = good[i] if i < len(good) else {}
+            b = bad[i] if i < len(bad) else {}
+            rank_data.append([
+                P(str(i+1), size=7, align=1),
+                P(g.get('menu', '-'), size=7),
+                P(f"{g.get('avg_waste', 0):.1f}" if g else '-', size=7, align=2, color=GREEN),
+                P('', size=7),
+                P(b.get('menu', '-'), size=7),
+                P(f"{b.get('avg_waste', 0):.1f}" if b else '-', size=7, align=2, color=RED),
+            ])
+
+        rank_tbl = Table(rank_data, colWidths=[12*mm, 50*mm, 18*mm, 5*mm, 50*mm, 18*mm])
+        rank_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  BLUE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(rank_tbl)
+
+    story.append(Spacer(1, 6*mm))
+    story.append(P("* 본 명세서는 ZERODA 폐기물데이터플랫폼에서 자동 생성되었습니다.",
+                   size=8, color=colors.grey))
+
+    # ── 2페이지: AI 추천식단 (선택) ──
+    if ai_recommendation:
+        story.append(PageBreak())
+        story.append(P("AI 추천식단", size=18, align=1, color=BLUE))
+        story.append(Spacer(1, 2*mm))
+        story.append(P(f"분석 기반 다음달 추천 메뉴 (ZERODA AI)", size=9, align=1, color=colors.grey))
+        story.append(HRFlowable(width="100%", thickness=1, color=BLUE))
+        story.append(Spacer(1, 4*mm))
+
+        ai_header = ['날짜', '요일', '추천 메뉴', 'kcal']
+        ai_data = [[P(h, size=7, align=1, color=colors.white) for h in ai_header]]
+
+        for m in ai_recommendation:
+            menus = m.get('menu_items', [])
+            menu_str = " / ".join(menus)
+            ai_data.append([
+                P(str(m.get('date', ''))[-5:], size=7, align=1),
+                P(m.get('weekday', ''), size=7, align=1),
+                P(menu_str, size=6),
+                P(str(int(m.get('calories', 0))), size=7, align=2),
+            ])
+
+        ai_tbl = Table(ai_data, colWidths=[20*mm, 12*mm, 120*mm, 15*mm])
+        ai_style = [
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  BLUE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]
+        for i in range(1, len(ai_data)):
+            bg = LGRAY if i % 2 == 0 else colors.white
+            ai_style.append(('BACKGROUND', (0, i), (-1, i), bg))
+        ai_tbl.setStyle(TableStyle(ai_style))
+        story.append(ai_tbl)
+
+        story.append(Spacer(1, 5*mm))
+        story.append(P("* AI 추천식단은 과거 잔반 데이터와 영양균형을 기반으로 생성되었습니다.",
+                       size=8, color=colors.grey))
+        story.append(P("* ZERODA Premium 서비스", size=8, color=BLUE))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ESG 보고서 PDF 생성 함수 (추가 - 기존 코드 유지)
 # ─────────────────────────────────────────────────────────────────────────────
 
