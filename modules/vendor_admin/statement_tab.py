@@ -6,6 +6,7 @@ from datetime import datetime
 from database.db_manager import db_get, get_schools_by_vendor, load_customers_from_db, filter_rows_by_school, get_unit_price
 from services.pdf_generator import generate_statement_pdf
 from services.excel_generator import generate_collection_excel
+from services.settlement_excel import generate_monthly_settlement_excel
 from services.email_service import send_statement_email
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
@@ -13,13 +14,16 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 def render_statement_tab(vendor):
     st.markdown("## 정산 관리")
 
-    stab1, stab2 = st.tabs(["📊 정산 현황", "📧 거래명세서 발송"])
+    stab1, stab2, stab3 = st.tabs(["📊 정산 현황", "📧 거래명세서 발송", "📋 월말정산(엑셀)"])
 
     with stab1:
         _render_vendor_summary(vendor)
 
     with stab2:
         _render_vendor_send(vendor)
+
+    with stab3:
+        _render_monthly_settlement(vendor)
 
 
 def _render_vendor_summary(vendor):
@@ -390,3 +394,106 @@ def _render_vendor_send(vendor):
                         st.error(msg)
                 except Exception as e:
                     st.error(f"문자 발송 실패: {e}")
+
+
+def _render_monthly_settlement(vendor):
+    """월말정산 엑셀 — 전체 거래처 수입/지출 통합 정산표 다운로드"""
+
+    col1, col2 = st.columns(2)
+    with col1:
+        _ms_year = st.selectbox(
+            "연도", [2024, 2025, 2026],
+            index=[2024, 2025, 2026].index(CURRENT_YEAR)
+            if CURRENT_YEAR in [2024, 2025, 2026] else 1,
+            key="ms_year"
+        )
+    with col2:
+        _ms_month = st.selectbox(
+            "월", list(range(1, 13)),
+            index=CURRENT_MONTH - 1, key="ms_month"
+        )
+
+    # ── 거래처 목록 (customer_info 기반) ──
+    _all_customers = load_customers_from_db(vendor)
+
+    if not _all_customers:
+        st.warning("등록된 거래처가 없습니다. 거래처 관리에서 먼저 등록하세요.")
+        return
+
+    # 구분별 거래처 수 표시
+    _type_counts = {}
+    for _name, _info in _all_customers.items():
+        _ct = _info.get('구분', '학교')
+        _type_counts[_ct] = _type_counts.get(_ct, 0) + 1
+
+    _summary_parts = [f"{k} {v}곳" for k, v in sorted(_type_counts.items())]
+    st.info(f"총 {len(_all_customers)}개 거래처 — " + ", ".join(_summary_parts))
+
+    # ── 해당 월 수거 데이터 조회 ──
+    _ms_month_str = str(_ms_month).zfill(2)
+    _all_rows = db_get('real_collection')
+    _month_rows = [
+        r for r in _all_rows
+        if r.get('vendor') == vendor
+        and str(r.get('collect_date', '')).startswith(
+            f"{_ms_year}-{_ms_month_str}")
+    ]
+
+    if _month_rows:
+        st.success(f"{_ms_year}년 {_ms_month}월 수거 데이터: {len(_month_rows)}건")
+    else:
+        st.warning(f"{_ms_year}년 {_ms_month}월 수거 데이터가 없습니다. "
+                   "빈 템플릿으로 생성됩니다.")
+
+    st.divider()
+
+    # ── 미리보기: 구분별 요약 ──
+    st.markdown("#### 구분별 수거 현황 (미리보기)")
+    _preview = {}
+    for r in _month_rows:
+        sn = r.get('school_name', '')
+        if sn in _all_customers:
+            ct = _all_customers[sn].get('구분', '학교')
+        else:
+            ct = '기타'
+        w = float(r.get('weight', 0) or 0)
+        if ct not in _preview:
+            _preview[ct] = {'건수': 0, '수거량': 0}
+        _preview[ct]['건수'] += 1
+        _preview[ct]['수거량'] += w
+
+    if _preview:
+        _prev_df = pd.DataFrame([
+            {'구분': k, '건수': v['건수'], '수거량(kg)': round(v['수거량'], 1)}
+            for k, v in _preview.items()
+        ])
+        st.dataframe(_prev_df, use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ── 다운로드 버튼 ──
+    if st.button("월말정산 엑셀 생성", type="primary",
+                 use_container_width=True, key="ms_generate"):
+        with st.spinner("엑셀 생성 중..."):
+            try:
+                excel_bytes = generate_monthly_settlement_excel(
+                    vendor=vendor,
+                    year=_ms_year,
+                    month=_ms_month,
+                    customers_dict=_all_customers,
+                    collection_rows=_month_rows,
+                    expenses=None
+                )
+                _fname = f"월말정산_{vendor}_{_ms_year}{_ms_month_str}.xlsx"
+                st.download_button(
+                    label=f"📥 {_fname} 다운로드",
+                    data=excel_bytes,
+                    file_name=_fname,
+                    mime="application/vnd.openxmlformats-officedocument"
+                         ".spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="ms_download"
+                )
+                st.success("엑셀 생성 완료! 위 버튼을 눌러 다운로드하세요.")
+            except Exception as e:
+                st.error(f"엑셀 생성 실패: {e}")
