@@ -8,6 +8,10 @@ from services.github_storage import (
     github_get, github_insert, github_upsert, github_delete,
     is_github_available, SHARED_TABLES
 )
+from services.supabase_storage import (
+    supabase_get, supabase_insert, supabase_upsert, supabase_delete,
+    supabase_bulk_upsert, is_supabase_available
+)
 
 
 def _conn():
@@ -21,8 +25,15 @@ def _use_github(table: str) -> bool:
     return table in SHARED_TABLES and is_github_available()
 
 
+def _use_supabase(table: str) -> bool:
+    """해당 테이블을 Supabase로 처리할지 여부 (GitHub보다 우선)"""
+    return table in SHARED_TABLES and is_supabase_available()
+
+
 def db_get(table, where_dict=None):
-    """SELECT - GitHub 우선, 폴백 SQLite"""
+    """SELECT - Supabase 우선, GitHub 폴백, SQLite 폴백"""
+    if _use_supabase(table):
+        return supabase_get(table, where_dict)
     if _use_github(table):
         return github_get(table, where_dict)
     # SQLite 폴백
@@ -44,7 +55,9 @@ def db_get(table, where_dict=None):
 
 
 def db_upsert(table, data):
-    """INSERT OR REPLACE - GitHub 우선, 폴백 SQLite"""
+    """INSERT OR REPLACE - Supabase 우선, GitHub 폴백, SQLite 폴백"""
+    if _use_supabase(table):
+        return supabase_upsert(table, data)
     if _use_github(table):
         return github_upsert(table, data)
     try:
@@ -65,7 +78,9 @@ def db_upsert(table, data):
 
 
 def db_insert(table, data):
-    """순수 INSERT - GitHub 우선, 폴백 SQLite"""
+    """순수 INSERT - Supabase 우선, GitHub 폴백, SQLite 폴백"""
+    if _use_supabase(table):
+        return supabase_insert(table, data)
     if _use_github(table):
         return github_insert(table, data)
     try:
@@ -87,7 +102,9 @@ def db_insert(table, data):
 
 
 def db_delete(table, where_dict):
-    """DELETE - GitHub 우선, 폴백 SQLite"""
+    """DELETE - Supabase 우선, GitHub 폴백, SQLite 폴백"""
+    if _use_supabase(table):
+        return supabase_delete(table, where_dict)
     if _use_github(table):
         return github_delete(table, where_dict)
     try:
@@ -802,8 +819,13 @@ def save_meal_menu(site_name, meal_date, meal_type, menu_items,
         print(f"[save_meal_menu] SQLite 오류: {e}")
         return False
 
-    # ── 2) GitHub 동기화 ──
-    if _use_github('meal_menus'):
+    # ── 2) Supabase 동기화 (Supabase 우선, GitHub 폴백) ──
+    if _use_supabase('meal_menus'):
+        try:
+            supabase_upsert('meal_menus', data)
+        except Exception as e:
+            print(f"[save_meal_menu] Supabase 동기화 오류 (SQLite 저장은 완료): {e}")
+    elif _use_github('meal_menus'):
         try:
             from services.github_storage import _put_file, _get_file
             existing, sha = _get_file('meal_menus')
@@ -898,8 +920,13 @@ def save_meal_menus_bulk(site_name, items, site_type='학교'):
             print(f"[save_meal_menus_bulk] SQLite 오류 ({meal_date}): {e}")
             fail += 1
 
-    # ── 2) GitHub 1회 동기화 ──
-    if saved_rows and _use_github('meal_menus'):
+    # ── 2) Supabase 일괄 동기화 (Supabase 우선, GitHub 폴백) ──
+    if saved_rows and _use_supabase('meal_menus'):
+        try:
+            supabase_bulk_upsert('meal_menus', saved_rows)
+        except Exception as e:
+            print(f"[save_meal_menus_bulk] Supabase 동기화 오류 (SQLite 저장은 완료): {e}")
+    elif saved_rows and _use_github('meal_menus'):
         try:
             from services.github_storage import _put_file, _get_file
             existing, sha = _get_file('meal_menus')
@@ -952,8 +979,15 @@ def delete_meal_menu(site_name, meal_date, meal_type='중식'):
         print(f"[delete_meal_menu] SQLite 오류: {e}")
         return False
 
-    # ── 2) GitHub 동기화 ──
-    if _use_github('meal_menus'):
+    # ── 2) Supabase/GitHub 동기화 ──
+    if _use_supabase('meal_menus'):
+        try:
+            supabase_delete('meal_menus', {
+                'site_name': site_name, 'meal_date': meal_date, 'meal_type': meal_type
+            })
+        except Exception as e:
+            print(f"[delete_meal_menu] Supabase 동기화 오류 (SQLite 삭제는 완료): {e}")
+    elif _use_github('meal_menus'):
         try:
             from services.github_storage import _put_file, _get_file
             existing, sha = _get_file('meal_menus')
