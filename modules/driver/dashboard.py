@@ -1439,10 +1439,17 @@ def render_dashboard(user: dict):
         proc_location = st.text_input("처리장명", key="proc_location",
                                       placeholder="예: ○○자원순환센터")
 
-    # 계근표 사진 촬영 (데모: 파일 전송 안함, 첨부 여부만 기록)
-    proc_photo = st.camera_input("📸 계근표 사진 촬영", key="proc_photo")
-    if proc_photo:
-        st.caption("✅ 사진 첨부됨 (데모 버전: 이미지 전송 생략)")
+    # 계근표 사진 촬영 (수거량 입력의 현장증빙사진과 동일 방식)
+    with st.expander("📸 계근표 사진 (선택)", expanded=False):
+        proc_photo = st.file_uploader(
+            "사진 촬영 또는 갤러리에서 선택",
+            type=['jpg', 'jpeg', 'png'],
+            key="proc_photo",
+            help="모바일: 촬영 또는 갤러리 선택 가능"
+        )
+        if proc_photo:
+            st.image(proc_photo, caption="첨부된 계근표 사진", use_container_width=True)
+            st.success("📸 사진이 첨부되었습니다.")
 
     proc_memo = st.text_input("메모 (선택)", key="proc_memo", placeholder="특이사항")
 

@@ -184,15 +184,17 @@ def render_login_page():
         padding: 13px 16px !important;
         font-size: 15px !important;
         background: #f8fafc !important;
+        color: #0f172a !important;
         transition: all 0.2s !important;
     }
     .stTextInput > div > div > input:focus {
         border-color: #38bd94 !important;
         background: #fff !important;
+        color: #0f172a !important;
         box-shadow: 0 0 0 4px rgba(56,189,148,0.1) !important;
     }
     .stTextInput > div > div > input::placeholder {
-        color: #cbd5e1 !important;
+        color: #94a3b8 !important;
     }
 
     /* ── 로그인 버튼 ── */
