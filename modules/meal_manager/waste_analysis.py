@@ -129,7 +129,7 @@ def _render_daily_table(results):
                       '-': ''}
             return colors.get(val, '')
 
-        st.dataframe(df.style.applymap(_grade_color, subset=['등급']),
+        st.dataframe(df.style.map(_grade_color, subset=['등급']),
                      use_container_width=True, hide_index=True)
 
         # 차트: 일별 잔반량 추이
