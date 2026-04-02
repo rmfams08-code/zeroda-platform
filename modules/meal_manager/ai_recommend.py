@@ -293,7 +293,10 @@ def _render_ai_generate(api_key, site_name, all_analysis, months_with_data, user
 def _generate_recommendation(api_key, site_name, target_month,
                              menu_stats, extra_request, user):
     """Claude API 호출하여 추천식단 생성"""
-    prompt = _build_prompt(site_name, target_month, menu_stats, extra_request)
+    # 기존 식단의 영양정보 평균 산출
+    nutrition_summary = _build_nutrition_summary(site_name)
+    prompt = _build_prompt(site_name, target_month, menu_stats, extra_request,
+                           nutrition_summary=nutrition_summary)
 
     with st.spinner("🤖 AI가 추천식단을 생성하고 있습니다..."):
         try:
@@ -327,7 +330,8 @@ def _generate_recommendation(api_key, site_name, target_month,
             st.error(f"API 호출 오류: {str(e)}")
 
 
-def _build_prompt(site_name, target_month, menu_stats, extra_request):
+def _build_prompt(site_name, target_month, menu_stats, extra_request,
+                  nutrition_summary=None):
     """Claude API 프롬프트 구성"""
     good_list = "\n".join(
         f"- {m['menu']} (평균 잔반 {m['avg_waste']:.1f}g/인, {m['count']}회 제공)"
@@ -340,6 +344,18 @@ def _build_prompt(site_name, target_month, menu_stats, extra_request):
     ) or "- 데이터 없음"
 
     avg_waste = menu_stats.get('overall_avg', 0)
+
+    # 영양정보 섹션 (있을 때만 추가)
+    nut_section = ""
+    if nutrition_summary:
+        nut_section = (
+            "\n## 기존 식단 영양정보 평균 (참고)\n"
+            + nutrition_summary + "\n"
+        )
+
+    extra_line = ""
+    if extra_request:
+        extra_line = "7. 추가 요청: " + extra_request
 
     prompt = f"""당신은 단체급식 영양사 AI입니다.
 아래 잔반 분석 데이터를 참고하여 {target_month} 한 달간의 추천 식단표를 작성해주세요.
@@ -354,14 +370,15 @@ def _build_prompt(site_name, target_month, menu_stats, extra_request):
 
 ## 잔반 많은 메뉴 (비선호 → 빈도 줄이거나 개선 조합)
 {bad_list}
-
+{nut_section}
 ## 작성 규칙
 1. 평일(월~금)만 작성 (주말 제외)
 2. 잔반 적은 메뉴를 우선 배치하되, 영양 균형을 고려
 3. 잔반 많은 메뉴는 빈도를 줄이거나 인기 메뉴와 조합
 4. 메뉴는 밥, 국/찌개, 주찬, 부찬, 김치 5가지 구성
 5. 칼로리는 700~900kcal 범위로 추정
-{f"6. 추가 요청: {extra_request}" if extra_request else ""}
+6. 비타민·미네랄(비타민A, 티아민, 리보플라빈, 비타민C, 칼슘, 철분)이 균형 잡히도록 구성
+{extra_line}
 
 ## 출력 형식 (반드시 아래 JSON 형식으로)
 ```json
@@ -516,3 +533,47 @@ def _get_site_name(user: dict) -> str:
     if vendor:
         return vendor
     return ''
+
+
+def _build_nutrition_summary(site_name: str) -> str:
+    """기존 등록 식단의 영양정보 평균을 문자열로 반환 (AI 프롬프트용)"""
+    import json
+    menus = get_meal_menus(site_name, '')  # 전체 월
+    if not menus:
+        return ""
+
+    # 영양정보가 있는 식단만 필터
+    nut_keys = ['탄수화물', '단백질', '지방', '비타민A', '티아민',
+                '리보플라빈', '비타민C', '칼슘', '철분']
+    sums = {k: 0.0 for k in nut_keys}
+    cal_sum = 0.0
+    count = 0
+
+    for m in menus:
+        try:
+            nut = json.loads(m.get('nutrition_info', '{}'))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not nut:
+            continue
+        has_data = any(float(nut.get(k, 0) or 0) > 0 for k in nut_keys)
+        if not has_data:
+            continue
+        count += 1
+        cal_sum += float(m.get('calories', 0) or 0)
+        for k in nut_keys:
+            sums[k] += float(nut.get(k, 0) or 0)
+
+    if count == 0:
+        return ""
+
+    lines = [f"- 분석 대상: {count}일"]
+    lines.append(f"- 평균 칼로리: {cal_sum/count:.0f} kcal")
+    units = {'탄수화물': 'g', '단백질': 'g', '지방': 'g',
+             '비타민A': 'R.E', '티아민': 'mg', '리보플라빈': 'mg',
+             '비타민C': 'mg', '칼슘': 'mg', '철분': 'mg'}
+    for k in nut_keys:
+        avg = sums[k] / count
+        lines.append(f"- {k}: {avg:.1f} {units[k]}")
+
+    return "\n".join(lines)

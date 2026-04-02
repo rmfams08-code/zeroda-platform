@@ -162,13 +162,16 @@ def _render_edit_panel(edit_data, site_name, site_type, servings, edit_key):
                                        value=servings,
                                        step=10, key=f"meal_srv_{d}")
 
-    # 영양정보 (선택)
+    # 영양정보 (9항목: 교육청 NEIS 급식식단정보 기준)
     with st.expander("영양정보 입력 (선택)", expanded=False):
         try:
             nut = json.loads(edit_data.get('nutrition', '{}'))
         except (json.JSONDecodeError, TypeError):
             nut = {}
-        nc1, nc2, nc3, nc4 = st.columns(4)
+
+        # 주요 3대 영양소
+        st.caption("주요 영양소")
+        nc1, nc2, nc3 = st.columns(3)
         with nc1:
             carb = st.number_input("탄수화물(g)", min_value=0.0,
                                    value=float(nut.get('탄수화물', 0)),
@@ -181,10 +184,41 @@ def _render_edit_panel(edit_data, site_name, site_type, servings, edit_key):
             fat = st.number_input("지방(g)", min_value=0.0,
                                   value=float(nut.get('지방', 0)),
                                   key=f"meal_nut_f_{d}")
-        with nc4:
-            sodium = st.number_input("나트륨(mg)", min_value=0.0,
-                                     value=float(nut.get('나트륨', 0)),
-                                     key=f"meal_nut_s_{d}")
+
+        # 비타민
+        st.caption("비타민")
+        nv1, nv2, nv3 = st.columns(3)
+        with nv1:
+            vitA = st.number_input("비타민A(R.E)", min_value=0.0,
+                                   value=float(nut.get('비타민A', 0)),
+                                   key=f"meal_nut_va_{d}")
+        with nv2:
+            thiamin = st.number_input("티아민(mg)", min_value=0.0,
+                                      value=float(nut.get('티아민', 0)),
+                                      step=0.1, format="%.1f",
+                                      key=f"meal_nut_t_{d}")
+        with nv3:
+            ribo = st.number_input("리보플라빈(mg)", min_value=0.0,
+                                   value=float(nut.get('리보플라빈', 0)),
+                                   step=0.1, format="%.1f",
+                                   key=f"meal_nut_r_{d}")
+
+        # 미네랄 + 비타민C
+        st.caption("미네랄 / 비타민C")
+        nm1, nm2, nm3 = st.columns(3)
+        with nm1:
+            vitC = st.number_input("비타민C(mg)", min_value=0.0,
+                                   value=float(nut.get('비타민C', 0)),
+                                   key=f"meal_nut_vc_{d}")
+        with nm2:
+            calcium = st.number_input("칼슘(mg)", min_value=0.0,
+                                      value=float(nut.get('칼슘', 0)),
+                                      key=f"meal_nut_ca_{d}")
+        with nm3:
+            iron = st.number_input("철분(mg)", min_value=0.0,
+                                   value=float(nut.get('철분', 0)),
+                                   step=0.1, format="%.1f",
+                                   key=f"meal_nut_fe_{d}")
 
     # 저장 / 삭제 버튼
     bc1, bc2, bc3 = st.columns([2, 1, 1])
@@ -196,8 +230,9 @@ def _render_edit_panel(edit_data, site_name, site_type, servings, edit_key):
                 st.error("메뉴를 1개 이상 입력하세요.")
             else:
                 nutrition = {
-                    '탄수화물': carb, '단백질': protein,
-                    '지방': fat, '나트륨': sodium,
+                    '탄수화물': carb, '단백질': protein, '지방': fat,
+                    '비타민A': vitA, '티아민': thiamin, '리보플라빈': ribo,
+                    '비타민C': vitC, '칼슘': calcium, '철분': iron,
                 }
                 ok = save_meal_menu(
                     site_name=site_name,
@@ -257,12 +292,22 @@ def _render_excel_upload(site_name: str, sel_month: str):
     if not uploaded:
         return
 
-    # 파싱
+    # 파싱 (.xls → xlrd, .xlsx → openpyxl, fallback 포함)
     try:
         import pandas as pd
-        df = pd.read_excel(uploaded)
+        fname = uploaded.name.lower()
+        if fname.endswith('.xls') and not fname.endswith('.xlsx'):
+            try:
+                df = pd.read_excel(uploaded, engine='xlrd')
+            except ImportError:
+                st.warning("xlrd 미설치 → .xlsx 모드로 재시도합니다.")
+                uploaded.seek(0)
+                df = pd.read_excel(uploaded, engine='openpyxl')
+        else:
+            df = pd.read_excel(uploaded, engine='openpyxl')
     except Exception as e:
-        st.error(f"파일 읽기 실패: {e}")
+        st.error(f"파일 읽기 실패: `{e}`")
+        st.info("💡 `.xls` 파일인 경우 엑셀에서 `.xlsx`로 다시 저장한 뒤 업로드하면 해결됩니다.")
         return
 
     # 필수 컬럼 확인
