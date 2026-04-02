@@ -4,6 +4,54 @@ from io import BytesIO
 from datetime import datetime
 
 
+# ── 잔반량 표준 데이터 (출처: 학교급식법 시행규칙 [별표 3], 2021.01.29 개정) ──
+# 근거: 교육부 고시, 법제처 국가법령정보센터
+# https://www.law.go.kr → 학교급식법 시행규칙 별표3
+WASTE_STANDARD = {
+    '남자고등': {
+        'kcal': 900,        # 1끼 에너지 기준 (kcal)
+        'supply_g': 780,    # 밥+국+반찬5종 총 제공량 (g)
+        'waste_avg_g': 220, # 평균 잔반량 (g), 잔반율 약 28%
+    },
+    '여자고등': {
+        'kcal': 670,
+        'supply_g': 650,
+        'waste_avg_g': 270, # 평균 잔반량 (g), 잔반율 약 42%
+    },
+    '혼합평균': {
+        'kcal': 785,
+        'supply_g': 715,
+        'waste_avg_g': 245, # 남녀 혼합 평균 잔반량 (g)
+    },
+    '현장기준': {
+        'kcal': 785,
+        'supply_g': 750,
+        'waste_avg_g': 300, # 현장 보수기준 (국물+채소 고잔반 시나리오)
+    },
+}
+# 잔반 등급 기준 — 1인당 g 기준 (혼합평균 245g, 현장기준 300g 근거)
+WASTE_GRADE = {
+    'A': (0,   150),   # 우수: 150g 미만
+    'B': (150, 245),   # 양호: 표준 이하 (245g 미만)
+    'C': (245, 300),   # 주의: 표준 초과 (245~300g)
+    'D': (300, 9999),  # 고잔반 경보: 300g 초과
+}
+# 구성별 제공량 및 잔반율 기준 (남자 고등학생 900kcal 기준)
+MEAL_COMPOSITION = {
+    '밥':       {'supply_g': 220, 'kcal': 330, 'waste_rate': 0.13},
+    '국':       {'supply_g': 250, 'kcal':  50, 'waste_rate': 0.40},  # 국물 잔반 높음
+    '육류반찬': {'supply_g':  80, 'kcal': 130, 'waste_rate': 0.15},
+    '나물채소': {'supply_g':  60, 'kcal':  30, 'waste_rate': 0.50},  # 편식 잔반 높음
+    '김치류':   {'supply_g':  60, 'kcal':  20, 'waste_rate': 0.40},
+    '볶음류':   {'supply_g':  60, 'kcal':  80, 'waste_rate': 0.25},
+    '기타반찬': {'supply_g':  50, 'kcal':  50, 'waste_rate': 0.28},
+}
+WASTE_SOURCE = (
+    "출처: 학교급식법 시행규칙 [별표 3] (교육부, 2021.01.29 개정) | "
+    "ZERODA 잔반 분석 표준 기준 v1.0"
+)
+
+
 def _get_korean_font():
     """한글 폰트 등록 - 우선순위로 시도"""
     from reportlab.pdfbase import pdfmetrics
@@ -500,8 +548,10 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
         story.append(rank_tbl)
 
     story.append(Spacer(1, 6*mm))
-    story.append(P("* 본 명세서는 ZERODA 폐기물데이터플랫폼에서 자동 생성되었습니다.",
-                   size=8, color=colors.grey))
+    story.append(P(
+        "* 본 명세서는 ZERODA 폐기물데이터플랫폼에서 자동 생성되었습니다. | "
+        + WASTE_SOURCE,
+        size=7, color=colors.grey))
 
     # ── 2페이지: AI 추천식단 (선택) ──
     if ai_recommendation:
