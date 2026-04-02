@@ -750,7 +750,9 @@ def get_today_schools_for_driver(driver_name):
 
 def save_meal_menu(site_name, meal_date, meal_type, menu_items,
                    calories=0, nutrition_info=None, servings=0, site_type='학교'):
-    """일별 식단 저장 (UPSERT: site_name+meal_date+meal_type 기준)"""
+    """일별 식단 저장 (UPSERT: site_name+meal_date+meal_type 기준)
+    SQLite + GitHub 동시 저장 (meal_menus가 SHARED_TABLES에 포함되어 있으므로)
+    """
     year_month = meal_date[:7] if len(meal_date) >= 7 else ''
     data = {
         'site_name':      site_name,
@@ -764,6 +766,9 @@ def save_meal_menu(site_name, meal_date, meal_type, menu_items,
         'year_month':     year_month,
         'created_at':     datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S'),
     }
+
+    # ── 1) SQLite 저장 ──
+    row_id = None
     try:
         conn = _conn()
         c = conn.cursor()
@@ -784,11 +789,49 @@ def save_meal_menu(site_name, meal_date, meal_type, menu_items,
               data['nutrition_info'], data['servings'], data['year_month'],
               data['created_at']))
         conn.commit()
+        # UPSERT 후 해당 행의 id를 조회
+        c.execute(
+            "SELECT id FROM meal_menus WHERE site_name=? AND meal_date=? AND meal_type=?",
+            (site_name, meal_date, meal_type)
+        )
+        result = c.fetchone()
+        if result:
+            row_id = result[0]
         conn.close()
-        return True
     except Exception as e:
-        print(f"[save_meal_menu] {e}")
+        print(f"[save_meal_menu] SQLite 오류: {e}")
         return False
+
+    # ── 2) GitHub 동기화 ──
+    if _use_github('meal_menus'):
+        try:
+            from services.github_storage import _put_file, _get_file
+            existing, sha = _get_file('meal_menus')
+            if existing is None:
+                existing = []
+            gh_data = dict(data)
+            if row_id:
+                gh_data['id'] = row_id
+            # GitHub에서 기존 행 찾아 업데이트 (site_name+meal_date+meal_type 기준)
+            updated = False
+            for i, row in enumerate(existing):
+                if (row.get('site_name') == site_name and
+                    row.get('meal_date') == meal_date and
+                    row.get('meal_type') == meal_type):
+                    gh_data['id'] = row.get('id', row_id)
+                    existing[i] = gh_data
+                    updated = True
+                    break
+            if not updated:
+                if 'id' not in gh_data or not gh_data['id']:
+                    max_id = max((int(r.get('id', 0)) for r in existing), default=0)
+                    gh_data['id'] = max_id + 1
+                existing.append(gh_data)
+            _put_file('meal_menus', existing, sha)
+        except Exception as e:
+            print(f"[save_meal_menu] GitHub 동기화 오류 (SQLite 저장은 완료): {e}")
+
+    return True
 
 
 def get_meal_menus(site_name, year_month=None):
@@ -800,7 +843,8 @@ def get_meal_menus(site_name, year_month=None):
 
 
 def delete_meal_menu(site_name, meal_date, meal_type='중식'):
-    """특정 날짜 식단 삭제"""
+    """특정 날짜 식단 삭제 (SQLite + GitHub 동시 삭제)"""
+    # ── 1) SQLite 삭제 ──
     try:
         conn = _conn()
         c = conn.cursor()
@@ -808,9 +852,29 @@ def delete_meal_menu(site_name, meal_date, meal_type='중식'):
                   (site_name, meal_date, meal_type))
         conn.commit()
         conn.close()
-        return True
-    except Exception:
+    except Exception as e:
+        print(f"[delete_meal_menu] SQLite 오류: {e}")
         return False
+
+    # ── 2) GitHub 동기화 ──
+    if _use_github('meal_menus'):
+        try:
+            from services.github_storage import _put_file, _get_file
+            existing, sha = _get_file('meal_menus')
+            if existing is None:
+                existing = []
+            filtered = [
+                r for r in existing
+                if not (r.get('site_name') == site_name and
+                        r.get('meal_date') == meal_date and
+                        r.get('meal_type') == meal_type)
+            ]
+            if len(filtered) != len(existing):
+                _put_file('meal_menus', filtered, sha)
+        except Exception as e:
+            print(f"[delete_meal_menu] GitHub 동기화 오류 (SQLite 삭제는 완료): {e}")
+
+    return True
 
 
 def analyze_meal_waste(site_name, year_month):
