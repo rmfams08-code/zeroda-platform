@@ -120,6 +120,22 @@ def normalize_keys(rows):
     return [{k: row.get(k) for k in sorted_keys} for row in clean]
 
 
+def deduplicate_rows(rows, conflict_expr):
+    """
+    conflict 키 기준 중복 제거 (마지막 행 유지).
+    ON CONFLICT DO UPDATE cannot affect row a second time 오류 방지.
+    """
+    if not conflict_expr or not rows:
+        return rows
+    # "(vendor, name)" → ['vendor', 'name']
+    key_cols = [c.strip() for c in conflict_expr.strip('()').split(',')]
+    seen = {}
+    for row in rows:
+        key = tuple(str(row.get(c, '')) for c in key_cols)
+        seen[key] = row  # 같은 키면 마지막 행으로 덮어씀
+    return list(seen.values())
+
+
 def migrate_table(url, key, table, rows, conflict_expr):
     """테이블 데이터를 Supabase에 일괄 삽입."""
     if not rows:
@@ -140,10 +156,13 @@ def migrate_table(url, key, table, rows, conflict_expr):
         filtered_rows = [{k: v for k, v in row.items() if k != 'id'} for row in rows]
         skipped_cols = set()
 
-    # ── (3) 키 통일 ──
-    unified = normalize_keys(filtered_rows)
+    # ── (3) 중복 제거 (같은 conflict key 행 → 마지막만 유지) ──
+    deduped = deduplicate_rows(filtered_rows, conflict_expr)
 
-    # ── (4) Supabase POST ──
+    # ── (4) 키 통일 ──
+    unified = normalize_keys(deduped)
+
+    # ── (5) Supabase POST ──
     endpoint = f"{url}/rest/v1/{table}"
     if conflict_expr:
         cols_raw = conflict_expr.strip('()').replace(' ', '')
