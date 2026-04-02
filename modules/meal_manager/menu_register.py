@@ -7,7 +7,7 @@ import calendar
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from database.db_manager import (
-    save_meal_menu, get_meal_menus, delete_meal_menu,
+    save_meal_menu, save_meal_menus_bulk, get_meal_menus, delete_meal_menu,
     get_school_student_count,
 )
 from config.settings import COMMON_CSS
@@ -352,26 +352,15 @@ def _render_excel_upload(site_name: str, sel_month: str):
     import pandas as _pd
     st.dataframe(_pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
 
-    # 일괄 등록 버튼
+    # 일괄 등록 버튼 (bulk 함수로 GitHub API 최소화)
     if st.button("📥 전체 일괄 등록", type="primary", key="meal_excel_apply",
                  use_container_width=True):
-        success = 0
-        fail = 0
-        for p in parsed:
-            ok = save_meal_menu(
+        with st.spinner(f"⏳ {len(parsed)}일치 식단 등록 중..."):
+            success, fail = save_meal_menus_bulk(
                 site_name=site_name,
-                meal_date=p['date'],
-                meal_type='중식',
-                menu_items=p['menus'],
-                calories=p['calories'],
-                nutrition_info=p['nutrition'],
-                servings=p['servings'],
+                items=parsed,
                 site_type='학교',
             )
-            if ok:
-                success += 1
-            else:
-                fail += 1
 
         if success > 0:
             st.success(f"✅ {success}일치 식단 등록 완료!")
@@ -380,13 +369,31 @@ def _render_excel_upload(site_name: str, sel_month: str):
         st.rerun()
 
 
+def _find_column(df_columns, candidates):
+    """데이터프레임 컬럼 중 candidates에 포함된 첫 번째 컬럼명 반환"""
+    for col in df_columns:
+        col_clean = str(col).strip()
+        if col_clean in candidates:
+            return col
+    return None
+
+
 def _parse_meal_excel(df, sel_month: str) -> list:
     """교육청 NEIS 급식식단정보 엑셀 → 구조화된 리스트 변환"""
     results = []
 
+    # ── 컬럼명 유연 매칭 (NEIS 파일 버전에 따라 컬럼명이 다를 수 있음) ──
+    col_date     = _find_column(df.columns, ['급식일자', '급식날짜', '일자', '날짜']) or '급식일자'
+    col_menu     = _find_column(df.columns, ['요리명', '메뉴명', '식단명', '메뉴']) or '요리명'
+    col_cal      = _find_column(df.columns, ['칼로리정보', '칼로리', '열량', '에너지(kcal)']) or '칼로리정보'
+    col_servings = _find_column(df.columns, [
+        '급식인원수', '급식인원', '배식인원수', '배식인원', '인원수', '인원',
+    ]) or '급식인원수'
+    col_nut      = _find_column(df.columns, ['영양정보', '영양량정보', '영양소']) or '영양정보'
+
     for _, row in df.iterrows():
         # 날짜 파싱 (YYYYMMDD 또는 YYYY-MM-DD)
-        raw_date = str(row.get('급식일자', ''))
+        raw_date = str(row.get(col_date, ''))
         meal_date = _parse_date(raw_date)
         if not meal_date:
             continue
@@ -396,20 +403,20 @@ def _parse_meal_excel(df, sel_month: str) -> list:
             continue
 
         # 메뉴 파싱 (<br/> 구분, 알레르기 코드 제거)
-        raw_menu = str(row.get('요리명', ''))
+        raw_menu = str(row.get(col_menu, ''))
         menus = _parse_menus(raw_menu)
         if not menus:
             continue
 
         # 칼로리 파싱
-        raw_cal = str(row.get('칼로리정보', '0'))
+        raw_cal = str(row.get(col_cal, '0'))
         calories = _parse_calories(raw_cal)
 
-        # 배식인원
-        servings = int(row.get('급식인원수', 0) or 0)
+        # 급식인원/배식인원 (유연 매칭)
+        servings = int(row.get(col_servings, 0) or 0)
 
         # 영양정보 파싱
-        raw_nut = str(row.get('영양정보', ''))
+        raw_nut = str(row.get(col_nut, ''))
         nutrition = _parse_nutrition(raw_nut)
 
         results.append({

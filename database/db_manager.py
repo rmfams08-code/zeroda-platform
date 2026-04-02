@@ -834,6 +834,102 @@ def save_meal_menu(site_name, meal_date, meal_type, menu_items,
     return True
 
 
+def save_meal_menus_bulk(site_name, items, site_type='학교'):
+    """
+    다건 식단 일괄 저장 (엑셀 업로드용).
+    SQLite 건별 UPSERT 후, GitHub에는 1회만 동기화하여 API 호출을 최소화한다.
+    items: list of dict — 각 dict에 date, menus, calories, nutrition, servings 포함
+    반환: (성공건수, 실패건수)
+    """
+    success = 0
+    fail = 0
+    now_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+    saved_rows = []  # GitHub 동기화용
+
+    # ── 1) SQLite 건별 UPSERT ──
+    for item in items:
+        meal_date = item['date']
+        year_month = meal_date[:7] if len(meal_date) >= 7 else ''
+        menu_items = item.get('menus', [])
+        data = {
+            'site_name':      site_name,
+            'site_type':      site_type,
+            'meal_date':      meal_date,
+            'meal_type':      '중식',
+            'menu_items':     json.dumps(menu_items, ensure_ascii=False) if isinstance(menu_items, list) else menu_items,
+            'calories':       float(item.get('calories', 0) or 0),
+            'nutrition_info': json.dumps(item.get('nutrition', {}) or {}, ensure_ascii=False),
+            'servings':       int(item.get('servings', 0) or 0),
+            'year_month':     year_month,
+            'created_at':     now_str,
+        }
+        try:
+            conn = _conn()
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO meal_menus
+                    (site_name, site_type, meal_date, meal_type, menu_items,
+                     calories, nutrition_info, servings, year_month, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(site_name, meal_date, meal_type) DO UPDATE SET
+                    menu_items=excluded.menu_items,
+                    calories=excluded.calories,
+                    nutrition_info=excluded.nutrition_info,
+                    servings=excluded.servings,
+                    site_type=excluded.site_type,
+                    created_at=excluded.created_at
+            """, (data['site_name'], data['site_type'], data['meal_date'],
+                  data['meal_type'], data['menu_items'], data['calories'],
+                  data['nutrition_info'], data['servings'], data['year_month'],
+                  data['created_at']))
+            conn.commit()
+            # UPSERT 후 id 조회
+            c.execute(
+                "SELECT id FROM meal_menus WHERE site_name=? AND meal_date=? AND meal_type=?",
+                (site_name, meal_date, '중식')
+            )
+            result = c.fetchone()
+            if result:
+                data['id'] = result[0]
+            conn.close()
+            saved_rows.append(data)
+            success += 1
+        except Exception as e:
+            print(f"[save_meal_menus_bulk] SQLite 오류 ({meal_date}): {e}")
+            fail += 1
+
+    # ── 2) GitHub 1회 동기화 ──
+    if saved_rows and _use_github('meal_menus'):
+        try:
+            from services.github_storage import _put_file, _get_file
+            existing, sha = _get_file('meal_menus')
+            if existing is None:
+                existing = []
+            # 기존 데이터에서 site_name+meal_date+meal_type 키로 인덱싱
+            idx_map = {}
+            for i, row in enumerate(existing):
+                key = (row.get('site_name'), row.get('meal_date'), row.get('meal_type'))
+                idx_map[key] = i
+
+            for data in saved_rows:
+                key = (data['site_name'], data['meal_date'], data['meal_type'])
+                if key in idx_map:
+                    data['id'] = existing[idx_map[key]].get('id', data.get('id'))
+                    existing[idx_map[key]] = data
+                else:
+                    if 'id' not in data or not data['id']:
+                        max_id = max((int(r.get('id', 0)) for r in existing), default=0)
+                        data['id'] = max_id + 1
+                    existing.append(data)
+                    idx_map[key] = len(existing) - 1
+
+            _put_file('meal_menus', existing, sha)
+        except Exception as e:
+            print(f"[save_meal_menus_bulk] GitHub 동기화 오류 (SQLite 저장은 완료): {e}")
+
+    return success, fail
+
+
 def get_meal_menus(site_name, year_month=None):
     """식단 조회. year_month 지정 시 해당 월만."""
     where = {'site_name': site_name}
