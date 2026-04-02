@@ -238,6 +238,52 @@ def assign_school_to_vendor(school_name, vendor):
     return db_upsert('school_master', {'school_name': school_name, 'vendor': vendor})
 
 
+def get_vendors_by_school(school_name):
+    """
+    학교 → 담당 수거업체 목록 역조회 (중복 제거)
+    1. school_master 테이블
+    2. customer_info 테이블
+    3. schedules 테이블
+    """
+    import json
+    vendors = set()
+
+    # 1단계: school_master
+    rows = db_get('school_master')
+    for r in rows:
+        if r.get('school_name') == school_name and r.get('vendor'):
+            vendors.add(r['vendor'])
+
+    # 2단계: customer_info (name = school_name)
+    cust_rows = db_get('customer_info')
+    for r in cust_rows:
+        if r.get('name') == school_name and r.get('vendor'):
+            vendors.add(r['vendor'])
+
+    # 3단계: schedules
+    sched_rows = db_get('schedules')
+    for r in sched_rows:
+        try:
+            school_list = json.loads(r.get('schools', '[]'))
+            if school_name in school_list and r.get('vendor'):
+                vendors.add(r['vendor'])
+        except Exception:
+            pass
+
+    return sorted(list(vendors))
+
+
+def get_vendors_by_schools(school_list):
+    """
+    학교 목록 → 담당 수거업체 목록 (중복 제거)
+    교육청 등에서 관할학교 전체의 담당업체를 한번에 조회할 때 사용
+    """
+    vendors = set()
+    for school in school_list:
+        vendors.update(get_vendors_by_school(school))
+    return sorted(list(vendors))
+
+
 def get_all_vendors():
     """업체 ID 목록 반환 (DB 저장용)"""
     rows = db_get('vendor_info')

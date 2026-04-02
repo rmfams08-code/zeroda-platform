@@ -267,7 +267,7 @@ def _render_safety_report(school: str):
     st.caption("중대재해예방점검 서류 기반 월간 안전관리 보고서를 조회·다운로드할 수 있습니다.")
 
     from database.db_manager import (db_get, get_safety_scores, get_violations,
-                                     get_all_vendors, calculate_safety_score)
+                                     get_vendors_by_school, calculate_safety_score)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -291,12 +291,18 @@ def _render_safety_report(school: str):
     _GRADE_BG    = {'S': '#E3F2FD', 'A': '#E8F5E9', 'B': '#FFFDE7',
                     'C': '#FFF3E0', 'D': '#FFEBEE'}
 
+    # 담당 수거업체만 조회
+    my_vendors = get_vendors_by_school(school)
+
     scores = get_safety_scores(year_month=year_month)
     if not scores:
-        all_vendors = get_all_vendors()
-        for v in all_vendors:
+        for v in (my_vendors or []):
             calculate_safety_score(v, year_month)
         scores = get_safety_scores(year_month=year_month)
+
+    # 담당 업체만 필터링
+    if scores and my_vendors:
+        scores = [s for s in scores if s.get('vendor') in my_vendors]
 
     if scores:
         cols = st.columns(min(len(scores), 4))
@@ -324,6 +330,9 @@ def _render_safety_report(school: str):
     # ── 스쿨존 위반 이력 ──────────────────────────────────────────────────
     st.markdown("#### 🚨 스쿨존 위반 이력")
     violations = get_violations(year_month=year_month)
+    # 담당 업체만 필터링
+    if violations and my_vendors:
+        violations = [v for v in violations if v.get('vendor') in my_vendors]
     if violations:
         df_v = pd.DataFrame(violations)
         show_v = [c for c in ['violation_date','vendor','driver','violation_type',
@@ -346,15 +355,18 @@ def _render_safety_report(school: str):
 
     edu_data = db_get('safety_education')
     edu_rows = [r for r in (edu_data or [])
-                if str(r.get('edu_date', '')).startswith(f"{year}-{m_str}")]
+                if str(r.get('edu_date', '')).startswith(f"{year}-{m_str}")
+                and (not my_vendors or r.get('vendor') in my_vendors)]
 
     check_data = db_get('safety_checklist')
     check_rows = [r for r in (check_data or [])
-                  if str(r.get('check_date', '')).startswith(f"{year}-{m_str}")]
+                  if str(r.get('check_date', '')).startswith(f"{year}-{m_str}")
+                  and (not my_vendors or r.get('vendor') in my_vendors)]
 
     accident_data = db_get('accident_report')
     accident_rows = [r for r in (accident_data or [])
-                     if str(r.get('accident_date', '')).startswith(f"{year}-{m_str}")]
+                     if str(r.get('accident_date', '')).startswith(f"{year}-{m_str}")
+                     and (not my_vendors or r.get('vendor') in my_vendors)]
 
     c1, c2, c3 = st.columns(3)
     with c1:
@@ -394,7 +406,12 @@ def _render_safety_report(school: str):
 
     # ── PDF 다운로드 ──────────────────────────────────────────────────────
     st.markdown("#### 📄 안전관리보고서 PDF 다운로드")
-    vendor_name = st.text_input("수거(용역) 업체명", value="하영자원",
+    # 담당 업체명 자동 표시
+    from database.db_manager import get_vendor_name
+    default_vendor_name = "하영자원"
+    if my_vendors:
+        default_vendor_name = get_vendor_name(my_vendors[0])
+    vendor_name = st.text_input("수거(용역) 업체명", value=default_vendor_name,
                                 key="sch_safety_vendor")
 
     if st.button("📄 안전관리보고서 PDF 생성", key="sch_safety_pdf_btn", type="primary"):

@@ -51,7 +51,7 @@ def render_dashboard(user):
         _render_esg_report(managed_schools)
 
     with tab6:
-        _render_safety()
+        _render_safety(managed_schools)
 
 
 def _render_overview(managed_schools: list):
@@ -356,8 +356,8 @@ def _render_esg_report(managed_schools: list):
 # 안전관리 현황 탭 (신규 추가)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_safety():
-    """교육청 안전관리 현황 탭 — 안전평가 등급 시각화 포함"""
+def _render_safety(managed_schools: list = None):
+    """교육청 안전관리 현황 탭 — 관할학교 담당업체만 표시"""
     st.markdown("### 🛡️ 학교별 안전관리 현황")
 
     from config.settings import CURRENT_YEAR as _CY, CURRENT_MONTH as _CM
@@ -371,6 +371,11 @@ def _render_safety():
     with col2:
         month = st.selectbox("월", ['전체'] + list(range(1, 13)), key="edu_safety_month")
 
+    # ── 관할학교의 담당 수거업체만 조회 ───────────────────────────────
+    from database.db_manager import (get_safety_scores, get_vendors_by_schools,
+                                     calculate_safety_score, get_vendor_name)
+    my_vendors = get_vendors_by_schools(managed_schools) if managed_schools else []
+
     # ── 섹션1: 업체별 안전관리 등급 요약 카드 ─────────────────────────
     st.markdown("#### 📊 업체별 안전관리 등급")
 
@@ -381,19 +386,21 @@ def _render_safety():
     _GRADE_BG    = {'S': '#E3F2FD', 'A': '#E8F5E9', 'B': '#FFFDE7',
                     'C': '#FFF3E0', 'D': '#FFEBEE'}
 
-    from database.db_manager import get_safety_scores, get_all_vendors, calculate_safety_score
     q_ym = (f"{year}-{str(month).zfill(2)}" if month != '전체' else
             f"{year}-{str(_CM).zfill(2)}")
 
     # 평가 결과 로드
     scores = get_safety_scores(year_month=q_ym)
 
-    # 평가 결과가 없으면 전체 업체에 대해 자동 계산
+    # 평가 결과가 없으면 담당 업체에 대해 자동 계산
     if not scores:
-        all_vendors = get_all_vendors()
-        for v in all_vendors:
+        for v in (my_vendors or []):
             calculate_safety_score(v, q_ym)
         scores = get_safety_scores(year_month=q_ym)
+
+    # 담당 업체만 필터링
+    if scores and my_vendors:
+        scores = [s for s in scores if s.get('vendor') in my_vendors]
 
     if scores:
         # 등급 카드: 업체별 컬럼
@@ -449,7 +456,8 @@ def _render_safety():
     st.markdown("#### 안전교육 이수 현황")
     edu_data = db_get('safety_education')
     if edu_data:
-        rows = [r for r in edu_data if str(r.get('edu_date', '')).startswith(str(year))]
+        rows = [r for r in edu_data if str(r.get('edu_date', '')).startswith(str(year))
+                and (not my_vendors or r.get('vendor') in my_vendors)]
         if month != '전체':
             m_str = str(month).zfill(2)
             rows  = [r for r in rows if f"-{m_str}-" in str(r.get('edu_date', ''))]
@@ -470,7 +478,8 @@ def _render_safety():
     st.markdown("#### 차량 점검 현황")
     check_data = db_get('safety_checklist')
     if check_data:
-        rows2 = [r for r in check_data if str(r.get('check_date', '')).startswith(str(year))]
+        rows2 = [r for r in check_data if str(r.get('check_date', '')).startswith(str(year))
+                 and (not my_vendors or r.get('vendor') in my_vendors)]
         if month != '전체':
             m_str = str(month).zfill(2)
             rows2 = [r for r in rows2 if f"-{m_str}-" in str(r.get('check_date', ''))]
@@ -491,7 +500,8 @@ def _render_safety():
     st.markdown("#### 사고 보고 현황")
     accident_data = db_get('accident_report')
     if accident_data:
-        rows3 = [r for r in accident_data if str(r.get('accident_date', '')).startswith(str(year))]
+        rows3 = [r for r in accident_data if str(r.get('accident_date', '')).startswith(str(year))
+                 and (not my_vendors or r.get('vendor') in my_vendors)]
         if month != '전체':
             m_str = str(month).zfill(2)
             rows3 = [r for r in rows3 if f"-{m_str}-" in str(r.get('accident_date', ''))]
@@ -522,7 +532,10 @@ def _render_safety():
         edu_org_name = st.text_input("교육청명", value="경기도화성오산교육지원청",
                                       key="edu_safety_pdf_org")
     with pc2:
-        edu_vendor_name = st.text_input("수거(용역) 업체명", value="하영자원",
+        default_vname = "하영자원"
+        if my_vendors:
+            default_vname = get_vendor_name(my_vendors[0])
+        edu_vendor_name = st.text_input("수거(용역) 업체명", value=default_vname,
                                          key="edu_safety_pdf_vendor")
 
     # 안전보건 점검 체크리스트 (HWP 기반 7항목)
@@ -547,18 +560,22 @@ def _render_safety():
     pdf_violations = get_violations(year_month=pdf_ym) if month != '전체' else \
         get_violations()
     pdf_violations = [v for v in (pdf_violations or [])
-                      if str(v.get('violation_date', '')).startswith(str(year))]
+                      if str(v.get('violation_date', '')).startswith(str(year))
+                      and (not my_vendors or v.get('vendor') in my_vendors)]
     if month != '전체':
         m_s = str(pdf_month).zfill(2)
         pdf_violations = [v for v in pdf_violations
                           if f"-{m_s}-" in str(v.get('violation_date', ''))]
 
     pdf_edu = [r for r in (edu_data or [])
-               if str(r.get('edu_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")]
+               if str(r.get('edu_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")
+               and (not my_vendors or r.get('vendor') in my_vendors)]
     pdf_check = [r for r in (check_data or [])
-                 if str(r.get('check_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")]
+                 if str(r.get('check_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")
+                 and (not my_vendors or r.get('vendor') in my_vendors)]
     pdf_accident = [r for r in (accident_data or [])
-                    if str(r.get('accident_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")]
+                    if str(r.get('accident_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")
+                    and (not my_vendors or r.get('vendor') in my_vendors)]
 
     if st.button("📄 안전관리보고서 PDF 생성", key="edu_safety_pdf_btn", type="primary"):
         try:

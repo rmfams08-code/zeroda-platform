@@ -19,6 +19,8 @@ SHARED_TABLES = [
     'accident_report',   # 사고신고
     'carbon_reduction',      # 탄소감축
     'processing_confirm',    # 처리확인(계근표)
+    'meal_menus',            # 급식식단 (메뉴·영양정보)
+    'meal_analysis',         # 잔반분석 결과 캐시
 ]
 
 
