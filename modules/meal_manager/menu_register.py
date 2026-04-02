@@ -1,7 +1,8 @@
 # modules/meal_manager/menu_register.py
-# 단체급식 담당 — 월별 식단 등록/수정 UI
+# 단체급식 담당 — 월별 식단 등록/수정 UI (수정4: 엑셀 업로드 기능 추가)
 import streamlit as st
 import json
+import re
 import calendar
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
@@ -41,6 +42,12 @@ def render_menu_register(user: dict):
     default_idx = 2  # 현재 월
     sel_month = st.selectbox("월 선택", month_options, index=default_idx,
                              key="meal_reg_month")
+
+    # ── 엑셀 파일 업로드 (일괄 등록) ──
+    with st.expander("📤 급식식단 엑셀 파일 업로드 (일괄 등록)", expanded=False):
+        _render_excel_upload(site_name, sel_month)
+
+    st.divider()
 
     # ── 기본 배식인원 ──
     student_count = get_school_student_count(site_name)
@@ -223,12 +230,232 @@ def _render_edit_panel(edit_data, site_name, site_type, servings, edit_key):
 
 def _get_site_name(user: dict) -> str:
     """사용자 정보에서 담당 거래처명 추출"""
-    # schools 필드 (학교)
     schools = user.get('schools', '')
     if schools:
         return schools.split(',')[0].strip()
-    # vendor 필드 (기업 구내식당 등)
     vendor = user.get('vendor', '')
     if vendor:
         return vendor
     return ''
+
+
+# ══════════════════════════════════════════════════════════════
+# 엑셀 업로드 관련 함수
+# ══════════════════════════════════════════════════════════════
+
+def _render_excel_upload(site_name: str, sel_month: str):
+    """급식식단정보 엑셀 파일(.xls/.xlsx) 업로드 → 일괄 등록"""
+    st.markdown("교육청 NEIS 급식식단정보 엑셀 파일을 업로드하면 자동으로 파싱하여 등록합니다.")
+    st.caption("지원 컬럼: 급식일자, 요리명, 칼로리정보, 영양정보, 급식인원수")
+
+    uploaded = st.file_uploader(
+        "엑셀 파일 선택 (.xls / .xlsx)",
+        type=["xls", "xlsx"],
+        key="meal_excel_upload"
+    )
+
+    if not uploaded:
+        return
+
+    # 파싱
+    try:
+        import pandas as pd
+        df = pd.read_excel(uploaded)
+    except Exception as e:
+        st.error(f"파일 읽기 실패: {e}")
+        return
+
+    # 필수 컬럼 확인
+    required = ['급식일자', '요리명']
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        st.error(f"필수 컬럼 누락: {missing}")
+        st.info(f"파일 컬럼: {list(df.columns)}")
+        return
+
+    # 데이터 파싱
+    parsed = _parse_meal_excel(df, sel_month)
+
+    if not parsed:
+        st.warning(f"{sel_month}에 해당하는 식단 데이터가 없습니다.")
+        return
+
+    # 미리보기
+    st.success(f"✅ {len(parsed)}일치 식단 데이터 파싱 완료")
+
+    preview_rows = []
+    for p in parsed:
+        menus_short = ", ".join(p['menus'][:3])
+        if len(p['menus']) > 3:
+            menus_short += f" 외 {len(p['menus'])-3}"
+        nut = p.get('nutrition', {})
+        nut_str = ""
+        if nut:
+            parts = []
+            for k in ['탄수화물', '단백질', '지방']:
+                if k in nut:
+                    parts.append(f"{k}:{nut[k]}g")
+            nut_str = " / ".join(parts)
+        preview_rows.append({
+            '날짜': p['date'],
+            '메뉴': menus_short,
+            '칼로리': f"{p['calories']:.0f} kcal",
+            '배식인원': p['servings'],
+            '영양정보': nut_str,
+        })
+
+    import pandas as _pd
+    st.dataframe(_pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+
+    # 일괄 등록 버튼
+    if st.button("📥 전체 일괄 등록", type="primary", key="meal_excel_apply",
+                 use_container_width=True):
+        success = 0
+        fail = 0
+        for p in parsed:
+            ok = save_meal_menu(
+                site_name=site_name,
+                meal_date=p['date'],
+                meal_type='중식',
+                menu_items=p['menus'],
+                calories=p['calories'],
+                nutrition_info=p['nutrition'],
+                servings=p['servings'],
+                site_type='학교',
+            )
+            if ok:
+                success += 1
+            else:
+                fail += 1
+
+        if success > 0:
+            st.success(f"✅ {success}일치 식단 등록 완료!")
+        if fail > 0:
+            st.error(f"❌ {fail}건 등록 실패")
+        st.rerun()
+
+
+def _parse_meal_excel(df, sel_month: str) -> list:
+    """교육청 NEIS 급식식단정보 엑셀 → 구조화된 리스트 변환"""
+    results = []
+
+    for _, row in df.iterrows():
+        # 날짜 파싱 (YYYYMMDD 또는 YYYY-MM-DD)
+        raw_date = str(row.get('급식일자', ''))
+        meal_date = _parse_date(raw_date)
+        if not meal_date:
+            continue
+
+        # 선택 월 필터
+        if meal_date[:7] != sel_month:
+            continue
+
+        # 메뉴 파싱 (<br/> 구분, 알레르기 코드 제거)
+        raw_menu = str(row.get('요리명', ''))
+        menus = _parse_menus(raw_menu)
+        if not menus:
+            continue
+
+        # 칼로리 파싱
+        raw_cal = str(row.get('칼로리정보', '0'))
+        calories = _parse_calories(raw_cal)
+
+        # 배식인원
+        servings = int(row.get('급식인원수', 0) or 0)
+
+        # 영양정보 파싱
+        raw_nut = str(row.get('영양정보', ''))
+        nutrition = _parse_nutrition(raw_nut)
+
+        results.append({
+            'date': meal_date,
+            'menus': menus,
+            'calories': calories,
+            'servings': servings,
+            'nutrition': nutrition,
+        })
+
+    # 날짜 정렬
+    results.sort(key=lambda x: x['date'])
+    return results
+
+
+def _parse_date(raw: str) -> str:
+    """YYYYMMDD 또는 YYYY-MM-DD → YYYY-MM-DD"""
+    raw = raw.strip()
+    if len(raw) == 8 and raw.isdigit():
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}"
+    if len(raw) == 10 and raw[4] == '-':
+        return raw
+    # float → int 변환 (20260401.0)
+    try:
+        num = int(float(raw))
+        s = str(num)
+        if len(s) == 8:
+            return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    except (ValueError, TypeError):
+        pass
+    return ''
+
+
+def _parse_menus(raw: str) -> list:
+    """
+    요리명 파싱: <br/> 구분자로 분리, 알레르기 코드 제거
+    예: "현미밥 <br/>팽이장국 (5.6)<br/>쫄면야채무침 (5.6.13)"
+    → ["현미밥", "팽이장국", "쫄면야채무침"]
+    """
+    items = re.split(r'<br\s*/?>', raw)
+    menus = []
+    for item in items:
+        # 알레르기 코드 제거: (1.2.5.6) 패턴
+        cleaned = re.sub(r'\s*\([\d.]+\)\s*$', '', item.strip())
+        cleaned = cleaned.strip()
+        if cleaned:
+            menus.append(cleaned)
+    return menus
+
+
+def _parse_calories(raw: str) -> float:
+    """'870.6 Kcal' → 870.6"""
+    m = re.search(r'([\d.]+)\s*[Kk]cal', raw)
+    if m:
+        return float(m.group(1))
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _parse_nutrition(raw: str) -> dict:
+    """
+    영양정보 파싱:
+    "탄수화물(g) : 135.0<br/>단백질(g) : 40.7<br/>지방(g) : 16.7<br/>비타민A(R.E) : 92.0
+     <br/>티아민(mg) : 0.9<br/>리보플라빈(mg) : 0.4<br/>비타민C(mg) : 8.4
+     <br/>칼슘(mg) : 144.4<br/>철분(mg) : 3.3"
+    → {'탄수화물': 135.0, '단백질': 40.7, '지방': 16.7, '비타민A': 92.0, ...}
+    """
+    if not raw or raw == 'nan':
+        return {}
+
+    nutrition = {}
+    items = re.split(r'<br\s*/?>', raw)
+    for item in items:
+        item = item.strip()
+        if not item or ':' not in item:
+            continue
+        # "탄수화물(g) : 135.0" → key="탄수화물", value=135.0
+        parts = item.split(':', 1)
+        key_raw = parts[0].strip()
+        val_raw = parts[1].strip()
+
+        # 키에서 단위 제거: "탄수화물(g)" → "탄수화물"
+        key = re.sub(r'\(.*?\)', '', key_raw).strip()
+
+        try:
+            val = float(val_raw)
+        except (ValueError, TypeError):
+            continue
+
+        nutrition[key] = val
+
+    return nutrition
