@@ -102,88 +102,101 @@ def render_login_page():
     # ── 로그인 전용 CSS ──
     st.markdown("""
     <style>
-    /* 사이드바 숨김 (로그인 화면) */
-    [data-testid="stSidebar"] { display: none !important; }
-    [data-testid="stSidebarNav"] { display: none !important; }
-    header[data-testid="stHeader"] { display: none !important; }
-    #MainMenu { display: none !important; }
+    /* ── 시스템 UI 숨김 ── */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarNav"],
+    header[data-testid="stHeader"],
+    #MainMenu,
+    .css-1dp5vir, .css-10pw50,
+    [data-testid="stPageLink"] { display: none !important; }
 
-    /* 전체 배경 */
+    /* ── 다크 배경 ── */
     .stApp {
         background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
     }
 
-    /* 로그인 카드 */
-    .login-card {
-        max-width: 420px;
-        margin: 0 auto;
-        background: #ffffff;
-        border-radius: 24px;
-        padding: 48px 40px 40px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    /* ── 배경 장식 원 ── */
+    .stApp::before {
+        content: '';
+        position: fixed; width: 500px; height: 500px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(56,189,148,0.07) 0%, transparent 70%);
+        top: -120px; left: -100px; pointer-events: none;
+    }
+    .stApp::after {
+        content: '';
+        position: fixed; width: 400px; height: 400px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
+        bottom: -80px; right: -60px; pointer-events: none;
     }
 
-    /* 브랜드 로고 영역 */
+    /* ── 중앙 컬럼을 카드로 스타일링 ── */
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stVerticalBlock"] > div.stMarkdown > div > div > .zeroda-brand) {
+        background: #ffffff;
+        border-radius: 24px;
+        padding: 48px 40px 40px !important;
+        box-shadow: 0 25px 60px rgba(0,0,0,0.35);
+        max-width: 440px;
+        margin: 0 auto;
+    }
+
+    /* ── 브랜드 로고 ── */
     .zeroda-brand {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        margin-bottom: 36px;
+        display: flex; align-items: center; gap: 14px; margin-bottom: 32px;
     }
     .zeroda-brand-icon {
-        width: 48px; height: 48px;
+        width: 50px; height: 50px;
         background: linear-gradient(135deg, #38bd94, #3b82f6);
         border-radius: 14px;
         display: flex; align-items: center; justify-content: center;
-        font-size: 20px; font-weight: 800; color: #fff;
-        box-shadow: 0 4px 14px rgba(56,189,148,0.3);
+        font-size: 22px; font-weight: 800; color: #fff;
+        box-shadow: 0 6px 20px rgba(56,189,148,0.35);
         flex-shrink: 0;
     }
     .zeroda-brand-name {
-        font-size: 24px; font-weight: 800; letter-spacing: -0.5px;
+        font-size: 26px; font-weight: 800; letter-spacing: -0.5px;
         background: linear-gradient(135deg, #0f172a, #334155);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         line-height: 1.2;
     }
     .zeroda-brand-desc {
-        font-size: 11px; font-weight: 500; color: #94a3b8;
-        letter-spacing: 2px; text-transform: uppercase;
+        font-size: 11px; font-weight: 600; color: #94a3b8;
+        letter-spacing: 2.5px; text-transform: uppercase;
     }
 
-    /* 로그인 타이틀 */
+    /* ── 로그인 타이틀 ── */
     .login-title {
-        font-size: 22px; font-weight: 700; color: #0f172a;
-        margin-bottom: 6px;
+        font-size: 22px; font-weight: 700; color: #0f172a; margin-bottom: 4px;
     }
     .login-subtitle {
-        font-size: 14px; color: #94a3b8; margin-bottom: 28px;
+        font-size: 14px; color: #94a3b8; margin-bottom: 24px;
     }
 
-    /* 하단 카피라이트 */
-    .login-footer {
-        text-align: center;
-        margin-top: 32px;
-        font-size: 11px;
-        color: rgba(148,163,184,0.6);
+    /* ── 입력 필드 라벨 ── */
+    .field-label {
+        font-size: 13px; font-weight: 600; color: #334155;
+        margin-bottom: 6px; margin-top: 4px;
     }
 
-    /* Streamlit 입력 필드 스타일 오버라이드 */
-    .login-card .stTextInput > div > div > input {
+    /* ── Streamlit 입력 필드 ── */
+    .stTextInput > div > div > input {
         border-radius: 12px !important;
         border: 2px solid #e2e8f0 !important;
-        padding: 12px 16px !important;
+        padding: 13px 16px !important;
         font-size: 15px !important;
         background: #f8fafc !important;
         transition: all 0.2s !important;
     }
-    .login-card .stTextInput > div > div > input:focus {
+    .stTextInput > div > div > input:focus {
         border-color: #38bd94 !important;
         background: #fff !important;
         box-shadow: 0 0 0 4px rgba(56,189,148,0.1) !important;
     }
+    .stTextInput > div > div > input::placeholder {
+        color: #cbd5e1 !important;
+    }
 
-    /* 로그인 버튼 스타일 */
-    .login-card .stButton > button[kind="primary"] {
+    /* ── 로그인 버튼 ── */
+    .stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #38bd94, #2da37e) !important;
         border: none !important;
         border-radius: 12px !important;
@@ -192,55 +205,50 @@ def render_login_page():
         font-weight: 600 !important;
         box-shadow: 0 4px 16px rgba(56,189,148,0.3) !important;
         transition: all 0.3s !important;
+        margin-top: 8px !important;
     }
-    .login-card .stButton > button[kind="primary"]:hover {
+    .stButton > button[kind="primary"]:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 8px 24px rgba(56,189,148,0.4) !important;
     }
 
-    /* 배경 장식 원 */
-    .bg-circle-1 {
-        position: fixed; width: 500px; height: 500px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(56,189,148,0.06) 0%, transparent 70%);
-        top: -120px; left: -100px; pointer-events: none; z-index: 0;
+    /* ── 하단 카피라이트 ── */
+    .login-footer {
+        text-align: center; margin-top: 28px;
+        font-size: 11px; color: rgba(148,163,184,0.5);
     }
-    .bg-circle-2 {
-        position: fixed; width: 400px; height: 400px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
-        bottom: -80px; right: -60px; pointer-events: none; z-index: 0;
-    }
-
-    /* 페이지 멀티페이지 네비게이션 숨김 */
-    .css-1dp5vir, .css-10pw50, [data-testid="stPageLink"] { display: none !important; }
     </style>
-
-    <div class="bg-circle-1"></div>
-    <div class="bg-circle-2"></div>
     """, unsafe_allow_html=True)
 
     # ── 상단 여백 ──
-    st.markdown("<div style='height:60px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:50px;'></div>", unsafe_allow_html=True)
 
-    # ── 로그인 카드 시작 ──
-    col1, col2, col3 = st.columns([1.2, 2, 1.2])
+    # ── 중앙 카드 ──
+    col1, col2, col3 = st.columns([1.3, 2, 1.3])
     with col2:
+        # 브랜드 로고 + 타이틀
         st.markdown("""
-        <div class="login-card">
-            <div class="zeroda-brand">
-                <div class="zeroda-brand-icon">Z</div>
-                <div>
-                    <div class="zeroda-brand-name">ZERODA</div>
-                    <div class="zeroda-brand-desc">Waste Data Platform</div>
-                </div>
+        <div class="zeroda-brand">
+            <div class="zeroda-brand-icon">Z</div>
+            <div>
+                <div class="zeroda-brand-name">ZERODA</div>
+                <div class="zeroda-brand-desc">Waste Data Platform</div>
             </div>
-            <div class="login-title">로그인</div>
-            <div class="login-subtitle">계정 정보를 입력하여 접속하세요</div>
         </div>
+        <div class="login-title">로그인</div>
+        <div class="login-subtitle">계정 정보를 입력하여 접속하세요</div>
+        <div class="field-label">아이디</div>
         """, unsafe_allow_html=True)
 
-        # Streamlit 위젯은 markdown 밖에 배치
-        user_id  = st.text_input("아이디", key="login_id", placeholder="아이디를 입력하세요", label_visibility="collapsed")
-        password = st.text_input("비밀번호", key="login_pw", type="password", placeholder="비밀번호를 입력하세요", label_visibility="collapsed")
+        user_id = st.text_input("아이디", key="login_id",
+                                placeholder="아이디를 입력하세요",
+                                label_visibility="collapsed")
+
+        st.markdown('<div class="field-label">비밀번호</div>', unsafe_allow_html=True)
+
+        password = st.text_input("비밀번호", key="login_pw", type="password",
+                                 placeholder="비밀번호를 입력하세요",
+                                 label_visibility="collapsed")
 
         if st.button("로그인", type="primary", use_container_width=True):
             if not user_id or not password:
