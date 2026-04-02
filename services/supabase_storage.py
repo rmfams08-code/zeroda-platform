@@ -48,9 +48,9 @@ def _headers(key, prefer=None):
     return h
 
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=5)
 def _supabase_get_cached(table: str):
-    """Supabase에서 테이블 전체 데이터 읽기 (30초 캐시)"""
+    """Supabase에서 테이블 전체 데이터 읽기 (5초 캐시)"""
     url, key = _get_supabase()
     if not url or not key:
         return []
