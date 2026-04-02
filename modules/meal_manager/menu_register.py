@@ -370,11 +370,25 @@ def _render_excel_upload(site_name: str, sel_month: str):
 
 
 def _find_column(df_columns, candidates):
-    """데이터프레임 컬럼 중 candidates에 포함된 첫 번째 컬럼명 반환"""
+    """데이터프레임 컬럼 중 candidates에 포함된 첫 번째 컬럼명 반환
+    1차: 정확 매칭 (strip 후 비교)
+    2차: 공백·괄호·특수문자 제거 후 포함(contains) 매칭
+    """
+    import re
+    # 1차: 정확 매칭
     for col in df_columns:
         col_clean = str(col).strip()
         if col_clean in candidates:
             return col
+    # 2차: 정규화 후 포함 매칭 (공백·괄호·단위 제거)
+    def _normalize(s):
+        return re.sub(r'[\s()（）\[\]명수인]', '', str(s).strip())
+    norm_candidates = {_normalize(c): c for c in candidates}
+    for col in df_columns:
+        col_norm = _normalize(col)
+        for nc in norm_candidates:
+            if nc and col_norm and (nc in col_norm or col_norm in nc):
+                return col
     return None
 
 
@@ -388,6 +402,7 @@ def _parse_meal_excel(df, sel_month: str) -> list:
     col_cal      = _find_column(df.columns, ['칼로리정보', '칼로리', '열량', '에너지(kcal)']) or '칼로리정보'
     col_servings = _find_column(df.columns, [
         '급식인원수', '급식인원', '배식인원수', '배식인원', '인원수', '인원',
+        '급식인원 수', '배식인원 수', '급식인원(명)', '배식인원(명)',
     ]) or '급식인원수'
     col_nut      = _find_column(df.columns, ['영양정보', '영양량정보', '영양소']) or '영양정보'
 
@@ -412,8 +427,15 @@ def _parse_meal_excel(df, sel_month: str) -> list:
         raw_cal = str(row.get(col_cal, '0'))
         calories = _parse_calories(raw_cal)
 
-        # 급식인원/배식인원 (유연 매칭)
-        servings = int(row.get(col_servings, 0) or 0)
+        # 급식인원/배식인원 (유연 매칭 + NaN 안전 처리)
+        import math
+        _raw_srv = row.get(col_servings, 0)
+        if _raw_srv is None or (isinstance(_raw_srv, float) and math.isnan(_raw_srv)):
+            _raw_srv = 0
+        try:
+            servings = int(float(_raw_srv))
+        except (ValueError, TypeError):
+            servings = 0
 
         # 영양정보 파싱
         raw_nut = str(row.get(col_nut, ''))
