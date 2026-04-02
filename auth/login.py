@@ -99,19 +99,148 @@ def logout():
 def render_login_page():
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
 
+    # ── 로그인 전용 CSS ──
     st.markdown("""
-    <div style="text-align:center;padding:40px 0 20px;">
-        <div style="font-size:48px;font-weight:900;color:#1a73e8;">ZERODA</div>
-        <h1 style="font-size:24px;font-weight:700;">제로다 폐기물데이터플랫폼</h1>
-        <div style="color:#5f6368;">하영자원 | 경기도 화성시</div>
-    </div>
+    <style>
+    /* 사이드바 숨김 (로그인 화면) */
+    [data-testid="stSidebar"] { display: none !important; }
+    [data-testid="stSidebarNav"] { display: none !important; }
+    header[data-testid="stHeader"] { display: none !important; }
+    #MainMenu { display: none !important; }
+
+    /* 전체 배경 */
+    .stApp {
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+    }
+
+    /* 로그인 카드 */
+    .login-card {
+        max-width: 420px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 24px;
+        padding: 48px 40px 40px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    /* 브랜드 로고 영역 */
+    .zeroda-brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 36px;
+    }
+    .zeroda-brand-icon {
+        width: 48px; height: 48px;
+        background: linear-gradient(135deg, #38bd94, #3b82f6);
+        border-radius: 14px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px; font-weight: 800; color: #fff;
+        box-shadow: 0 4px 14px rgba(56,189,148,0.3);
+        flex-shrink: 0;
+    }
+    .zeroda-brand-name {
+        font-size: 24px; font-weight: 800; letter-spacing: -0.5px;
+        background: linear-gradient(135deg, #0f172a, #334155);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        line-height: 1.2;
+    }
+    .zeroda-brand-desc {
+        font-size: 11px; font-weight: 500; color: #94a3b8;
+        letter-spacing: 2px; text-transform: uppercase;
+    }
+
+    /* 로그인 타이틀 */
+    .login-title {
+        font-size: 22px; font-weight: 700; color: #0f172a;
+        margin-bottom: 6px;
+    }
+    .login-subtitle {
+        font-size: 14px; color: #94a3b8; margin-bottom: 28px;
+    }
+
+    /* 하단 카피라이트 */
+    .login-footer {
+        text-align: center;
+        margin-top: 32px;
+        font-size: 11px;
+        color: rgba(148,163,184,0.6);
+    }
+
+    /* Streamlit 입력 필드 스타일 오버라이드 */
+    .login-card .stTextInput > div > div > input {
+        border-radius: 12px !important;
+        border: 2px solid #e2e8f0 !important;
+        padding: 12px 16px !important;
+        font-size: 15px !important;
+        background: #f8fafc !important;
+        transition: all 0.2s !important;
+    }
+    .login-card .stTextInput > div > div > input:focus {
+        border-color: #38bd94 !important;
+        background: #fff !important;
+        box-shadow: 0 0 0 4px rgba(56,189,148,0.1) !important;
+    }
+
+    /* 로그인 버튼 스타일 */
+    .login-card .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #38bd94, #2da37e) !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 14px !important;
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        box-shadow: 0 4px 16px rgba(56,189,148,0.3) !important;
+        transition: all 0.3s !important;
+    }
+    .login-card .stButton > button[kind="primary"]:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 24px rgba(56,189,148,0.4) !important;
+    }
+
+    /* 배경 장식 원 */
+    .bg-circle-1 {
+        position: fixed; width: 500px; height: 500px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(56,189,148,0.06) 0%, transparent 70%);
+        top: -120px; left: -100px; pointer-events: none; z-index: 0;
+    }
+    .bg-circle-2 {
+        position: fixed; width: 400px; height: 400px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
+        bottom: -80px; right: -60px; pointer-events: none; z-index: 0;
+    }
+
+    /* 페이지 멀티페이지 네비게이션 숨김 */
+    .css-1dp5vir, .css-10pw50, [data-testid="stPageLink"] { display: none !important; }
+    </style>
+
+    <div class="bg-circle-1"></div>
+    <div class="bg-circle-2"></div>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # ── 상단 여백 ──
+    st.markdown("<div style='height:60px;'></div>", unsafe_allow_html=True)
+
+    # ── 로그인 카드 시작 ──
+    col1, col2, col3 = st.columns([1.2, 2, 1.2])
     with col2:
-        st.markdown("### 🔐 로그인")
-        user_id  = st.text_input("아이디", key="login_id", placeholder="아이디를 입력하세요")
-        password = st.text_input("비밀번호", key="login_pw", type="password", placeholder="비밀번호를 입력하세요")
+        st.markdown("""
+        <div class="login-card">
+            <div class="zeroda-brand">
+                <div class="zeroda-brand-icon">Z</div>
+                <div>
+                    <div class="zeroda-brand-name">ZERODA</div>
+                    <div class="zeroda-brand-desc">Waste Data Platform</div>
+                </div>
+            </div>
+            <div class="login-title">로그인</div>
+            <div class="login-subtitle">계정 정보를 입력하여 접속하세요</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Streamlit 위젯은 markdown 밖에 배치
+        user_id  = st.text_input("아이디", key="login_id", placeholder="아이디를 입력하세요", label_visibility="collapsed")
+        password = st.text_input("비밀번호", key="login_pw", type="password", placeholder="비밀번호를 입력하세요", label_visibility="collapsed")
 
         if st.button("로그인", type="primary", use_container_width=True):
             if not user_id or not password:
@@ -125,33 +254,9 @@ def render_login_page():
                 st.rerun()
             else:
                 st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
-                # 임시 디버그
-                from services.github_storage import is_github_available, _get_file
-                with st.expander("🔍 디버그 (임시)"):
-                    st.write(f"GitHub 연결: {is_github_available()}")
-                    rows, _ = _get_file('users')
-                    st.write(f"users.json 행 수: {len(rows) if rows else 0}")
-                    if rows:
-                        st.write(f"첫번째 user_id: {rows[0].get('user_id','없음')}")
-                        st.write(f"pw_hash 앞 10자: {rows[0].get('pw_hash','없음')[:10]}")
 
-    st.markdown("---")
-    st.markdown("#### 접속 가능 역할")
-    cols = st.columns(3)
-    role_list = [
-        ("admin",            "본사 관리자",      "전체 데이터 관리"),
-        ("vendor_admin",     "외주업체 관리자",   "담당 학교 수거 관리"),
-        ("driver",           "수거기사",          "수거일지 입력"),
-        ("school_admin",     "학교 행정실",       "정산서 확인"),
-        ("school_nutrition", "학교 영양사",       "수거일정 조회"),
-        ("edu_office",       "교육청",            "학교 현황 조회"),
-    ]
-    for i, (role, title, desc) in enumerate(role_list):
-        with cols[i % 3]:
-            icon = ROLE_ICONS.get(role, "")
-            st.markdown(f"""
-            <div style="background:#f8f9fa;border-radius:10px;padding:15px;margin-bottom:10px;text-align:center;">
-                <div style="font-weight:700;font-size:14px;color:#202124;">{icon} {title}</div>
-                <div style="font-size:12px;color:#5f6368;margin-top:4px;">{desc}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown("""
+        <div class="login-footer">
+            &copy; 2026 ZERODA &middot; 하영자원 폐기물데이터플랫폼
+        </div>
+        """, unsafe_allow_html=True)
