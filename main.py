@@ -10,7 +10,8 @@ from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
                                migrate_safety_tables, migrate_schedules_unique,
                                migrate_biz_to_customer, migrate_customer_recycler,
                                migrate_customer_gps, migrate_expenses_table,
-                               migrate_meal_tables, migrate_school_nutrition_to_meal)
+                               migrate_meal_tables, migrate_school_nutrition_to_meal,
+                               migrate_processing_confirm_table)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -35,6 +36,7 @@ def startup():
     migrate_expenses_table()     # 월말정산 지출내역 테이블 자동 생성
     migrate_meal_tables()        # 단체급식 관리 테이블 자동 생성
     migrate_school_nutrition_to_meal()  # school_nutrition → meal_manager 역할 전환
+    migrate_processing_confirm_table()   # 처리확인(계근표) 테이블 자동 생성
     return True
 
 startup()
@@ -193,7 +195,7 @@ elif role in ('meal_manager', 'school_nutrition'):
         ("식단 등록",     "menu_register"),
         ("잔반 분석",     "waste_analysis"),
         ("AI 추천식단",   "ai_recommend"),
-        ("월말명세서",    "statement"),
+        ("스마트월말명세서", "statement"),
         ("수거 현황",     "collection"),
         ("정산 확인",     "settlement"),
         ("ESG 보고서",    "esg"),

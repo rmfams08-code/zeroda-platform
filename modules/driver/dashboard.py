@@ -6,7 +6,7 @@ import urllib.parse
 import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-from database.db_manager import db_insert, db_get, get_schools_by_vendor, save_customer_gps
+from database.db_manager import db_insert, db_get, db_upsert, get_schools_by_vendor, save_customer_gps
 from config.settings import COMMON_CSS
 
 WEEKDAY_MAP = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
@@ -1264,17 +1264,20 @@ def render_dashboard(user: dict):
                     # ── 숫자 키패드 (전체 너비) ────────────────────
                     _render_numpad(_dr_key, school)
 
-                    # 날짜 추가 버튼
+                    # 날짜 추가 버튼 (밀린 수거 입력용 — 여러 날짜 자유 추가)
                     if st.button("＋ 날짜 추가", key=f"drv_dr_add_{school}"):
-                        _yesterday = today - timedelta(days=1)
                         _existing_dates = [r["date"] for r in st.session_state[_dr_key]]
-                        if _yesterday in _existing_dates:
-                            st.warning("⚠️ 이미 추가된 날짜입니다")
-                        else:
-                            st.session_state[_dr_key].append(
-                                {"date": _yesterday, "weight": 0.0, "item": "음식물"}
-                            )
-                            st.rerun()
+                        # 기존 행에 없는 가장 최근 과거 날짜를 자동 계산
+                        _new_date = today - timedelta(days=1)
+                        for _d in range(1, 31):  # 최대 30일 전까지
+                            _candidate = today - timedelta(days=_d)
+                            if _candidate not in _existing_dates:
+                                _new_date = _candidate
+                                break
+                        st.session_state[_dr_key].append(
+                            {"date": _new_date, "weight": 0.0, "item": "음식물"}
+                        )
+                        st.rerun()
 
                     # ── 공통 필드 (기존 유지) ─────────────────────
                     _fc1, _fc2 = st.columns(2)
@@ -1341,38 +1344,162 @@ def render_dashboard(user: dict):
                             else:
                                 st.error("전송할 데이터가 없습니다 (수거량 0 제외)")
 
-        # 오늘 입력 현황
+        # 오늘 입력 현황 (created_at 기준 — 과거 날짜 입력분도 포함)
         st.divider()
         st.markdown("#### 📋 오늘 입력 현황")
-        if not today_all:
+        today_input_all = [r for r in db_get('real_collection')
+                           if r.get('driver') == driver_name
+                           and str(r.get('created_at', ''))[:10] == today_str]
+        if not today_input_all:
             st.info("오늘 입력된 수거 실적이 없습니다.")
         else:
-            df = pd.DataFrame(today_all)
+            df = pd.DataFrame(today_input_all)
             if 'status' in df.columns:
                 df['status'] = df['status'].map({
                     'draft':     '📋 임시저장',
                     'submitted': '✅ 전송완료',
                 }).fillna(df['status'])
-            show = [c for c in ['school_name','item_type','weight','status','memo']
+            show = [c for c in ['collect_date','school_name','item_type','weight','status','memo']
                     if c in df.columns]
+            if 'collect_date' in df.columns:
+                df = df.rename(columns={'collect_date': '수거일자'})
+                show = ['수거일자' if c == 'collect_date' else c for c in show]
             st.dataframe(df[show], use_container_width=True, hide_index=True)
             m1, m2 = st.columns(2)
             with m1:
-                st.metric("오늘 수거량", f"{df['weight'].sum():,.1f} kg")
+                st.metric("오늘 입력 수거량", f"{df['weight'].sum():,.1f} kg")
             with m2:
-                submitted = len([r for r in today_all if r.get('status') == 'submitted'])
+                submitted = len([r for r in today_input_all if r.get('status') == 'submitted'])
                 st.metric("전송 완료", f"{submitted}건")
 
     st.divider()
 
     # ══════════════════════════════════════════════
-    # 섹션3: 퇴근
+    # 섹션3: 처리확인 (계근표)
+    # ══════════════════════════════════════════════
+    st.markdown("### ⚖️ 처리확인 (계근표)")
+    st.caption("처리장 도착 후 계근표 사진 촬영 및 처리량을 입력하세요.")
+
+    # GPS 위치 자동 취득 (JavaScript)
+    _proc_gps_key = f"_proc_gps_{driver_name}"
+    _proc_gps_bridge = f"_proc_gps_bridge_{driver_name}"
+
+    st.components.v1.html(f"""
+    <script>
+    (function() {{
+        if (navigator.geolocation) {{
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {{
+                    var lat = pos.coords.latitude;
+                    var lng = pos.coords.longitude;
+                    var data = JSON.stringify({{lat: lat, lng: lng}});
+                    // Streamlit hidden text bridge
+                    var el = window.parent.document.querySelector(
+                        'input[aria-label="proc_gps_hidden"]');
+                    if (el) {{
+                        var nativeSet = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value').set;
+                        nativeSet.call(el, data);
+                        el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                    }}
+                }},
+                function(err) {{ console.log('GPS error:', err.message); }},
+                {{enableHighAccuracy: true, timeout: 10000}}
+            );
+        }}
+    }})();
+    </script>
+    """, height=0)
+
+    gps_raw = st.text_input("proc_gps_hidden", value="", key=_proc_gps_bridge,
+                            label_visibility="collapsed")
+    proc_lat = 0.0
+    proc_lng = 0.0
+    if gps_raw:
+        try:
+            gps_data = json.loads(gps_raw)
+            proc_lat = float(gps_data.get('lat', 0))
+            proc_lng = float(gps_data.get('lng', 0))
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # GPS 상태 표시
+    if proc_lat != 0 and proc_lng != 0:
+        st.success(f"📍 GPS 위치 확인: {proc_lat:.6f}, {proc_lng:.6f}")
+    else:
+        st.warning("📍 GPS 위치를 가져오는 중... (위치 권한을 허용해주세요)")
+
+    # 입력 폼
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        proc_weight = st.number_input("계근표 처리량 (kg)", min_value=0.0,
+                                      step=10.0, format="%.1f",
+                                      key="proc_weight")
+    with pc2:
+        proc_location = st.text_input("처리장명", key="proc_location",
+                                      placeholder="예: ○○자원순환센터")
+
+    # 계근표 사진 촬영 (데모: 파일 전송 안함, 첨부 여부만 기록)
+    proc_photo = st.camera_input("📸 계근표 사진 촬영", key="proc_photo")
+    if proc_photo:
+        st.caption("✅ 사진 첨부됨 (데모 버전: 이미지 전송 생략)")
+
+    proc_memo = st.text_input("메모 (선택)", key="proc_memo", placeholder="특이사항")
+
+    if st.button("📤 처리확인 전송", type="primary", key="btn_proc_submit",
+                 use_container_width=True):
+        if proc_weight <= 0:
+            st.error("처리량을 입력하세요.")
+        elif not proc_location:
+            st.error("처리장명을 입력하세요.")
+        else:
+            _proc_now = datetime.now(ZoneInfo('Asia/Seoul'))
+            proc_data = {
+                'vendor':         vendor,
+                'driver':         driver_name,
+                'confirm_date':   _proc_now.strftime('%Y-%m-%d'),
+                'confirm_time':   _proc_now.strftime('%H:%M:%S'),
+                'total_weight':   proc_weight,
+                'photo_attached': 1 if proc_photo else 0,
+                'latitude':       proc_lat,
+                'longitude':      proc_lng,
+                'location_name':  proc_location,
+                'memo':           proc_memo,
+                'status':         'submitted',
+                'created_at':     _proc_now.strftime('%Y-%m-%d %H:%M:%S'),
+            }
+            ok = db_insert('processing_confirm', proc_data)
+            if ok:
+                st.success(f"✅ 처리확인 전송 완료! ({proc_weight:.1f}kg @ {proc_location})")
+                st.balloons()
+            else:
+                st.error("전송 실패. 다시 시도해주세요.")
+
+    # 오늘 처리확인 이력
+    proc_today = [r for r in db_get('processing_confirm')
+                  if r.get('driver') == driver_name
+                  and str(r.get('confirm_date', '')) == today_str]
+    if proc_today:
+        st.markdown("##### 오늘 처리확인 이력")
+        for pr in proc_today:
+            _pw = float(pr.get('total_weight', 0))
+            _loc = pr.get('location_name', '')
+            _tm = pr.get('confirm_time', '')[:5]
+            _ph = "📷" if int(pr.get('photo_attached', 0)) else ""
+            _st = "✅" if pr.get('status') == 'confirmed' else "📤"
+            st.markdown(f"- {_st} **{_tm}** | {_loc} | {_pw:.1f}kg {_ph}")
+
+    st.divider()
+
+    # ══════════════════════════════════════════════
+    # 섹션4: 퇴근
     # ══════════════════════════════════════════════
     st.markdown("### 🏠 퇴근")
 
+    # 퇴근 요약: created_at 기준 (과거 날짜 입력분도 포함)
     today_done_all = [r for r in db_get('real_collection')
                       if r.get('driver') == driver_name
-                      and str(r.get('collect_date', '')) == today_str]
+                      and str(r.get('created_at', ''))[:10] == today_str]
     submitted_cnt = len([r for r in today_done_all if r.get('status') == 'submitted'])
     total_weight  = sum(float(r.get('weight', 0)) for r in today_done_all)
     all_schools   = get_schools_by_vendor(vendor)

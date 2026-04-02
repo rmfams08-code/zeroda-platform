@@ -562,6 +562,41 @@ def migrate_school_nutrition_to_meal():
         print(f"[migrate_school_nutrition_to_meal] {e}")
 
 
+def migrate_processing_confirm_table():
+    """
+    처리확인(계근표) 테이블 생성 (없는 경우에만)
+    - 기사가 처리장에서 계근표 사진촬영 + 처리량 입력 + GPS 위치 보고
+    - 본사/외주업체관리자에게 실시간 연동
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS processing_confirm (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor TEXT NOT NULL,
+                driver TEXT NOT NULL,
+                confirm_date TEXT NOT NULL,
+                confirm_time TEXT DEFAULT '',
+                total_weight REAL DEFAULT 0,
+                photo_attached INTEGER DEFAULT 0,
+                latitude REAL DEFAULT 0,
+                longitude REAL DEFAULT 0,
+                location_name TEXT DEFAULT '',
+                memo TEXT DEFAULT '',
+                status TEXT DEFAULT 'submitted',
+                confirmed_by TEXT DEFAULT '',
+                confirmed_at TEXT DEFAULT '',
+                created_at TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print("[migrate_processing_confirm_table] 처리확인 테이블 준비 완료")
+    except Exception as e:
+        print(f"[migrate_processing_confirm_table] {e}")
+
+
 def migrate_expenses_table():
     """월말정산 지출내역 테이블 생성 (없는 경우에만)"""
     try:

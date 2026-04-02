@@ -17,7 +17,8 @@ SHARED_TABLES = [
     'safety_education',  # 안전교육
     'safety_checklist',  # 안전점검
     'accident_report',   # 사고신고
-    'carbon_reduction',  # 탄소감축
+    'carbon_reduction',      # 탄소감축
+    'processing_confirm',    # 처리확인(계근표)
 ]
 
 

@@ -1,5 +1,5 @@
 # modules/meal_manager/statement_tab.py
-# 단체급식 담당 — 월말명세서 생성/다운로드
+# 단체급식 담당 — 스마트월말명세서 생성/다운로드
 import streamlit as st
 import json
 from datetime import datetime
@@ -13,7 +13,7 @@ from config.settings import COMMON_CSS
 
 def render_statement_tab(user: dict):
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
-    st.title("📄 월말명세서")
+    st.title("📄 스마트월말명세서")
 
     site_name = _get_site_name(user)
     if not site_name:
@@ -85,7 +85,7 @@ def render_statement_tab(user: dict):
                     ai_recommendation=None,
                 )
                 st.session_state['_stmt_pdf'] = pdf_bytes
-                st.session_state['_stmt_filename'] = f"급식명세서_{site_name}_{sel_month}.pdf"
+                st.session_state['_stmt_filename'] = f"스마트월말명세서_{site_name}_{sel_month}.pdf"
                 st.success("✅ 명세서 생성 완료!")
 
     with bc2:
@@ -101,7 +101,7 @@ def render_statement_tab(user: dict):
                         ai_recommendation=ai_meals,
                     )
                     st.session_state['_stmt_pdf'] = pdf_bytes
-                    st.session_state['_stmt_filename'] = f"급식명세서_{site_name}_{sel_month}_AI추천포함.pdf"
+                    st.session_state['_stmt_filename'] = f"스마트월말명세서_{site_name}_{sel_month}_AI추천포함.pdf"
                     st.success("✅ 명세서 생성 완료 (AI 추천 포함)!")
         else:
             st.info("AI 추천식단을 먼저 생성하면\n여기에 포함할 수 있습니다.")

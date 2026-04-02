@@ -308,14 +308,14 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 급식 월말명세서 PDF 생성 (단체급식 담당용)
+# 스마트월말명세서 PDF 생성 (단체급식 담당용)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def generate_meal_statement_pdf(site_name: str, year: int, month: int,
                                  analysis_rows: list, menu_ranking: dict = None,
                                  ai_recommendation: list = None) -> bytes:
     """
-    급식 월말명세서 PDF 생성
+    스마트월말명세서 PDF 생성
     - 1페이지: 기관정보 + 일별 식단↔잔반량 테이블 + 월간 요약
     - 2페이지(선택): AI 추천식단 (ai_recommendation이 있을 때만)
     """
@@ -350,7 +350,7 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
     story = []
 
     # ── 1페이지: 제목 ──
-    story.append(P("급식 잔반 분석 명세서", size=20, align=1, color=BLUE))
+    story.append(P("스마트 월말명세서", size=20, align=1, color=BLUE))
     story.append(Spacer(1, 3*mm))
     today = datetime.now().strftime('%Y년 %m월 %d일')
     story.append(P(f"발행일: {today}　　분석기간: {year}년 {month}월", size=9, align=2))

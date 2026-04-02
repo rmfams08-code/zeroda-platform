@@ -9,11 +9,12 @@ from config.settings import CURRENT_YEAR, CURRENT_MONTH
 def render_data_tab():
     st.markdown("## 수거 데이터")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📤 데이터 업로드",
         "⏳ 전송 대기 (미확인)",
         "📋 전체 수거 내역",
-        "🔬 시뮬레이션"
+        "🔬 시뮬레이션",
+        "⚖️ 처리확인"
     ])
 
     with tab1:
@@ -27,6 +28,9 @@ def render_data_tab():
 
     with tab4:
         _render_collection_table('sim_collection', "시뮬레이션")
+
+    with tab5:
+        _render_processing_confirm()
 
 
 def _render_pending():
@@ -217,3 +221,141 @@ def _render_upload():
             with st.expander(f"오류 상세 ({len(result['errors'])}건)"):
                 for err in result['errors'][:20]:
                     st.write(f"• {err}")
+
+
+# ── 처리확인(계근표) 탭 ──────────────────────────────────────────────
+
+def _render_processing_confirm():
+    """기사 처리확인 데이터 조회/확인/반려"""
+    from datetime import datetime
+    from config.settings import ROLES
+
+    st.markdown("### ⚖️ 처리확인 (계근표)")
+    st.caption("기사가 처리장에서 전송한 계근표 데이터를 확인합니다.")
+
+    all_proc = db_get('processing_confirm')
+    if not all_proc:
+        st.info("아직 처리확인 데이터가 없습니다.")
+        return
+
+    # 필터
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        vendors = sorted(set(r.get('vendor', '') for r in all_proc if r.get('vendor')))
+        sel_vendor = st.selectbox("업체", ['전체'] + vendors, key="hq_proc_vendor")
+    with fc2:
+        drivers = sorted(set(r.get('driver', '') for r in all_proc if r.get('driver')))
+        sel_driver = st.selectbox("기사", ['전체'] + drivers, key="hq_proc_driver")
+    with fc3:
+        status_filter = st.selectbox("상태", ['전체', 'submitted', 'confirmed', 'rejected'],
+                                     format_func=lambda x: {'전체':'전체','submitted':'📤 대기',
+                                         'confirmed':'✅ 확인','rejected':'❌ 반려'}.get(x,x),
+                                     key="hq_proc_status")
+
+    filtered = all_proc
+    if sel_vendor != '전체':
+        filtered = [r for r in filtered if r.get('vendor') == sel_vendor]
+    if sel_driver != '전체':
+        filtered = [r for r in filtered if r.get('driver') == sel_driver]
+    if status_filter != '전체':
+        filtered = [r for r in filtered if r.get('status') == status_filter]
+
+    if not filtered:
+        st.warning("조건에 맞는 데이터가 없습니다.")
+        return
+
+    # 요약 메트릭
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    with mc1:
+        st.metric("전체", f"{len(filtered)}건")
+    with mc2:
+        pending_cnt = len([r for r in filtered if r.get('status') == 'submitted'])
+        st.metric("📤 대기", f"{pending_cnt}건")
+    with mc3:
+        confirmed_cnt = len([r for r in filtered if r.get('status') == 'confirmed'])
+        st.metric("✅ 확인", f"{confirmed_cnt}건")
+    with mc4:
+        total_w = sum(float(r.get('total_weight', 0)) for r in filtered)
+        st.metric("총 처리량", f"{total_w:,.1f} kg")
+
+    st.divider()
+
+    # 수거량 vs 처리량 비교
+    if sel_vendor != '전체':
+        _today_str = datetime.now().strftime('%Y-%m-%d')
+        today_coll = [r for r in db_get('real_collection')
+                      if r.get('vendor') == sel_vendor
+                      and str(r.get('collect_date', '')) == _today_str]
+        coll_weight = sum(float(r.get('weight', 0)) for r in today_coll)
+        proc_weight = sum(float(r.get('total_weight', 0)) for r in filtered
+                          if r.get('confirm_date') == _today_str)
+        if coll_weight > 0 or proc_weight > 0:
+            cc1, cc2, cc3 = st.columns(3)
+            with cc1:
+                st.metric("오늘 수거량", f"{coll_weight:,.1f} kg")
+            with cc2:
+                st.metric("오늘 처리량", f"{proc_weight:,.1f} kg")
+            with cc3:
+                diff = proc_weight - coll_weight
+                st.metric("차이", f"{diff:+,.1f} kg")
+            st.divider()
+
+    # 데이터 테이블
+    df = pd.DataFrame(filtered)
+    display_cols = ['confirm_date', 'confirm_time', 'vendor', 'driver',
+                    'total_weight', 'location_name', 'latitude', 'longitude',
+                    'photo_attached', 'status', 'memo']
+    display_cols = [c for c in display_cols if c in df.columns]
+    df_show = df[display_cols].copy()
+
+    col_rename = {
+        'confirm_date': '처리일자', 'confirm_time': '시각',
+        'vendor': '업체', 'driver': '기사',
+        'total_weight': '처리량(kg)', 'location_name': '처리장',
+        'latitude': '위도', 'longitude': '경도',
+        'photo_attached': '사진', 'status': '상태', 'memo': '메모',
+    }
+    df_show = df_show.rename(columns=col_rename)
+
+    if '사진' in df_show.columns:
+        df_show['사진'] = df_show['사진'].map(lambda x: '📷' if int(x or 0) else '-')
+    if '상태' in df_show.columns:
+        df_show['상태'] = df_show['상태'].map({
+            'submitted': '📤 대기', 'confirmed': '✅ 확인', 'rejected': '❌ 반려'
+        }).fillna(df_show['상태'])
+
+    st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+    # 개별 확인/반려 (대기 건만)
+    pending_rows = [r for r in filtered if r.get('status') == 'submitted']
+    if pending_rows:
+        st.markdown("#### 미확인 건 처리")
+        for pr in pending_rows:
+            _pid = pr.get('id', '')
+            _info = (f"📅 {pr.get('confirm_date','')} {pr.get('confirm_time','')[:5]} | "
+                     f"🚛 {pr.get('driver','')} | "
+                     f"⚖️ {float(pr.get('total_weight',0)):.1f}kg | "
+                     f"📍 {pr.get('location_name','')}")
+            if pr.get('latitude') and float(pr.get('latitude', 0)) != 0:
+                _info += f" ({float(pr['latitude']):.4f}, {float(pr['longitude']):.4f})"
+
+            with st.expander(_info):
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button("✅ 확인", key=f"hq_proc_ok_{_pid}"):
+                        _updated = dict(pr)
+                        _updated['status'] = 'confirmed'
+                        _updated['confirmed_by'] = 'admin'
+                        _updated['confirmed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        db_upsert('processing_confirm', _updated)
+                        st.success("확인 처리 완료")
+                        st.rerun()
+                with bc2:
+                    if st.button("❌ 반려", key=f"hq_proc_no_{_pid}"):
+                        _updated = dict(pr)
+                        _updated['status'] = 'rejected'
+                        _updated['confirmed_by'] = 'admin'
+                        _updated['confirmed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        db_upsert('processing_confirm', _updated)
+                        st.warning("반려 처리 완료")
+                        st.rerun()
