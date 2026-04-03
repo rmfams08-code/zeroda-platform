@@ -1007,10 +1007,110 @@ def delete_meal_menu(site_name, meal_date, meal_type='중식'):
     return True
 
 
+def _classify_waste_grade(waste_per_person):
+    """
+    WASTE_GRADE 기준으로 등급 분류 (학교급식법 시행규칙 [별표 3] 근거).
+    A: 0~150g 미만 (우수)
+    B: 150~245g 미만 (양호, 혼합평균 이하)
+    C: 245~300g 미만 (주의, 현장기준 이하)
+    D: 300g 이상 (고잔반 경보)
+    """
+    if waste_per_person <= 0:
+        return '-'
+    elif waste_per_person < 150:
+        return 'A'
+    elif waste_per_person < 245:
+        return 'B'
+    elif waste_per_person < 300:
+        return 'C'
+    else:
+        return 'D'
+
+
+def _generate_menu_remark(menu_items_json, grade, waste_per_person):
+    """
+    메뉴 키워드 기반 잔반 특이사항 자동 생성.
+    급식담당이 일별 잔반 원인을 파악할 수 있도록 상세 코멘트 제공.
+    """
+    try:
+        menus = json.loads(menu_items_json) if isinstance(menu_items_json, str) else menu_items_json
+    except (json.JSONDecodeError, TypeError):
+        menus = []
+    if not menus:
+        return ''
+
+    menu_text = ' '.join(str(m) for m in menus)
+    remarks = []
+
+    # ── 국물류 감지 (잔반율 40%) ──
+    soup_keywords = ['국', '찌개', '탕', '전골', '스프', '수프', '미역국', '된장국',
+                     '육개장', '갈비탕', '곰탕', '설렁탕', '부대찌개', '김치찌개',
+                     '순두부', '떡국', '만두국', '해장국', '감자탕', '삼계탕']
+    soup_found = [kw for kw in soup_keywords if kw in menu_text]
+    if soup_found:
+        remarks.append(f"국물류({','.join(soup_found[:2])}) → 국물 잔반 증가 예상(잔반율 40%)")
+
+    # ── 나물·채소류 감지 (잔반율 50%, 편식 요인) ──
+    veg_keywords = ['나물', '시금치', '콩나물', '무침', '숙주', '미나리', '도라지',
+                    '고사리', '취나물', '샐러드', '양배추', '브로콜리', '비빔밥']
+    veg_found = [kw for kw in veg_keywords if kw in menu_text]
+    if veg_found:
+        remarks.append(f"나물채소({','.join(veg_found[:2])}) → 편식 잔반 증가 예상(잔반율 50%)")
+
+    # ── 김치류 다종 감지 (잔반율 40%) ──
+    kimchi_keywords = ['김치', '깍두기', '총각김치', '백김치', '열무김치', '동치미',
+                       '겉절이', '파김치', '오이소박이']
+    kimchi_found = [kw for kw in kimchi_keywords if kw in menu_text]
+    if len(kimchi_found) >= 2:
+        remarks.append(f"김치류 {len(kimchi_found)}종 → 잔반율 40% 수준")
+
+    # ── 과일류 감지 (껍질·씨 잔여물) ──
+    fruit_keywords = ['과일', '사과', '배', '귤', '오렌지', '수박', '참외', '포도',
+                      '딸기', '바나나', '키위', '감', '자두', '복숭아', '멜론',
+                      '망고', '체리', '파인애플', '블루베리']
+    fruit_found = [kw for kw in fruit_keywords if kw in menu_text]
+    if fruit_found:
+        remarks.append(f"과일({','.join(fruit_found[:2])}) → 껍질·씨 잔여물 발생, 전처리 증가")
+
+    # ── 뼈류 감지 (비가식 부분) ──
+    bone_keywords = ['갈비', '닭', '치킨', '생선', '고등어', '삼치', '꽁치',
+                     '조기', '갈치', '뼈', '등뼈', '족발', '감자탕', '닭볶음탕',
+                     '찜닭', '닭갈비', '삼계탕']
+    bone_found = [kw for kw in bone_keywords if kw in menu_text]
+    if bone_found:
+        remarks.append(f"뼈류({','.join(bone_found[:2])}) → 뼈·가시 잔여물 증가, 전처리 필요")
+
+    # ── 튀김류 감지 (기름 잔여물) ──
+    fry_keywords = ['튀김', '돈까스', '커틀릿', '탕수육', '고로케', '텐동',
+                    '후라이', '가스', '까스', '너겟', '프라이', '깐풍기']
+    fry_found = [kw for kw in fry_keywords if kw in menu_text]
+    if fry_found:
+        remarks.append(f"튀김류({','.join(fry_found[:2])}) → 기름 잔여물 주의, 폐유 분류 필요")
+
+    # ── 면류 감지 (국물+면 잔반) ──
+    noodle_keywords = ['라면', '잔치국수', '칼국수', '우동', '냉면', '쫄면',
+                       '파스타', '스파게티', '짜장면', '짬뽕', '비빔면']
+    noodle_found = [kw for kw in noodle_keywords if kw in menu_text]
+    if noodle_found:
+        remarks.append(f"면류({','.join(noodle_found[:2])}) → 국물+면 잔반 증가 예상")
+
+    # ── 등급별 종합 코멘트 ──
+    if grade == 'D':
+        remarks.append("⚠️ 고잔반 경보 — 메뉴 구성 재검토 필요")
+    elif grade == 'C':
+        remarks.append("△ 표준 초과 — 고잔반 메뉴 조정 권장")
+    elif grade == 'A' and waste_per_person > 0:
+        remarks.append("✓ 우수 — 잔반 최소화 달성")
+
+    return ' | '.join(remarks) if remarks else '정상 범위'
+
+
 def analyze_meal_waste(site_name, year_month):
     """
     식단↔수거량 매칭 분석.
     meal_menus(일별 메뉴) × real_collection(일별 음식물 수거량)을 날짜로 매칭.
+    WASTE_GRADE 기준(150/245/300g)으로 등급 산정.
+    메뉴 키워드 기반 특이사항(remark) 자동 생성.
     결과를 meal_analysis 테이블에 캐시 저장 후 반환.
     """
     menus = get_meal_menus(site_name, year_month)
@@ -1038,22 +1138,18 @@ def analyze_meal_waste(site_name, year_month):
         waste_kg = collections_map.get(meal_date, 0)
         servings = int(m.get('servings', 0) or 0)
         waste_per_person = round((waste_kg * 1000) / servings, 1) if servings > 0 else 0
-        # 잔반율: 1인당 잔반량 기준 등급 (g/인)
+
+        # WASTE_GRADE 기준 등급 산정 (학교급식법 시행규칙 [별표 3] 근거)
         if waste_per_person == 0 and waste_kg == 0:
             grade = '-'
             waste_rate = 0
-        elif waste_per_person <= 30:
-            grade = 'A'
-            waste_rate = round(waste_per_person / 100 * 100, 1)
-        elif waste_per_person <= 60:
-            grade = 'B'
-            waste_rate = round(waste_per_person / 100 * 100, 1)
-        elif waste_per_person <= 100:
-            grade = 'C'
-            waste_rate = round(waste_per_person / 100 * 100, 1)
         else:
-            grade = 'D'
-            waste_rate = round(waste_per_person / 100 * 100, 1)
+            grade = _classify_waste_grade(waste_per_person)
+            # 잔반율: 1인당 잔반량 / 혼합평균 제공량(715g) × 100
+            waste_rate = round(waste_per_person / 715 * 100, 1)
+
+        # 메뉴 키워드 기반 특이사항 자동 생성
+        remark = _generate_menu_remark(m.get('menu_items', '[]'), grade, waste_per_person)
 
         row = {
             'site_name':        site_name,
@@ -1064,6 +1160,7 @@ def analyze_meal_waste(site_name, year_month):
             'waste_per_person': waste_per_person,
             'waste_rate':       waste_rate,
             'grade':            grade,
+            'remark':           remark,
             'created_at':       now_str,
         }
         results.append(row)
@@ -1075,18 +1172,19 @@ def analyze_meal_waste(site_name, year_month):
             c.execute("""
                 INSERT INTO meal_analysis
                     (site_name, year_month, meal_date, menu_items,
-                     waste_kg, waste_per_person, waste_rate, grade, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                     waste_kg, waste_per_person, waste_rate, grade, remark, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(site_name, meal_date) DO UPDATE SET
                     menu_items=excluded.menu_items,
                     waste_kg=excluded.waste_kg,
                     waste_per_person=excluded.waste_per_person,
                     waste_rate=excluded.waste_rate,
                     grade=excluded.grade,
+                    remark=excluded.remark,
                     created_at=excluded.created_at
             """, (row['site_name'], row['year_month'], row['meal_date'],
                   row['menu_items'], row['waste_kg'], row['waste_per_person'],
-                  row['waste_rate'], row['grade'], row['created_at']))
+                  row['waste_rate'], row['grade'], row['remark'], row['created_at']))
             conn.commit()
             conn.close()
         except Exception as e:

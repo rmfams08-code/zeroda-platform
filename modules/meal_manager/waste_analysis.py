@@ -45,6 +45,19 @@ def render_waste_analysis(user: dict):
 
     st.success(f"{sel_month}: {len(menus)}일 식단 등록됨")
 
+    # ── 등급 기준 안내 ──
+    with st.expander("📏 잔반 등급 기준 (학교급식법 시행규칙 [별표 3])", expanded=False):
+        st.markdown("""
+| 등급 | 1인당 잔반량 | 판정 | 설명 |
+|:---:|:---:|:---:|:---|
+| **A** | 150g 미만 | 우수 | 잔반 최소화 달성 |
+| **B** | 150~245g | 양호 | 혼합평균(245g) 이하 |
+| **C** | 245~300g | 주의 | 표준 초과, 메뉴 조정 권장 |
+| **D** | 300g 이상 | 경보 | 고잔반, 메뉴 구성 재검토 필요 |
+
+*출처: 학교급식법 시행규칙 [별표 3] (교육부, 2021.01.29 개정)*
+        """)
+
     # ── 실시간 자동 매칭 (페이지 진입 시 바로 실행) ──
     results = analyze_meal_waste(site_name, sel_month)
 
@@ -116,6 +129,7 @@ def _render_daily_table(results):
             '잔반량(kg)': round(r.get('waste_kg', 0), 1),
             '1인당(g)': round(r.get('waste_per_person', 0), 1),
             '등급': r.get('grade', '-'),
+            '특이사항': r.get('remark', ''),
         })
 
     if rows:

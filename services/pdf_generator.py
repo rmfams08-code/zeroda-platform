@@ -462,13 +462,41 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
         ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
     ]))
     story.append(sum_tbl)
-    story.append(Spacer(1, 5*mm))
+    story.append(Spacer(1, 3*mm))
+
+    # ── 등급 기준 안내 ──
+    story.append(P("■ 등급 기준 (학교급식법 시행규칙 [별표 3])", size=9, color=colors.grey))
+    story.append(Spacer(1, 1*mm))
+    grade_info = [
+        [P('등급', size=6, align=1, color=colors.white),
+         P('A (우수)', size=6, align=1, color=colors.white),
+         P('B (양호)', size=6, align=1, color=colors.white),
+         P('C (주의)', size=6, align=1, color=colors.white),
+         P('D (경보)', size=6, align=1, color=colors.white)],
+        [P('1인당', size=6, align=1),
+         P('~150g', size=6, align=1, color=GREEN),
+         P('150~245g', size=6, align=1, color=ORANGE),
+         P('245~300g', size=6, align=1, color=colors.HexColor('#ff8f00')),
+         P('300g~', size=6, align=1, color=RED)],
+    ]
+    grade_tbl = Table(grade_info, colWidths=[20*mm, 35*mm, 35*mm, 35*mm, 35*mm])
+    grade_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  colors.HexColor('#607d8b')),
+        ('BACKGROUND', (0,1), (-1,1),  LGRAY),
+        ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 3),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(grade_tbl)
+    story.append(Spacer(1, 4*mm))
 
     # ── 일별 상세 ──
     story.append(P("■ 일별 식단 × 잔반량", size=11, color=BLUE))
     story.append(Spacer(1, 2*mm))
 
-    header = ['날짜', '메뉴', '잔반량(kg)', '1인당(g)', '등급']
+    header = ['날짜', '메뉴', '잔반(kg)', '1인당(g)', '등급', '특이사항']
     tdata = [[P(h, size=7, align=1, color=colors.white) for h in header]]
 
     for r in analysis_rows:
@@ -484,6 +512,7 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
         wpp = float(r.get('waste_per_person', 0) or 0)
         grade = r.get('grade', '-')
         grade_color = GREEN if grade == 'A' else (ORANGE if grade == 'B' else (RED if grade == 'D' else colors.black))
+        remark = r.get('remark', '')
 
         tdata.append([
             P(r.get('meal_date', '')[-5:], size=7, align=1),
@@ -491,9 +520,10 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
             P(f"{wkg:.1f}", size=7, align=2),
             P(f"{wpp:.1f}", size=7, align=2),
             P(grade, size=8, align=1, color=grade_color),
+            P(remark, size=5),
         ])
 
-    detail_tbl = Table(tdata, colWidths=[20*mm, 85*mm, 22*mm, 22*mm, 16*mm])
+    detail_tbl = Table(tdata, colWidths=[16*mm, 55*mm, 16*mm, 16*mm, 12*mm, 50*mm])
     detail_style = [
         ('FONTNAME',   (0,0), (-1,-1), font),
         ('BACKGROUND', (0,0), (-1,0),  BLUE),

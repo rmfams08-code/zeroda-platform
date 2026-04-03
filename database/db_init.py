@@ -619,3 +619,20 @@ def migrate_expenses_table():
         print("[migrate_expenses_table] 지출내역 테이블 준비 완료")
     except Exception as e:
         print(f"[migrate_expenses_table] {e}")
+
+
+def migrate_meal_analysis_remark():
+    """meal_analysis 테이블에 remark 컬럼 추가 (메뉴별 특이사항 자동생성용)"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        # 컬럼 존재 여부 확인 후 추가
+        c.execute("PRAGMA table_info(meal_analysis)")
+        cols = [row[1] for row in c.fetchall()]
+        if 'remark' not in cols:
+            c.execute("ALTER TABLE meal_analysis ADD COLUMN remark TEXT DEFAULT ''")
+            conn.commit()
+            print("[migrate_meal_analysis_remark] remark 컬럼 추가 완료")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_meal_analysis_remark] {e}")
