@@ -638,3 +638,18 @@ def migrate_meal_analysis_remark():
         print(f"[migrate_meal_analysis_remark] {e}")
 
 
+def migrate_customer_fixed_fee():
+    """customer_info 테이블에 fixed_monthly_fee 컬럼 추가 (기타 구분 월 고정비용)"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(customer_info)").fetchall()]
+        if 'fixed_monthly_fee' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN fixed_monthly_fee REAL DEFAULT 0")
+            conn.commit()
+            print("[migrate_customer_fixed_fee] fixed_monthly_fee 컬럼 추가 완료")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_customer_fixed_fee] {e}")
+
+

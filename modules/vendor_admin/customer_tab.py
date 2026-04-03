@@ -79,7 +79,7 @@ def render_customer_tab(vendor):
 
     with tab2:
         # ── 하위 모드: 신규등록 / 수정 ──
-        cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타"]
+        cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)"]
         mode = st.radio(
             "작업 선택", ["📝 신규등록", "✏️ 수정"],
             horizontal=True, key="cust_reg_mode"
@@ -102,6 +102,16 @@ def render_customer_tab(vendor):
                 phone   = st.text_input("전화번호", placeholder="010-0000-0000", key="new_cust_phone")
             recycler = st.text_input("♻️ 재활용자(처리자)", placeholder="예: 청명제2공장", key="new_cust_recycler")
 
+            # ── 기타 구분: 월 고정비용 입력 ──
+            new_fixed_fee = 0.0
+            if ctype == '기타':
+                st.markdown("**📋 월 고정비용 (기타 전용)**")
+                new_fixed_fee = st.number_input(
+                    "월 고정비용 (계약금액, 원)", min_value=0.0, step=10000.0,
+                    format="%.0f", value=0.0, key="new_cust_fixed_fee"
+                )
+                st.caption("기타 구분은 수거량×단가 대신 월 고정비용으로 정산됩니다.")
+
             if st.button("💾 신규 저장", type="primary", key="new_cust_save"):
                 if not name:
                     st.error("상호명은 필수입니다.")
@@ -111,7 +121,8 @@ def render_customer_tab(vendor):
                     ok = save_customer_to_db(vendor, name, {
                         '사업자번호': biz_no, '대표자': rep, '주소': addr,
                         '업태': biz_type, '종목': biz_item, '이메일': email,
-                        '전화번호': phone, '구분': ctype, '재활용자': recycler
+                        '전화번호': phone, '구분': ctype, '재활용자': recycler,
+                        'fixed_monthly_fee': new_fixed_fee,
                     })
                     if ok:
                         st.success(f"'{name}' 신규 등록 완료!")
@@ -216,30 +227,47 @@ def render_customer_tab(vendor):
                         key=f"ec_recycler_{_kp}"
                     )
 
-                    # ── 단가 정보도 함께 표시/수정 ──
-                    st.markdown("**💰 단가 정보**")
-                    pcol1, pcol2, pcol3 = st.columns(3)
-                    with pcol1:
-                        edit_price_food = st.number_input(
-                            "🍱 음식물 단가 (원/kg)",
-                            min_value=0.0, step=10.0, format="%.0f",
-                            value=float(ci.get('price_food', 0) or 0),
-                            key=f"ec_pfood_{_kp}"
+                    # ── 단가 / 고정비용 정보 (구분에 따라 분기) ──
+                    edit_fixed_fee = 0.0
+                    edit_price_food = 0.0
+                    edit_price_recycle = 0.0
+                    edit_price_general = 0.0
+
+                    if edit_ctype == '기타':
+                        # 기타: 월 고정비용만 입력
+                        st.markdown("**📋 월 고정비용 (기타 전용)**")
+                        edit_fixed_fee = st.number_input(
+                            "월 고정비용 (계약금액, 원)",
+                            min_value=0.0, step=10000.0, format="%.0f",
+                            value=float(ci.get('fixed_monthly_fee', 0) or 0),
+                            key=f"ec_fixedfee_{_kp}"
                         )
-                    with pcol2:
-                        edit_price_recycle = st.number_input(
-                            "♻️ 재활용 단가 (원/kg)",
-                            min_value=0.0, step=10.0, format="%.0f",
-                            value=float(ci.get('price_recycle', 0) or 0),
-                            key=f"ec_precycle_{_kp}"
-                        )
-                    with pcol3:
-                        edit_price_general = st.number_input(
-                            "🗑️ 사업장폐기물 단가 (원/kg)",
-                            min_value=0.0, step=10.0, format="%.0f",
-                            value=float(ci.get('price_general', 0) or 0),
-                            key=f"ec_pgeneral_{_kp}"
-                        )
+                        st.caption("기타 구분은 수거량×단가 대신 월 고정비용으로 정산됩니다.")
+                    else:
+                        # 학교/기업/관공서/일반업장/기타1: 품목별 단가
+                        st.markdown("**💰 단가 정보**")
+                        pcol1, pcol2, pcol3 = st.columns(3)
+                        with pcol1:
+                            edit_price_food = st.number_input(
+                                "🍱 음식물 단가 (원/kg)",
+                                min_value=0.0, step=10.0, format="%.0f",
+                                value=float(ci.get('price_food', 0) or 0),
+                                key=f"ec_pfood_{_kp}"
+                            )
+                        with pcol2:
+                            edit_price_recycle = st.number_input(
+                                "♻️ 재활용 단가 (원/kg)",
+                                min_value=0.0, step=10.0, format="%.0f",
+                                value=float(ci.get('price_recycle', 0) or 0),
+                                key=f"ec_precycle_{_kp}"
+                            )
+                        with pcol3:
+                            edit_price_general = st.number_input(
+                                "🗑️ 사업장폐기물 단가 (원/kg)",
+                                min_value=0.0, step=10.0, format="%.0f",
+                                value=float(ci.get('price_general', 0) or 0),
+                                key=f"ec_pgeneral_{_kp}"
+                            )
 
                     # ── 저장 / 삭제 버튼 ──
                     btn_col1, btn_col2 = st.columns([1, 1])
@@ -261,6 +289,7 @@ def render_customer_tab(vendor):
                                     'price_food': edit_price_food,
                                     'price_recycle': edit_price_recycle,
                                     'price_general': edit_price_general,
+                                    'fixed_monthly_fee': edit_fixed_fee,
                                 }
                                 if edit_name != edit_target:
                                     delete_customer_from_db(vendor, edit_target)

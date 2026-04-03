@@ -123,7 +123,7 @@ def _render_send_settlement():
 
     # ── 거래처 구분 필터 + 하위 거래처 선택 ──
     _custs = load_customers_from_db(vendor)
-    _cust_type_options = ["학교", "기업", "관공서", "일반업장"]
+    _cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)"]
     col_t, col_s = st.columns(2)
     with col_t:
         _sel_type = st.selectbox("거래처 구분", _cust_type_options, key="send_cust_type")
@@ -157,36 +157,56 @@ def _render_send_settlement():
         rows = correct_row_prices(rows, _price_map)
     _biz_info = build_biz_info(_cust_info, school) if school != '전체' else {}
 
-    # 면세/과세 판별 — 학교=면세, 그 외=부가세 10%
-    _is_school = (_sel_type == '학교')
+    # 면세/과세 판별 — 학교·기타1=면세, 기타=고정비용(세금없음), 그 외=부가세 10%
+    _is_tax_free = (_sel_type in ('학교', '기타1(면세사업장)'))
+    _is_fixed_fee = (_sel_type == '기타')
+
+    # 기타 구분: 월 고정비용 조회
+    _fixed_fee = float(_cust_info.get('fixed_monthly_fee', 0) or 0) if _cust_info else 0.0
 
     # 데이터 표시
     st.markdown(f"### {year}년 {month}월 · {school if school != '전체' else '전체'}")
-    df = pd.DataFrame(rows)
-    show = [c for c in ['collect_date','school_name','item_type','weight','unit_price','amount','driver','status'] if c in df.columns]
-    st.dataframe(df[show], use_container_width=True, hide_index=True)
 
-    total_weight = sum(float(r.get('weight', 0)) for r in rows)
-    total_amount = sum(float(r.get('amount', 0)) for r in rows)
-
-    if _is_school:
+    if _is_fixed_fee and school != '전체':
+        # ── 기타: 월 고정비용 표시 (수거 데이터 참고용만 표시) ──
+        if rows:
+            df = pd.DataFrame(rows)
+            show = [c for c in ['collect_date','school_name','item_type','weight','driver','status'] if c in df.columns]
+            with st.expander("📋 수거 데이터 참고", expanded=False):
+                st.dataframe(df[show], use_container_width=True, hide_index=True)
+        total_amount = _fixed_fee
         c1, c2 = st.columns(2)
         with c1:
-            st.metric("총 수거량", f"{total_weight:,.1f} kg")
+            st.metric("📋 월 고정비용 (계약금액)", f"{_fixed_fee:,.0f} 원")
         with c2:
-            st.metric("공급가액 (면세)", f"{total_amount:,.0f} 원")
+            st.caption("부가세 없음 · 단순 금액 표기")
     else:
-        _vat = round(total_amount * 0.1)
-        _total_with_vat = round(total_amount + _vat)
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("총 수거량", f"{total_weight:,.1f} kg")
-        with c2:
-            st.metric("공급가액", f"{total_amount:,.0f} 원")
-        with c3:
-            st.metric("부가세 (10%)", f"{_vat:,.0f} 원")
-        with c4:
-            st.metric("합계 (VAT포함)", f"{_total_with_vat:,.0f} 원")
+        # ── 일반: 수거량 × 단가 ──
+        df = pd.DataFrame(rows)
+        show = [c for c in ['collect_date','school_name','item_type','weight','unit_price','amount','driver','status'] if c in df.columns]
+        st.dataframe(df[show], use_container_width=True, hide_index=True)
+
+        total_weight = sum(float(r.get('weight', 0)) for r in rows)
+        total_amount = sum(float(r.get('amount', 0)) for r in rows)
+
+        if _is_tax_free:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("총 수거량", f"{total_weight:,.1f} kg")
+            with c2:
+                st.metric("공급가액 (면세)", f"{total_amount:,.0f} 원")
+        else:
+            _vat = round(total_amount * 0.1)
+            _total_with_vat = round(total_amount + _vat)
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("총 수거량", f"{total_weight:,.1f} kg")
+            with c2:
+                st.metric("공급가액", f"{total_amount:,.0f} 원")
+            with c3:
+                st.metric("부가세 (10%)", f"{_vat:,.0f} 원")
+            with c4:
+                st.metric("합계 (VAT포함)", f"{_total_with_vat:,.0f} 원")
 
     st.divider()
 
@@ -301,7 +321,8 @@ def _render_send_settlement():
                 from services.pdf_generator import generate_statement_pdf
                 pdf = generate_statement_pdf(
                     vendor, _school_label,
-                    year, month, rows, _biz_info, vinfo, cust_type=_ct
+                    year, month, rows, _biz_info, vinfo, cust_type=_ct,
+                    fixed_fee=_fixed_fee if _is_fixed_fee else 0
                 )
                 st.download_button("PDF 다운로드", data=pdf,
                                    file_name=_pdf_filename, mime="application/pdf",
@@ -334,7 +355,8 @@ def _render_send_settlement():
                     from services.email_service import send_statement_email
                     pdf = generate_statement_pdf(
                         vendor, _school_label,
-                        year, month, rows, _biz_info, vinfo, cust_type=_ct
+                        year, month, rows, _biz_info, vinfo, cust_type=_ct,
+                        fixed_fee=_fixed_fee if _is_fixed_fee else 0
                     )
                     with st.spinner("발송 중..."):
                         success, msg = send_statement_email(
@@ -356,7 +378,7 @@ def _render_send_settlement():
                 try:
                     from services.sms_service import send_statement_sms, build_summary_sms_text
                     _total_w = sum(float(r.get('weight', 0)) for r in rows)
-                    _total_a = sum(float(r.get('amount', 0)) for r in rows)
+                    _total_a = _fixed_fee if _is_fixed_fee else sum(float(r.get('amount', 0)) for r in rows)
                     sms_text = build_summary_sms_text(
                         vinfo.get('biz_name', vendor), _school_label,
                         year, month, _total_w, _total_a,
@@ -384,7 +406,7 @@ def _render_send_settlement():
                 try:
                     from services.sms_service import send_statement_sms, build_detail_sms_text
                     _total_w = sum(float(r.get('weight', 0)) for r in rows)
-                    _total_a = sum(float(r.get('amount', 0)) for r in rows)
+                    _total_a = _fixed_fee if _is_fixed_fee else sum(float(r.get('amount', 0)) for r in rows)
                     sms_text = build_detail_sms_text(
                         vinfo.get('biz_name', vendor), _school_label,
                         year, month, rows, _total_w, _total_a,

@@ -361,6 +361,7 @@ def load_customers_from_db(vendor):
         'price_food':    float(r.get('price_food', 0) or 0),
         'price_recycle': float(r.get('price_recycle', 0) or 0),
         'price_general': float(r.get('price_general', 0) or 0),
+        'fixed_monthly_fee': float(r.get('fixed_monthly_fee', 0) or 0),
     } for r in rows}
 
 
@@ -381,6 +382,7 @@ def save_customer_to_db(vendor, name, info):
         'price_food':    float(info.get('price_food', 0) or 0),
         'price_recycle': float(info.get('price_recycle', 0) or 0),
         'price_general': float(info.get('price_general', 0) or 0),
+        'fixed_monthly_fee': float(info.get('fixed_monthly_fee', 0) or 0),
     })
 
 

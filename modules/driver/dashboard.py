@@ -293,6 +293,24 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       return result;
     }}
 
+    // ── 약칭 → 풀네임 확장 유틸 (Fuzzy 단계에서도 재사용) ──
+    const _expandPatterns = [
+      {{ suffix: '고등', expand: '고등학교', lookahead: '(?!학)' }},
+      {{ suffix: '초등', expand: '초등학교', lookahead: '(?!학)' }},
+      {{ suffix: '고',   expand: '고등학교', lookahead: '(?!등|학)' }},
+      {{ suffix: '중',   expand: '중학교',   lookahead: '(?!등|학)' }},
+      {{ suffix: '초',   expand: '초등학교', lookahead: '(?!등|학)' }},
+    ];
+    function expandShortName(txt) {{
+      // 약칭("안산고","부흥중","안양남초")을 풀네임으로 확장
+      for (const sp of _expandPatterns) {{
+        const re = new RegExp('([가-힣]{{2,6}})' + sp.suffix + sp.lookahead);
+        const m = re.exec(txt);
+        if (m) return m[1] + sp.expand;   // "안산" + "고등학교"
+      }}
+      return null;
+    }}
+
     function findSchool(text) {{
       // 1단계: 정확 매칭 (기존)
       let best = null, bestLen = 0;
@@ -304,41 +322,34 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       }}
       if (best) return {{ name: best, confidence: 1.0, method: 'exact' }};
 
-      // 2단계: 단축명 매칭 — "송호고"→"송호고등학교", "송호초등"→"송호초등학교" 등
-      // 2-a: 음성 텍스트에서 약칭 패턴 추출 → 풀네임 확장 (긴 suffix 우선)
-      const shortPatterns = [
-        {{ suffix: '고등', expand: ['고등학교'], lookahead: '(?!학)' }},
-        {{ suffix: '초등', expand: ['초등학교'], lookahead: '(?!학)' }},
-        {{ suffix: '고',   expand: ['고등학교'], lookahead: '(?!등|학)' }},
-        {{ suffix: '중',   expand: ['중학교'],   lookahead: '(?!등|학)' }},
-        {{ suffix: '초',   expand: ['초등학교'], lookahead: '(?!등|학)' }},
-      ];
-      for (const sp of shortPatterns) {{
-        const re = new RegExp('([가-힣]{{2,6}})' + sp.suffix + sp.lookahead, 'g');
-        let m;
-        while ((m = re.exec(text)) !== null) {{
-          const stem = m[1];  // 예: "송호"
-          for (const s of schools) {{
-            for (const ex of sp.expand) {{
-              if (s === stem + ex) {{
-                return {{ name: s, confidence: 0.97, method: 'short_expand' }};
-              }}
-            }}
+      // 2단계: 단축명 매칭 — "송호고"→"송호고등학교", "안양남초"→"안양남초등학교" 등
+      // 2-a: 약칭 패턴 추출 → 풀네임 확장 → startsWith 매칭 (변형 이름 대응)
+      const expanded = expandShortName(text);
+      if (expanded) {{
+        let expandBest = null, expandBestLen = 0;
+        for (const s of schools) {{
+          // 완전 일치 또는 확장명으로 시작하는 거래처 (괄호 등 접미 대응)
+          if ((s === expanded || s.startsWith(expanded)) && s.length > expandBestLen) {{
+            expandBest = s;
+            expandBestLen = s.length;
           }}
         }}
+        if (expandBest) return {{ name: expandBest, confidence: 0.97, method: 'short_expand' }};
       }}
 
-      // 2-b: 접미사 제거 후 포함 매칭 (긴 패턴 우선 제거 + 3자 이상만 허용)
+      // 2-b: 접미사 제거 후 포함 매칭 (최소 2자 허용, 2자는 신뢰도 낮춤)
+      bestLen = 0;
       for (const s of schools) {{
         const short = s.replace(/초등학교|고등학교|중학교|학교/g, '');
-        if (short.length >= 3 && text.includes(short) && short.length > bestLen) {{
+        if (short.length >= 2 && text.includes(short) && short.length > bestLen) {{
           best = s;
           bestLen = short.length;
         }}
       }}
-      if (best) return {{ name: best, confidence: 0.95, method: 'short' }};
+      if (best && bestLen >= 3) return {{ name: best, confidence: 0.95, method: 'short' }};
+      if (best && bestLen === 2) return {{ name: best, confidence: 0.90, method: 'short_confirm' }};
 
-      // 3단계: Fuzzy Matching — STT 오인식 대응
+      // 3단계: Fuzzy Matching — STT 오인식 + 발음 유사 대응
       // 음성 텍스트에서 학교명 후보 추출 (숫자/품목/단독타입 키워드 제거)
       let cleaned = text
         .replace(/\\d+/g, '')
@@ -350,17 +361,24 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       // cleaned가 2자 미만이면 Fuzzy 스킵 → GPS 근접 검색으로 자연 전환
       if (cleaned.length < 2) return null;
 
+      // ── 약칭을 풀네임으로 확장한 버전도 준비 (핵심 개선) ──
+      // 예: cleaned="성호고" → cleanedExpanded="성호고등학교"
+      const cleanedExpanded = expandShortName(cleaned) || null;
+
       let bestFuzzy = null, bestScore = 0;
       for (const s of schools) {{
-        // 전체 이름 vs 정제된 텍스트
+        // score1: 전체 이름 vs 정제된 텍스트
         const score1 = similarity(cleaned, s);
-        // 접미사 제거 비교 (긴 패턴 우선)
+        // score2: 접미사 제거 비교
         const short = s.replace(/초등학교|고등학교|중학교|학교/, '');
         const cleanedShort = cleaned.replace(/초등학교|고등학교|중학교|학교/g, '');
         const score2 = short.length >= 2 ? similarity(cleanedShort, short) : 0;
-        // 초성 비교 (보조)
+        // score3: 초성 비교 (보조)
         const score3 = similarity(getChosung(cleaned), getChosung(s)) * 0.9;
-        const maxScore = Math.max(score1, score2, score3);
+        // score4: 약칭→풀네임 확장 후 비교 (STT 오인식 + 약칭 조합 대응)
+        // 예: "성호고"→"성호고등학교" vs "송호고등학교" = 83%
+        const score4 = cleanedExpanded ? similarity(cleanedExpanded, s) : 0;
+        const maxScore = Math.max(score1, score2, score3, score4);
         if (maxScore > bestScore) {{
           bestScore = maxScore;
           bestFuzzy = s;
@@ -587,8 +605,8 @@ def _render_voice_input(schools: list, school_key_prefix: str,
             const conf = match.confidence;
             const method = match.method;
 
-            // fuzzy_confirm(55~80%): 추천 확인 팝업
-            if (method === 'fuzzy_confirm') {{
+            // fuzzy_confirm(55~80%) 또는 short_confirm(2자 약칭 90%): 추천 확인 팝업
+            if (method === 'fuzzy_confirm' || method === 'short_confirm') {{
               const pct = Math.round(conf * 100);
               result.innerHTML = '🗣️ "' + final_text + '"<br>'
                 + '🔍 유사 매칭: <b>' + school + '</b> (유사도 ' + pct + '%)';

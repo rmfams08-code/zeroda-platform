@@ -12,7 +12,8 @@ from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
                                migrate_customer_gps, migrate_expenses_table,
                                migrate_meal_tables, migrate_school_nutrition_to_meal,
                                migrate_processing_confirm_table,
-                               migrate_meal_analysis_remark)
+                               migrate_meal_analysis_remark,
+                               migrate_customer_fixed_fee)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -39,6 +40,7 @@ def startup():
     migrate_school_nutrition_to_meal()  # school_nutrition → meal_manager 역할 전환
     migrate_processing_confirm_table()   # 처리확인(계근표) 테이블 자동 생성
     migrate_meal_analysis_remark()       # meal_analysis remark 컬럼 추가 (잔반 특이사항)
+    migrate_customer_fixed_fee()         # customer_info 월 고정비용 컬럼 추가 (기타 구분)
     return True
 
 startup()

@@ -114,7 +114,7 @@ def _render_vendor_send(vendor):
 
     # ── 거래처 구분 필터 + 하위 거래처 선택 ──
     _all_customers = load_customers_from_db(vendor)
-    _cust_type_options = ["학교", "기업", "관공서", "일반업장"]
+    _cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)"]
     col_t, col_s = st.columns(2)
     with col_t:
         _sel_type = st.selectbox("거래처 구분", _cust_type_options, key="stmt_cust_type")
@@ -153,10 +153,26 @@ def _render_vendor_send(vendor):
 
     st.markdown(f"### {year}년 {month}월 · {school}")
 
-    # 면세/과세 판별 — 학교=면세, 그 외=부가세 10%
-    _is_school = (_sel_type == '학교')
+    # 면세/과세 판별 — 학교·기타1=면세, 기타=고정비용(세금없음), 그 외=부가세 10%
+    _is_tax_free = (_sel_type in ('학교', '기타1(면세사업장)'))
+    _is_fixed_fee = (_sel_type == '기타')
+    _fixed_fee = float(_cust_info.get('fixed_monthly_fee', 0) or 0) if _cust_info else 0.0
 
-    if rows:
+    if _is_fixed_fee:
+        # ── 기타: 월 고정비용 표시 ──
+        if rows:
+            df = pd.DataFrame(rows)
+            show_cols = [c for c in ['collect_date', 'item_type', 'weight', 'driver', 'memo'] if c in df.columns]
+            with st.expander("📋 수거 데이터 참고", expanded=False):
+                st.dataframe(df[show_cols], use_container_width=True)
+        total_amount = _fixed_fee
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("📋 월 고정비용 (계약금액)", f"{_fixed_fee:,.0f} 원")
+        with c2:
+            st.caption("부가세 없음 · 단순 금액 표기")
+    elif rows:
+        # ── 일반: 수거량 × 단가 ──
         df = pd.DataFrame(rows)
         show_cols = [c for c in ['collect_date', 'item_type', 'weight', 'unit_price', 'amount', 'driver', 'memo'] if c in df.columns]
         st.dataframe(df[show_cols], use_container_width=True)
@@ -166,7 +182,7 @@ def _render_vendor_send(vendor):
             (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
             for r in rows
         )
-        if _is_school:
+        if _is_tax_free:
             c1, c2 = st.columns(2)
             with c1:
                 st.metric("총 수거량", f"{total_weight:,.1f} kg")
@@ -185,6 +201,7 @@ def _render_vendor_send(vendor):
             with c4:
                 st.metric("합계 (VAT포함)", f"{_total_with_vat:,.0f} 원")
     else:
+        total_amount = 0
         st.warning("해당 기간 수거 데이터가 없습니다. 데이터 입력 후 발송하세요.")
 
     st.divider()
@@ -315,7 +332,8 @@ def _render_vendor_send(vendor):
                 try:
                     pdf_bytes = generate_statement_pdf(
                         vendor, school, year, month, rows, biz_info, vinfo,
-                        cust_type=_cust_type
+                        cust_type=_cust_type,
+                        fixed_fee=_fixed_fee if _is_fixed_fee else 0
                     )
                     filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                     st.download_button(
@@ -359,7 +377,8 @@ def _render_vendor_send(vendor):
                     try:
                         pdf_bytes = generate_statement_pdf(
                             vendor, school, year, month, rows or [], biz_info, vinfo,
-                            cust_type=_cust_type
+                            cust_type=_cust_type,
+                            fixed_fee=_fixed_fee if _is_fixed_fee else 0
                         )
                         filename = f"거래명세서_{school}_{year}{month_str}.pdf"
                         success, msg = send_statement_email(
@@ -386,7 +405,7 @@ def _render_vendor_send(vendor):
                 try:
                     from services.sms_service import send_statement_sms, build_summary_sms_text
                     _total_w = sum(float(r.get('weight', 0)) for r in rows)
-                    _total_a = sum(
+                    _total_a = _fixed_fee if _is_fixed_fee else sum(
                         float(r.get('weight', 0)) *
                         (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
                         for r in rows
@@ -419,7 +438,7 @@ def _render_vendor_send(vendor):
                 try:
                     from services.sms_service import send_statement_sms, build_detail_sms_text
                     _total_w = sum(float(r.get('weight', 0)) for r in rows)
-                    _total_a = sum(
+                    _total_a = _fixed_fee if _is_fixed_fee else sum(
                         float(r.get('weight', 0)) *
                         (float(r.get('unit_price', 0)) or get_unit_price(vendor, school, r.get('item_type', '')))
                         for r in rows
