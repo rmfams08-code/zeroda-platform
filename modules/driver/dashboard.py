@@ -1411,6 +1411,16 @@ def render_dashboard(user: dict):
     </script>
     """, height=0)
 
+    # ── GPS 브릿지 입력 (완전 숨김 처리) ──
+    st.markdown("""<style>
+    div[data-testid="stTextInput"]:has(input[aria-label="proc_gps_hidden"]) {
+        position: absolute !important;
+        width: 0 !important; height: 0 !important;
+        overflow: hidden !important; opacity: 0 !important;
+        pointer-events: none !important;
+    }
+    </style>""", unsafe_allow_html=True)
+
     gps_raw = st.text_input("proc_gps_hidden", value="", key=_proc_gps_bridge,
                             label_visibility="collapsed")
     proc_lat = 0.0
@@ -1426,32 +1436,31 @@ def render_dashboard(user: dict):
     # GPS 상태 표시
     if proc_lat != 0 and proc_lng != 0:
         st.success(f"📍 GPS 위치 확인: {proc_lat:.6f}, {proc_lng:.6f}")
-    else:
-        st.warning("📍 GPS 위치를 가져오는 중... (위치 권한을 허용해주세요)")
 
-    # 입력 폼
-    pc1, pc2 = st.columns(2)
-    with pc1:
-        proc_weight = st.number_input("계근표 처리량 (kg)", min_value=0.0,
-                                      step=10.0, format="%.1f",
-                                      key="proc_weight")
-    with pc2:
-        proc_location = st.text_input("처리장명", key="proc_location",
-                                      placeholder="예: ○○자원순환센터")
+    # ── 계근표 입력 (접기/펼치기) ──
+    with st.expander("📝 처리량 입력", expanded=True):
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            proc_weight = st.number_input("계근표 처리량 (kg)", min_value=0.0,
+                                          step=10.0, format="%.1f",
+                                          key="proc_weight")
+        with pc2:
+            proc_location = st.text_input("처리장명", key="proc_location",
+                                          placeholder="예: ○○자원순환센터")
 
-    # 계근표 사진 촬영 (수거량 입력의 현장증빙사진과 동일 방식)
-    with st.expander("📸 계근표 사진 (선택)", expanded=False):
-        proc_photo = st.file_uploader(
-            "사진 촬영 또는 갤러리에서 선택",
-            type=['jpg', 'jpeg', 'png'],
-            key="proc_photo",
-            help="모바일: 촬영 또는 갤러리 선택 가능"
-        )
-        if proc_photo:
-            st.image(proc_photo, caption="첨부된 계근표 사진", use_container_width=True)
-            st.success("📸 사진이 첨부되었습니다.")
+        # 계근표 사진 촬영
+        with st.expander("📸 계근표 사진 (선택)", expanded=False):
+            proc_photo = st.file_uploader(
+                "사진 촬영 또는 갤러리에서 선택",
+                type=['jpg', 'jpeg', 'png'],
+                key="proc_photo",
+                help="모바일: 촬영 또는 갤러리 선택 가능"
+            )
+            if proc_photo:
+                st.image(proc_photo, caption="첨부된 계근표 사진", use_container_width=True)
+                st.success("📸 사진이 첨부되었습니다.")
 
-    proc_memo = st.text_input("메모 (선택)", key="proc_memo", placeholder="특이사항")
+        proc_memo = st.text_input("메모 (선택)", key="proc_memo", placeholder="특이사항")
 
     if st.button("📤 처리확인 전송", type="primary", key="btn_proc_submit",
                  use_container_width=True):
