@@ -1030,7 +1030,12 @@ def _classify_waste_grade(waste_per_person):
 def _generate_menu_remark(menu_items_json, grade, waste_per_person):
     """
     메뉴 키워드 기반 잔반 특이사항 자동 생성.
-    급식담당이 일별 잔반 원인을 파악할 수 있도록 상세 코멘트 제공.
+    급식담당이 일별 잔반 원인을 파악할 수 있도록 코멘트 제공.
+
+    근거:
+    [3] 한국식품영양과학회(2019) — 잔반 순위: 채소찬 > 국·찌개 > 생선
+    [4] 한국식품영양학회지 KCI — 잔식 순위: 채소·나물 > 생선 > 국 > 밥
+    [2] 경기도교육청(2023) — 폐기물 유형: 전처리/일반/순수잔반
     """
     try:
         menus = json.loads(menu_items_json) if isinstance(menu_items_json, str) else menu_items_json
@@ -1042,65 +1047,79 @@ def _generate_menu_remark(menu_items_json, grade, waste_per_person):
     menu_text = ' '.join(str(m) for m in menus)
     remarks = []
 
-    # ── 국물류 감지 (잔반율 40%) ──
+    # ── 채소·나물류 감지 (잔반 발생 1위) [근거 3,4] ──
+    veg_keywords = ['나물', '시금치', '콩나물', '무침', '숙주', '미나리', '도라지',
+                    '고사리', '취나물', '샐러드', '양배추', '브로콜리', '비빔밥',
+                    '깻잎', '호박', '가지', '열무', '부추', '오이']
+    veg_found = [kw for kw in veg_keywords if kw in menu_text]
+    if veg_found:
+        remarks.append(f"채소·나물({','.join(veg_found[:2])}) → 잔반 발생 1위 항목, 편식 요인 주의")
+
+    # ── 국·찌개류 감지 (잔반 발생 2위) [근거 3,4] ──
     soup_keywords = ['국', '찌개', '탕', '전골', '스프', '수프', '미역국', '된장국',
                      '육개장', '갈비탕', '곰탕', '설렁탕', '부대찌개', '김치찌개',
                      '순두부', '떡국', '만두국', '해장국', '감자탕', '삼계탕']
     soup_found = [kw for kw in soup_keywords if kw in menu_text]
     if soup_found:
-        remarks.append(f"국물류({','.join(soup_found[:2])}) → 국물 잔반 증가 예상(잔반율 40%)")
+        remarks.append(f"국·찌개({','.join(soup_found[:2])}) → 잔반 발생 2위 항목, 국물 잔반 주의")
 
-    # ── 나물·채소류 감지 (잔반율 50%, 편식 요인) ──
-    veg_keywords = ['나물', '시금치', '콩나물', '무침', '숙주', '미나리', '도라지',
-                    '고사리', '취나물', '샐러드', '양배추', '브로콜리', '비빔밥']
-    veg_found = [kw for kw in veg_keywords if kw in menu_text]
-    if veg_found:
-        remarks.append(f"나물채소({','.join(veg_found[:2])}) → 편식 잔반 증가 예상(잔반율 50%)")
+    # ── 생선류 감지 (잔반 발생 3위 + 뼈·가시 전처리) [근거 3,4,2] ──
+    fish_keywords = ['생선', '고등어', '삼치', '꽁치', '조기', '갈치', '임연수',
+                     '가자미', '동태', '명태', '대구', '코다리', '조림']
+    fish_found = [kw for kw in fish_keywords if kw in menu_text]
+    if fish_found:
+        remarks.append(f"생선({','.join(fish_found[:2])}) → 잔반 발생 3위 항목, 뼈·가시 전처리 발생")
 
-    # ── 김치류 다종 감지 (잔반율 40%) ──
-    kimchi_keywords = ['김치', '깍두기', '총각김치', '백김치', '열무김치', '동치미',
-                       '겉절이', '파김치', '오이소박이']
-    kimchi_found = [kw for kw in kimchi_keywords if kw in menu_text]
-    if len(kimchi_found) >= 2:
-        remarks.append(f"김치류 {len(kimchi_found)}종 → 잔반율 40% 수준")
-
-    # ── 과일류 감지 (껍질·씨 잔여물) ──
+    # ── 과일류 감지 (전처리 잔여물: 껍질·씨) [근거 2] ──
     fruit_keywords = ['과일', '사과', '배', '귤', '오렌지', '수박', '참외', '포도',
                       '딸기', '바나나', '키위', '감', '자두', '복숭아', '멜론',
                       '망고', '체리', '파인애플', '블루베리']
     fruit_found = [kw for kw in fruit_keywords if kw in menu_text]
     if fruit_found:
-        remarks.append(f"과일({','.join(fruit_found[:2])}) → 껍질·씨 잔여물 발생, 전처리 증가")
+        remarks.append(f"과일({','.join(fruit_found[:2])}) → 껍질·씨 전처리 잔여물 발생")
 
-    # ── 뼈류 감지 (비가식 부분) ──
-    bone_keywords = ['갈비', '닭', '치킨', '생선', '고등어', '삼치', '꽁치',
-                     '조기', '갈치', '뼈', '등뼈', '족발', '감자탕', '닭볶음탕',
-                     '찜닭', '닭갈비', '삼계탕']
-    bone_found = [kw for kw in bone_keywords if kw in menu_text]
+    # ── 육류·뼈류 감지 (뼈 전처리) [근거 2,4] ──
+    meat_bone_keywords = ['갈비', '닭', '치킨', '뼈', '등뼈', '족발', '닭볶음탕',
+                          '찜닭', '닭갈비', '삼계탕', '양념치킨', '등갈비']
+    bone_found = [kw for kw in meat_bone_keywords if kw in menu_text]
     if bone_found:
-        remarks.append(f"뼈류({','.join(bone_found[:2])}) → 뼈·가시 잔여물 증가, 전처리 필요")
+        remarks.append(f"뼈류({','.join(bone_found[:2])}) → 뼈 전처리 잔여물 발생, 일반쓰레기 분류")
 
-    # ── 튀김류 감지 (기름 잔여물) ──
+    # ── 김치류 다종 감지 [근거 3] ──
+    kimchi_keywords = ['김치', '깍두기', '총각김치', '백김치', '열무김치', '동치미',
+                       '겉절이', '파김치', '오이소박이']
+    kimchi_found = [kw for kw in kimchi_keywords if kw in menu_text]
+    if len(kimchi_found) >= 2:
+        remarks.append(f"김치 {len(kimchi_found)}종 → 채소류 잔반 가중 요인")
+
+    # ── 튀김류 감지 (기름 잔여물) [근거 2] ──
     fry_keywords = ['튀김', '돈까스', '커틀릿', '탕수육', '고로케', '텐동',
                     '후라이', '가스', '까스', '너겟', '프라이', '깐풍기']
     fry_found = [kw for kw in fry_keywords if kw in menu_text]
     if fry_found:
         remarks.append(f"튀김류({','.join(fry_found[:2])}) → 기름 잔여물 주의, 폐유 분류 필요")
 
-    # ── 면류 감지 (국물+면 잔반) ──
+    # ── 면류 감지 (국물+면 잔반) [근거 3] ──
     noodle_keywords = ['라면', '잔치국수', '칼국수', '우동', '냉면', '쫄면',
                        '파스타', '스파게티', '짜장면', '짬뽕', '비빔면']
     noodle_found = [kw for kw in noodle_keywords if kw in menu_text]
     if noodle_found:
-        remarks.append(f"면류({','.join(noodle_found[:2])}) → 국물+면 잔반 증가 예상")
+        remarks.append(f"면류({','.join(noodle_found[:2])}) → 국물+면 잔반 주의")
+
+    # ── 조개·갑각류 감지 (일반쓰레기: 껍데기) [근거 2] ──
+    shell_keywords = ['조개', '홍합', '바지락', '꽃게', '새우', '대하',
+                      '가리비', '전복', '소라', '굴']
+    shell_found = [kw for kw in shell_keywords if kw in menu_text]
+    if shell_found:
+        remarks.append(f"패류({','.join(shell_found[:2])}) → 껍데기 일반쓰레기 분류 필요")
 
     # ── 등급별 종합 코멘트 ──
     if grade == 'D':
-        remarks.append("⚠️ 고잔반 경보 — 메뉴 구성 재검토 필요")
+        remarks.append("고잔반 경보 — 메뉴 구성 재검토 필요")
     elif grade == 'C':
-        remarks.append("△ 표준 초과 — 고잔반 메뉴 조정 권장")
+        remarks.append("표준 초과 — 고잔반 메뉴 조정 권장")
     elif grade == 'A' and waste_per_person > 0:
-        remarks.append("✓ 우수 — 잔반 최소화 달성")
+        remarks.append("우수 — 잔반 최소화 달성")
 
     return ' | '.join(remarks) if remarks else '정상 범위'
 
