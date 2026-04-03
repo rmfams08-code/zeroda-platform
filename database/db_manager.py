@@ -1300,11 +1300,12 @@ def save_schedule_by_vendor(vendor, month, weekdays,
 
 def save_meal_schedule_bulk(school_name, vendor, meal_dates,
                             uploaded_by='', item_type='음식물',
-                            collect_offset=0):
+                            collect_offset=0, status='draft'):
     """
-    급식담당자가 식단 업로드 시 수거일정 일괄 생성 (draft 상태).
+    급식담당자가 식단 업로드 시 수거일정 일괄 생성.
     meal_dates: ['2026-04-07', '2026-04-08', ...] 급식일 리스트
     collect_offset: 수거 예정일 오프셋 (0=당일, 1=다음날)
+    status: 'draft' (초안, 승인 필요) 또는 'approved' (NEIS 등 바로 반영)
     기존 같은 월 draft 데이터는 삭제 후 재생성.
     """
     from datetime import timedelta
@@ -1316,8 +1317,9 @@ def save_meal_schedule_bulk(school_name, vendor, meal_dates,
     # 해당 월 추출 (첫번째 날짜 기준)
     year_month = meal_dates[0][:7]
 
-    # 기존 draft 삭제 (같은 학교 + 같은 월)
-    _delete_meal_schedules_draft(school_name, year_month)
+    # 기존 draft 삭제 (같은 학교 + 같은 월) — draft일 때만
+    if status == 'draft':
+        _delete_meal_schedules_draft(school_name, year_month)
 
     success = 0
     fail = 0
@@ -1333,7 +1335,7 @@ def save_meal_schedule_bulk(school_name, vendor, meal_dates,
                 'meal_date':    md,
                 'collect_date': collect_date,
                 'item_type':    item_type,
-                'status':       'draft',
+                'status':       status,
                 'uploaded_by':  uploaded_by,
                 'approved_by':  '',
                 'note':         '',

@@ -8,7 +8,7 @@ from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from database.db_manager import (
     save_meal_menu, save_meal_menus_bulk, get_meal_menus, delete_meal_menu,
-    get_school_student_count,
+    get_school_student_count, save_meal_schedule_bulk, db_get,
 )
 from config.settings import COMMON_CSS
 
@@ -45,7 +45,7 @@ def render_menu_register(user: dict):
 
     # ── 엑셀 파일 업로드 (일괄 등록) ──
     with st.expander("📤 급식식단 엑셀 파일 업로드 (일괄 등록)", expanded=False):
-        _render_excel_upload(site_name, sel_month)
+        _render_excel_upload(site_name, sel_month, user)
 
     st.divider()
 
@@ -282,7 +282,7 @@ def _get_site_name(user: dict) -> str:
 # 엑셀 업로드 관련 함수
 # ══════════════════════════════════════════════════════════════
 
-def _render_excel_upload(site_name: str, sel_month: str):
+def _render_excel_upload(site_name: str, sel_month: str, user: dict = None):
     """급식식단정보 엑셀 파일(.xls/.xlsx) 업로드 → 일괄 등록"""
     st.markdown("교육청 NEIS 급식식단정보 엑셀 파일을 업로드하면 자동으로 파싱하여 등록합니다.")
     st.caption("지원 컬럼: 급식일자, 요리명, 칼로리정보, 영양정보, 급식인원수")
@@ -368,6 +368,36 @@ def _render_excel_upload(site_name: str, sel_month: str):
 
         if success > 0:
             st.success(f"✅ {success}일치 식단 등록 완료!")
+
+            # ── 수거일정 초안 자동 생성 ──
+            try:
+                meal_dates = sorted([p['date'] for p in parsed if p.get('date')])
+                # 영양사의 vendor 조회
+                _vendor = user.get('vendor', '')
+                if not _vendor:
+                    # customer_info에서 school_name으로 vendor 찾기
+                    _cust_rows = db_get('customer_info', {'name': site_name})
+                    if _cust_rows:
+                        _vendor = _cust_rows[0].get('vendor', '')
+
+                if _vendor and meal_dates:
+                    _s, _f = save_meal_schedule_bulk(
+                        school_name=site_name,
+                        vendor=_vendor,
+                        meal_dates=meal_dates,
+                        uploaded_by=user.get('user_id', 'meal_manager'),
+                        item_type='음식물',
+                        collect_offset=0,
+                        status='draft',
+                    )
+                    if _s > 0:
+                        st.info(
+                            f"📋 수거일정 초안 {_s}건 자동 생성 → "
+                            f"본사/업체관리자 승인 후 기사 일정에 반영됩니다."
+                        )
+            except Exception as e:
+                print(f"[meal_schedule_auto] 수거일정 초안 생성 오류: {e}")
+
         if fail > 0:
             st.error(f"❌ {fail}건 등록 실패")
         st.rerun()

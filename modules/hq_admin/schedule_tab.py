@@ -8,16 +8,17 @@ from zoneinfo import ZoneInfo
 from database.db_manager import (db_get, get_all_vendors, load_all_schedules,
                                   save_schedule, delete_schedule,
                                   load_customers_from_db,
-                                  save_meal_schedule_bulk, get_meal_schedules)
+                                  save_meal_schedule_bulk, get_meal_schedules,
+                                  approve_meal_schedules)
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
 def render_schedule_tab():
     st.markdown("## 수거일정 관리")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📋 일정 조회", "✏️ 일정 등록/수정", "📅 오늘 수거 현황",
-        "🍽️ NEIS 급식일정 연동"
+        "🍽️ NEIS 급식일정 연동", "✅ 식단기반 일정 승인"
     ])
 
     # ══════════════════════════════════════════════
@@ -717,3 +718,165 @@ def render_schedule_tab():
                             st.rerun()
                         else:
                             st.warning(f"생성: 성공 {total_ok}건, 실패 {total_fail}건")
+
+    # ══════════════════════════════════════════════
+    # 탭5: 식단기반 수거일정 승인
+    # ══════════════════════════════════════════════
+    with tab5:
+        st.markdown("### ✅ 식단기반 수거일정 승인")
+        st.caption("급식담당자(영양사)가 식단 업로드 시 자동 생성된 수거일정 초안을 승인합니다.")
+
+        # ── 필터 ──
+        af1, af2 = st.columns(2)
+        with af1:
+            apv_vendors = get_all_vendors()
+            if not apv_vendors:
+                st.warning("등록된 업체가 없습니다.")
+            else:
+                apv_vendor = st.selectbox("업체 선택", apv_vendors, key="hq_apv_vendor")
+        with af2:
+            now_apv = datetime.now(ZoneInfo('Asia/Seoul'))
+            apv_months = []
+            for delta in range(-1, 3):
+                m = now_apv.month + delta
+                y = now_apv.year
+                if m < 1:
+                    m += 12; y -= 1
+                elif m > 12:
+                    m -= 12; y += 1
+                apv_months.append(f"{y}-{m:02d}")
+            apv_month = st.selectbox("조회 월", apv_months, index=1, key="hq_apv_month")
+
+        if apv_vendors:
+            # ── draft 목록 조회 ──
+            draft_rows = get_meal_schedules(
+                vendor=apv_vendor, status='draft', year_month=apv_month
+            )
+            approved_rows = get_meal_schedules(
+                vendor=apv_vendor, status='approved', year_month=apv_month
+            )
+
+            # 상태 요약
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                st.metric("⏳ 승인 대기", f"{len(draft_rows)}건")
+            with mc2:
+                st.metric("✅ 승인 완료", f"{len(approved_rows)}건")
+
+            if not draft_rows:
+                st.info("승인 대기 중인 식단기반 수거일정이 없습니다.")
+            else:
+                # ── 학교별 그룹핑 ──
+                school_groups = {}
+                for r in draft_rows:
+                    sn = r.get('school_name', '알수없음')
+                    if sn not in school_groups:
+                        school_groups[sn] = []
+                    school_groups[sn].append(r)
+
+                for school_name, rows in sorted(school_groups.items()):
+                    with st.expander(
+                        f"🏫 {school_name} — {len(rows)}건 대기 "
+                        f"(업로드: {rows[0].get('uploaded_by', '-')})",
+                        expanded=True
+                    ):
+                        # 테이블 표시
+                        display_data = []
+                        for r in rows:
+                            display_data.append({
+                                '급식일': r.get('meal_date', ''),
+                                '수거예정일': r.get('collect_date', ''),
+                                '품목': r.get('item_type', ''),
+                                '업로더': r.get('uploaded_by', ''),
+                                '생성일': str(r.get('created_at', ''))[:10],
+                            })
+                        st.dataframe(
+                            pd.DataFrame(display_data),
+                            use_container_width=True, hide_index=True
+                        )
+
+                        # 수거 시점 옵션 (승인 시 적용)
+                        oc1, oc2 = st.columns(2)
+                        with oc1:
+                            apv_offset = st.radio(
+                                "수거 시점 조정",
+                                [("유지", -1), ("급식 당일", 0), ("급식 다음날", 1)],
+                                format_func=lambda x: x[0],
+                                key=f"hq_apv_offset_{school_name}",
+                                horizontal=True,
+                            )
+                        with oc2:
+                            # 기사 배정
+                            _apv_driver_rows = [
+                                r for r in db_get('users')
+                                if r.get('role') == 'driver'
+                                and r.get('vendor') == apv_vendor
+                            ]
+                            _apv_driver_names = [
+                                r.get('name') or r.get('user_id', '')
+                                for r in _apv_driver_rows
+                                if r.get('name') or r.get('user_id')
+                            ]
+                            apv_driver = ''
+                            if _apv_driver_names:
+                                apv_driver = st.selectbox(
+                                    "기사 배정",
+                                    ["(미지정)"] + _apv_driver_names,
+                                    key=f"hq_apv_driver_{school_name}"
+                                )
+                                if apv_driver == "(미지정)":
+                                    apv_driver = ''
+
+                        # 승인/반려 버튼
+                        bc1, bc2 = st.columns(2)
+                        with bc1:
+                            if st.button(
+                                f"✅ 전체 승인 ({len(rows)}건)",
+                                type="primary", use_container_width=True,
+                                key=f"hq_apv_approve_{school_name}"
+                            ):
+                                # 수거 시점 조정 시 collect_date 업데이트
+                                from datetime import timedelta
+                                _ids = []
+                                for r in rows:
+                                    rid = r.get('id')
+                                    if apv_offset[1] >= 0:
+                                        # 수거일 재계산
+                                        try:
+                                            _meal_dt = datetime.strptime(
+                                                r['meal_date'], '%Y-%m-%d'
+                                            )
+                                            _new_cd = (
+                                                _meal_dt + timedelta(days=apv_offset[1])
+                                            ).strftime('%Y-%m-%d')
+                                            r['collect_date'] = _new_cd
+                                            # DB 업데이트
+                                            from database.db_manager import db_upsert
+                                            _upd = dict(r)
+                                            _upd['collect_date'] = _new_cd
+                                            db_upsert('meal_schedules', _upd)
+                                        except Exception:
+                                            pass
+                                    _ids.append(rid)
+
+                                cnt = approve_meal_schedules(
+                                    _ids, approved_by='hq_admin',
+                                    driver=apv_driver
+                                )
+                                st.success(
+                                    f"✅ {school_name} {cnt}건 승인 완료! "
+                                    f"기사 일정에 반영되었습니다."
+                                )
+                                st.rerun()
+
+                        with bc2:
+                            if st.button(
+                                f"❌ 반려",
+                                use_container_width=True,
+                                key=f"hq_apv_reject_{school_name}"
+                            ):
+                                from database.db_manager import cancel_meal_schedules
+                                _ids = [r.get('id') for r in rows]
+                                cancel_meal_schedules(_ids, note='본사관리자 반려')
+                                st.warning(f"{school_name} {len(rows)}건 반려 완료")
+                                st.rerun()
