@@ -1175,6 +1175,8 @@ def analyze_meal_waste(site_name, year_month):
             'year_month':       year_month,
             'meal_date':        meal_date,
             'menu_items':       m.get('menu_items', '[]'),
+            'servings':         servings,
+            'calories':         float(m.get('calories', 0) or 0),
             'waste_kg':         waste_kg,
             'waste_per_person': waste_per_person,
             'waste_rate':       waste_rate,

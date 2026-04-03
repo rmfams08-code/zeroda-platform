@@ -522,6 +522,9 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
     valid_days = [r for r in analysis_rows if float(r.get('waste_per_person', 0) or 0) > 0]
     avg_pp = sum(float(r['waste_per_person']) for r in valid_days) / len(valid_days) if valid_days else 0
     matched_cnt = len([r for r in analysis_rows if float(r.get('waste_kg', 0) or 0) > 0])
+    # 배식인원 통계
+    servings_list = [int(r.get('servings', 0) or 0) for r in analysis_rows if int(r.get('servings', 0) or 0) > 0]
+    avg_servings = round(sum(servings_list) / len(servings_list)) if servings_list else 0
 
     grade_counts = {}
     for r in analysis_rows:
@@ -530,17 +533,19 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
     main_grade = max(grade_counts, key=grade_counts.get) if grade_counts else '-'
 
     sum_data = [
-        [P('총 잔반량', size=8, align=1, color=colors.white),
+        [P('평균 배식인원', size=8, align=1, color=colors.white),
+         P('총 잔반량', size=8, align=1, color=colors.white),
          P('1인당 평균', size=8, align=1, color=colors.white),
          P('매칭 일수', size=8, align=1, color=colors.white),
          P('주요 등급', size=8, align=1, color=colors.white)],
-        [P(f"{total_waste:.1f} kg", size=11, align=1),
+        [P(f"{avg_servings:,}명", size=11, align=1),
+         P(f"{total_waste:.1f} kg", size=11, align=1),
          P(f"{avg_pp:.1f} g", size=11, align=1),
          P(f"{matched_cnt} / {len(analysis_rows)}일", size=11, align=1),
          P(main_grade, size=14, align=1,
            color=GREEN if main_grade == 'A' else (ORANGE if main_grade == 'B' else RED))],
     ]
-    sum_tbl = Table(sum_data, colWidths=[45*mm]*4)
+    sum_tbl = Table(sum_data, colWidths=[36*mm]*5)
     sum_tbl.setStyle(TableStyle([
         ('FONTNAME',   (0,0), (-1,-1), font),
         ('BACKGROUND', (0,0), (-1,0),  BLUE),
@@ -585,8 +590,8 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
     story.append(P("■ 일별 식단 × 잔반량", size=11, color=BLUE))
     story.append(Spacer(1, 2*mm))
 
-    header = ['날짜', '메뉴', '잔반(kg)', '1인당(g)', '등급', '특이사항']
-    tdata = [[P(h, size=7, align=1, color=colors.white) for h in header]]
+    header = ['날짜', '메뉴', '인원', '잔반(kg)', '1인당(g)', '등급', '특이사항']
+    tdata = [[P(h, size=9, align=1, color=colors.white) for h in header]]
 
     for r in analysis_rows:
         try:
@@ -597,6 +602,7 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
         if len(menus) > 3:
             menu_str += f" 외 {len(menus)-3}"
 
+        srv = int(r.get('servings', 0) or 0)
         wkg = float(r.get('waste_kg', 0) or 0)
         wpp = float(r.get('waste_per_person', 0) or 0)
         grade = r.get('grade', '-')
@@ -604,15 +610,16 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
         remark = r.get('remark', '')
 
         tdata.append([
-            P(r.get('meal_date', '')[-5:], size=7, align=1),
-            P(menu_str, size=6),
-            P(f"{wkg:.1f}", size=7, align=2),
-            P(f"{wpp:.1f}", size=7, align=2),
-            P(grade, size=8, align=1, color=grade_color),
-            P(remark, size=5),
+            P(r.get('meal_date', '')[-5:], size=9, align=1),
+            P(menu_str, size=8),
+            P(f"{srv:,}" if srv > 0 else '-', size=9, align=2),
+            P(f"{wkg:.1f}", size=9, align=2),
+            P(f"{wpp:.1f}", size=9, align=2),
+            P(grade, size=10, align=1, color=grade_color),
+            P(remark, size=7),
         ])
 
-    detail_tbl = Table(tdata, colWidths=[16*mm, 55*mm, 16*mm, 16*mm, 12*mm, 50*mm])
+    detail_tbl = Table(tdata, colWidths=[16*mm, 48*mm, 14*mm, 14*mm, 14*mm, 10*mm, 49*mm])
     detail_style = [
         ('FONTNAME',   (0,0), (-1,-1), font),
         ('BACKGROUND', (0,0), (-1,0),  BLUE),

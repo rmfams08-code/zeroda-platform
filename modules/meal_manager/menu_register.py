@@ -126,6 +126,7 @@ def render_menu_register(user: dict):
                         'menus': ex_menus,
                         'calories': float(ex.get('calories', 0) or 0),
                         'nutrition': ex.get('nutrition_info', '{}'),
+                        'servings': int(ex.get('servings', 0) or 0),
                     }
 
             day += 1
@@ -158,8 +159,11 @@ def _render_edit_panel(edit_data, site_name, site_type, servings, edit_key):
                                    value=edit_data.get('calories', 0.0),
                                    step=10.0, key=f"meal_cal_{d}")
     with c2:
+        # DB에 저장된 배식인원이 있으면 우선 사용, 없으면 기본값
+        _db_servings = edit_data.get('servings', 0)
+        _init_servings = _db_servings if _db_servings > 0 else servings
         day_servings = st.number_input("배식인원 (명)", min_value=0,
-                                       value=servings,
+                                       value=_init_servings,
                                        step=10, key=f"meal_srv_{d}")
 
     # 영양정보 (9항목: 교육청 NEIS 급식식단정보 기준)

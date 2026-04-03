@@ -98,14 +98,20 @@ def _render_summary(results):
 
     matched_days = len([r for r in results if r.get('waste_kg', 0) > 0])
 
-    c1, c2, c3, c4 = st.columns(4)
+    # 배식인원 평균
+    srv_list = [int(r.get('servings', 0) or 0) for r in results if int(r.get('servings', 0) or 0) > 0]
+    avg_srv = round(sum(srv_list) / len(srv_list)) if srv_list else 0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        st.metric("총 잔반량", f"{total_waste:.1f} kg")
+        st.metric("평균 배식인원", f"{avg_srv:,}명" if avg_srv > 0 else '-')
     with c2:
-        st.metric("1인당 평균", f"{avg_per_person:.1f} g")
+        st.metric("총 잔반량", f"{total_waste:.1f} kg")
     with c3:
-        st.metric("매칭 일수", f"{matched_days} / {len(results)}일")
+        st.metric("1인당 평균", f"{avg_per_person:.1f} g")
     with c4:
+        st.metric("매칭 일수", f"{matched_days} / {len(results)}일")
+    with c5:
         # 가장 많은 등급
         best_grade = max(grade_counts, key=grade_counts.get) if grade_counts else '-'
         st.metric("주요 등급", best_grade)
@@ -123,9 +129,11 @@ def _render_daily_table(results):
             menus = []
         menu_str = ", ".join(menus) if menus else "-"
 
+        srv = int(r.get('servings', 0) or 0)
         rows.append({
             '날짜': r.get('meal_date', ''),
             '메뉴': menu_str,
+            '배식인원': f"{srv:,}" if srv > 0 else '-',
             '잔반량(kg)': round(r.get('waste_kg', 0), 1),
             '1인당(g)': round(r.get('waste_per_person', 0), 1),
             '등급': r.get('grade', '-'),
