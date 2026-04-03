@@ -26,21 +26,6 @@ def render_customer_tab(vendor):
             st.dataframe(df, use_container_width=True, hide_index=True)
             st.caption(f"표시: {len(df)}개 / 전체: {len(customers)}개")
 
-            # ── 미납 거래처 경고 ──
-            overdue_list = [
-                (n, info) for n, info in customers.items()
-                if float(info.get('미납금액', 0) or 0) > 0
-            ]
-            if overdue_list:
-                st.divider()
-                st.markdown("### ⚠️ 미납 거래처")
-                for _on, _oi in overdue_list:
-                    _oa = float(_oi.get('미납금액', 0) or 0)
-                    _om = _oi.get('미납개월', '') or '-'
-                    _onote = _oi.get('미납비고', '') or ''
-                    st.warning(f"**{_on}** — 미납금액: {_oa:,.0f}원 | 미납개월: {_om}" +
-                               (f" | 비고: {_onote}" if _onote else ""))
-
         # ── 품목별 단가 입력/수정 ────────────────────────────────
         st.divider()
         st.markdown("### 📋 품목별 단가 설정")
@@ -117,24 +102,6 @@ def render_customer_tab(vendor):
                 phone   = st.text_input("전화번호", placeholder="010-0000-0000", key="new_cust_phone")
             recycler = st.text_input("♻️ 재활용자(처리자)", placeholder="예: 청명제2공장", key="new_cust_recycler")
 
-            # ── 미납 정보 ──
-            st.markdown("**💸 미납 정보**")
-            od_col1, od_col2 = st.columns(2)
-            with od_col1:
-                new_overdue_amount = st.number_input(
-                    "미납금액 (원)", min_value=0.0, step=10000.0, format="%.0f",
-                    value=0.0, key="new_cust_overdue_amount"
-                )
-                new_overdue_months = st.text_input(
-                    "미납개월", placeholder="예: 2026-01,2026-02",
-                    key="new_cust_overdue_months"
-                )
-            with od_col2:
-                new_overdue_note = st.text_area(
-                    "미납 비고", placeholder="예: 3월 중 납부 예정",
-                    height=100, key="new_cust_overdue_note"
-                )
-
             if st.button("💾 신규 저장", type="primary", key="new_cust_save"):
                 if not name:
                     st.error("상호명은 필수입니다.")
@@ -144,10 +111,7 @@ def render_customer_tab(vendor):
                     ok = save_customer_to_db(vendor, name, {
                         '사업자번호': biz_no, '대표자': rep, '주소': addr,
                         '업태': biz_type, '종목': biz_item, '이메일': email,
-                        '전화번호': phone, '구분': ctype, '재활용자': recycler,
-                        '미납금액': new_overdue_amount,
-                        '미납개월': new_overdue_months,
-                        '미납비고': new_overdue_note,
+                        '전화번호': phone, '구분': ctype, '재활용자': recycler
                     })
                     if ok:
                         st.success(f"'{name}' 신규 등록 완료!")
@@ -252,29 +216,6 @@ def render_customer_tab(vendor):
                         key=f"ec_recycler_{_kp}"
                     )
 
-                    # ── 미납 정보 ──
-                    st.markdown("**💸 미납 정보**")
-                    od_col1, od_col2 = st.columns(2)
-                    with od_col1:
-                        edit_overdue_amount = st.number_input(
-                            "미납금액 (원)", min_value=0.0, step=10000.0, format="%.0f",
-                            value=float(ci.get('미납금액', 0) or 0),
-                            key=f"ec_overdue_amt_{_kp}"
-                        )
-                        edit_overdue_months = st.text_input(
-                            "미납개월", value=str(ci.get('미납개월', '') or ''),
-                            placeholder="예: 2026-01,2026-02",
-                            key=f"ec_overdue_mon_{_kp}"
-                        )
-                    with od_col2:
-                        edit_overdue_note = st.text_area(
-                            "미납 비고", value=str(ci.get('미납비고', '') or ''),
-                            placeholder="예: 3월 중 납부 예정",
-                            height=100, key=f"ec_overdue_note_{_kp}"
-                        )
-                    if edit_overdue_amount > 0:
-                        st.warning(f"⚠️ 미납금액: {edit_overdue_amount:,.0f}원 | 미납개월: {edit_overdue_months or '미입력'}")
-
                     # ── 단가 정보도 함께 표시/수정 ──
                     st.markdown("**💰 단가 정보**")
                     pcol1, pcol2, pcol3 = st.columns(3)
@@ -320,9 +261,6 @@ def render_customer_tab(vendor):
                                     'price_food': edit_price_food,
                                     'price_recycle': edit_price_recycle,
                                     'price_general': edit_price_general,
-                                    '미납금액': edit_overdue_amount,
-                                    '미납개월': edit_overdue_months,
-                                    '미납비고': edit_overdue_note,
                                 }
                                 if edit_name != edit_target:
                                     delete_customer_from_db(vendor, edit_target)

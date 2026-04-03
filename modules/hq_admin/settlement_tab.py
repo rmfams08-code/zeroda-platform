@@ -208,13 +208,25 @@ def _render_send_settlement():
         _biz_type = st.text_input("업태", value=_biz_info.get('업태', ''), key=f"send_btype_{_skp}")
         _biz_item = st.text_input("종목", value=_biz_info.get('종목', ''), key=f"send_bitem_{_skp}")
 
-    # ── 미납 정보 표시 ──
-    _overdue_amt = float(_biz_info.get('미납금액', 0) or 0)
-    _overdue_mon = _biz_info.get('미납개월', '') or ''
-    _overdue_note = _biz_info.get('미납비고', '') or ''
+    # ── 미납 정보 입력 ──
+    st.markdown("#### 💸 미납 정보 (해당 시 입력)")
+    _od_col1, _od_col2 = st.columns(2)
+    with _od_col1:
+        _overdue_amt = st.number_input(
+            "미납금액 (원)", min_value=0.0, step=10000.0, format="%.0f",
+            value=0.0, key=f"send_overdue_amt_{_skp}"
+        )
+        _overdue_mon = st.text_input(
+            "미납개월", placeholder="예: 2026-01, 2026-02",
+            key=f"send_overdue_mon_{_skp}"
+        )
+    with _od_col2:
+        _overdue_note = st.text_area(
+            "미납 비고", placeholder="예: 3월 중 납부 예정",
+            height=88, key=f"send_overdue_note_{_skp}"
+        )
     if _overdue_amt > 0:
-        st.error(f"⚠️ **미납 안내** — 미납금액: {_overdue_amt:,.0f}원 | 미납개월: {_overdue_mon or '미입력'}"
-                 + (f" | 비고: {_overdue_note}" if _overdue_note else ""))
+        st.warning(f"⚠️ 미납금액 {_overdue_amt:,.0f}원이 이메일/문자 본문에 자동 포함됩니다.")
 
     # 입력값 반영
     _biz_info.update({
