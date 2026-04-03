@@ -227,6 +227,7 @@ def _render_vendor_send(vendor):
                 biz_info = v
                 break
 
+    _is_school = (_sel_type == '학교')
     _type_label = "학교" if _is_school else _sel_type
     st.markdown(f"#### 수급자 정보 ({_type_label})")
     _skp = school.replace(" ", "_")  # key prefix — 거래처 변경 시 위젯 자동 초기화
