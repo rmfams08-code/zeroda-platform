@@ -123,7 +123,7 @@ def _render_send_settlement():
 
     # ── 거래처 구분 필터 + 하위 거래처 선택 ──
     _custs = load_customers_from_db(vendor)
-    _cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)"]
+    _cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
     col_t, col_s = st.columns(2)
     with col_t:
         _sel_type = st.selectbox("거래처 구분", _cust_type_options, key="send_cust_type")
@@ -159,27 +159,42 @@ def _render_send_settlement():
 
     # 면세/과세 판별 — 학교·기타1=면세, 기타=고정비용(세금없음), 그 외=부가세 10%
     _is_tax_free = (_sel_type in ('학교', '기타1(면세사업장)'))
-    _is_fixed_fee = (_sel_type == '기타')
+    _is_fixed_fee = (_sel_type in ('기타', '기타2(부가세포함)'))
 
-    # 기타 구분: 월 고정비용 조회
+    # 기타/기타2 구분: 월 고정비용 조회
     _fixed_fee = float(_cust_info.get('fixed_monthly_fee', 0) or 0) if _cust_info else 0.0
 
     # 데이터 표시
     st.markdown(f"### {year}년 {month}월 · {school if school != '전체' else '전체'}")
 
     if _is_fixed_fee and school != '전체':
-        # ── 기타: 월 고정비용 표시 (수거 데이터 참고용만 표시) ──
+        # ── 기타/기타2: 월 고정비용 표시 (수거 데이터 참고용만 표시) ──
         if rows:
             df = pd.DataFrame(rows)
             show = [c for c in ['collect_date','school_name','item_type','weight','driver','status'] if c in df.columns]
             with st.expander("📋 수거 데이터 참고", expanded=False):
                 st.dataframe(df[show], use_container_width=True, hide_index=True)
-        total_amount = _fixed_fee
-        c1, c2 = st.columns(2)
-        with c1:
-            st.metric("📋 월 고정비용 (계약금액)", f"{_fixed_fee:,.0f} 원")
-        with c2:
-            st.caption("부가세 없음 · 단순 금액 표기")
+
+        if _sel_type == '기타2(부가세포함)':
+            # 기타2: 고정비용 + 부가세 10%
+            _vat = round(_fixed_fee * 0.1)
+            _total_with_vat = round(_fixed_fee + _vat)
+            total_amount = _total_with_vat
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("📋 월 고정비용", f"{_fixed_fee:,.0f} 원")
+            with c2:
+                st.metric("부가세 (10%)", f"{_vat:,.0f} 원")
+            with c3:
+                st.metric("합계 (VAT포함)", f"{_total_with_vat:,.0f} 원")
+        else:
+            # 기타: 단순 금액
+            total_amount = _fixed_fee
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("📋 월 고정비용 (계약금액)", f"{_fixed_fee:,.0f} 원")
+            with c2:
+                st.caption("부가세 없음 · 단순 금액 표기")
     else:
         # ── 일반: 수거량 × 단가 ──
         df = pd.DataFrame(rows)

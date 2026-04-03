@@ -79,7 +79,7 @@ def render_customer_tab(vendor):
 
     with tab2:
         # ── 하위 모드: 신규등록 / 수정 ──
-        cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)"]
+        cust_type_options = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
         mode = st.radio(
             "작업 선택", ["📝 신규등록", "✏️ 수정"],
             horizontal=True, key="cust_reg_mode"
@@ -102,15 +102,16 @@ def render_customer_tab(vendor):
                 phone   = st.text_input("전화번호", placeholder="010-0000-0000", key="new_cust_phone")
             recycler = st.text_input("♻️ 재활용자(처리자)", placeholder="예: 청명제2공장", key="new_cust_recycler")
 
-            # ── 기타 구분: 월 고정비용 입력 ──
+            # ── 기타/기타2 구분: 월 고정비용 입력 ──
             new_fixed_fee = 0.0
-            if ctype == '기타':
-                st.markdown("**📋 월 고정비용 (기타 전용)**")
+            if ctype in ('기타', '기타2(부가세포함)'):
+                _fee_label = "기타2: 부가세 10% 포함" if ctype == '기타2(부가세포함)' else "기타: 부가세 없음 (단순 금액)"
+                st.markdown(f"**📋 월 고정비용 ({_fee_label})**")
                 new_fixed_fee = st.number_input(
                     "월 고정비용 (계약금액, 원)", min_value=0.0, step=10000.0,
                     format="%.0f", value=0.0, key="new_cust_fixed_fee"
                 )
-                st.caption("기타 구분은 수거량×단가 대신 월 고정비용으로 정산됩니다.")
+                st.caption("월 고정비용으로 정산됩니다. (수거량×단가 아님)")
 
             if st.button("💾 신규 저장", type="primary", key="new_cust_save"):
                 if not name:
@@ -233,16 +234,17 @@ def render_customer_tab(vendor):
                     edit_price_recycle = 0.0
                     edit_price_general = 0.0
 
-                    if edit_ctype == '기타':
-                        # 기타: 월 고정비용만 입력
-                        st.markdown("**📋 월 고정비용 (기타 전용)**")
+                    if edit_ctype in ('기타', '기타2(부가세포함)'):
+                        # 기타/기타2: 월 고정비용만 입력
+                        _fee_label2 = "기타2: 부가세 10% 포함" if edit_ctype == '기타2(부가세포함)' else "기타: 부가세 없음 (단순 금액)"
+                        st.markdown(f"**📋 월 고정비용 ({_fee_label2})**")
                         edit_fixed_fee = st.number_input(
                             "월 고정비용 (계약금액, 원)",
                             min_value=0.0, step=10000.0, format="%.0f",
                             value=float(ci.get('fixed_monthly_fee', 0) or 0),
                             key=f"ec_fixedfee_{_kp}"
                         )
-                        st.caption("기타 구분은 수거량×단가 대신 월 고정비용으로 정산됩니다.")
+                        st.caption("월 고정비용으로 정산됩니다. (수거량×단가 아님)")
                     else:
                         # 학교/기업/관공서/일반업장/기타1: 품목별 단가
                         st.markdown("**💰 단가 정보**")

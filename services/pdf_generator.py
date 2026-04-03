@@ -402,16 +402,28 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     story.append(Spacer(1, 6*mm))
 
     # ── 합계 요약 ─────────────────────────
-    # 기타 구분: 월 고정비용 → 수거량 합계 대신 고정비용 표기
-    if fixed_fee > 0 and cust_type == '기타':
-        _display_amount = fixed_fee
+    # 기타/기타2 구분: 월 고정비용 → 수거량 합계 대신 고정비용 표기
+    if fixed_fee > 0 and cust_type == '기타2(부가세포함)':
+        # 기타2: 고정비용 + 부가세 10%
+        _vat = round(fixed_fee * 0.1)
+        _total_fee = round(fixed_fee + _vat)
         sum_data = [
             [P('월 고정비용 (계약금액)', size=10, color=colors.white),
-             P(f"{_display_amount:,.0f} 원", size=10, align=2, color=colors.white)],
+             P(f"{fixed_fee:,.0f} 원", size=10, align=2, color=colors.white)],
+            [P('부가세 (10%)', size=10),
+             P(f"{_vat:,.0f} 원", size=10, align=2)],
+            [P('합계금액', size=11, color=colors.white),
+             P(f"{_total_fee:,.0f} 원", size=11, align=2, color=colors.white)],
+        ]
+    elif fixed_fee > 0 and cust_type == '기타':
+        # 기타: 고정비용 단순 표기 (부가세 없음)
+        sum_data = [
+            [P('월 고정비용 (계약금액)', size=10, color=colors.white),
+             P(f"{fixed_fee:,.0f} 원", size=10, align=2, color=colors.white)],
             [P('부가세', size=10),
              P('해당없음', size=10, align=2, color=colors.grey)],
             [P('합계금액', size=11, color=colors.white),
-             P(f"{_display_amount:,.0f} 원", size=11, align=2, color=colors.white)],
+             P(f"{fixed_fee:,.0f} 원", size=11, align=2, color=colors.white)],
         ]
     elif cust_type in ('학교', '기타1(면세사업장)', ''):
         # 학교·기타1(면세사업장): 면세 — 부가세 없음
