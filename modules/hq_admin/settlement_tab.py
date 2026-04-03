@@ -398,7 +398,8 @@ def _render_send_settlement():
                         vinfo.get('biz_name', vendor), _school_label,
                         year, month, _total_w, _total_a,
                         overdue_amount=_overdue_amt,
-                        overdue_months=_overdue_mon
+                        overdue_months=_overdue_mon,
+                        cust_type=_sel_type
                     )
                     with st.spinner("문자 발송 중..."):
                         success, msg = send_statement_sms(
@@ -426,7 +427,8 @@ def _render_send_settlement():
                         vinfo.get('biz_name', vendor), _school_label,
                         year, month, rows, _total_w, _total_a,
                         overdue_amount=_overdue_amt,
-                        overdue_months=_overdue_mon
+                        overdue_months=_overdue_mon,
+                        cust_type=_sel_type
                     )
                     with st.spinner("상세 문자 발송 중..."):
                         success, msg = send_statement_sms(

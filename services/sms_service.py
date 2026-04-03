@@ -128,15 +128,38 @@ def build_summary_sms_text(vendor_name: str, school: str,
                             total_weight: float, total_amount: float,
                             contact: str = '',
                             overdue_amount: float = 0,
-                            overdue_months: str = '') -> str:
+                            overdue_months: str = '',
+                            cust_type: str = '') -> str:
     """요약 정산 문자 본문 생성 (SMS 단문용, 90바이트 이내)"""
-    vat = total_amount * 0.1
-    total_with_vat = total_amount + vat
-    text = (
-        f"[{vendor_name}] {year}년{month}월 정산\n"
-        f"{school} {total_weight:,.1f}kg\n"
-        f"합계 {total_with_vat:,.0f}원(VAT포함)"
-    )
+    # 기타: 고정비용, 부가세 없음 / 학교·기타1: 면세 / 기타2: 부가세 포함 / 그 외: 부가세 10%
+    if cust_type == '기타':
+        text = (
+            f"[{vendor_name}] {year}년{month}월 정산\n"
+            f"{school}\n"
+            f"합계 {total_amount:,.0f}원"
+        )
+    elif cust_type in ('학교', '기타1(면세사업장)'):
+        text = (
+            f"[{vendor_name}] {year}년{month}월 정산\n"
+            f"{school} {total_weight:,.1f}kg\n"
+            f"합계 {total_amount:,.0f}원(면세)"
+        )
+    elif cust_type == '기타2(부가세포함)':
+        vat = total_amount * 0.1
+        total_with_vat = total_amount + vat
+        text = (
+            f"[{vendor_name}] {year}년{month}월 정산\n"
+            f"{school}\n"
+            f"합계 {total_with_vat:,.0f}원(VAT포함)"
+        )
+    else:
+        vat = total_amount * 0.1
+        total_with_vat = total_amount + vat
+        text = (
+            f"[{vendor_name}] {year}년{month}월 정산\n"
+            f"{school} {total_weight:,.1f}kg\n"
+            f"합계 {total_with_vat:,.0f}원(VAT포함)"
+        )
     if overdue_amount > 0:
         text += f"\n※미납 {overdue_amount:,.0f}원"
         if overdue_months:
@@ -152,14 +175,12 @@ def build_detail_sms_text(vendor_name: str, school: str,
                            total_weight: float, total_amount: float,
                            contact: str = '',
                            overdue_amount: float = 0,
-                           overdue_months: str = '') -> str:
+                           overdue_months: str = '',
+                           cust_type: str = '') -> str:
     """상세 정산 문자 본문 생성 (LMS 장문용, 일별 수거 내역 포함)
     Args:
         rows: 수거 데이터 리스트 [{'collect_date': '2026-03-05', 'item_type': '음식물', 'weight': 50.0, ...}, ...]
     """
-    vat = total_amount * 0.1
-    total_with_vat = total_amount + vat
-
     text = (
         f"[{vendor_name}] 거래명세서\n"
         f"\n"
@@ -168,27 +189,51 @@ def build_detail_sms_text(vendor_name: str, school: str,
         f"\n"
     )
 
-    # 일별 수거 내역 (날짜순 정렬)
-    sorted_rows = sorted(rows, key=lambda r: r.get('collect_date', ''))
-    for r in sorted_rows:
-        rdate = r.get('collect_date', '')
-        # 날짜에서 월-일만 표시 (2026-03-05 → 3/5)
-        try:
-            parts = rdate.split('-')
-            short_date = f"{int(parts[1])}/{int(parts[2])}"
-        except (IndexError, ValueError):
-            short_date = rdate
-        itype = r.get('item_type', '')
-        w = float(r.get('weight', 0))
-        text += f"{short_date} {itype} {w:,.1f}kg\n"
+    # 기타(고정비용)가 아닌 경우에만 일별 수거 내역 표시
+    if cust_type not in ('기타', '기타2(부가세포함)'):
+        # 일별 수거 내역 (날짜순 정렬)
+        sorted_rows = sorted(rows, key=lambda r: r.get('collect_date', ''))
+        for r in sorted_rows:
+            rdate = r.get('collect_date', '')
+            try:
+                parts = rdate.split('-')
+                short_date = f"{int(parts[1])}/{int(parts[2])}"
+            except (IndexError, ValueError):
+                short_date = rdate
+            itype = r.get('item_type', '')
+            w = float(r.get('weight', 0))
+            text += f"{short_date} {itype} {w:,.1f}kg\n"
 
-    text += (
-        f"\n"
-        f"총 수거량: {total_weight:,.1f}kg\n"
-        f"공급가액: {total_amount:,.0f}원\n"
-        f"VAT(10%): {vat:,.0f}원\n"
-        f"합계: {total_with_vat:,.0f}원\n"
-    )
+        text += f"\n총 수거량: {total_weight:,.1f}kg\n"
+
+    # 구분별 금액 표시
+    if cust_type == '기타':
+        text += (
+            f"월 고정비용: {total_amount:,.0f}원\n"
+            f"합계: {total_amount:,.0f}원\n"
+        )
+    elif cust_type in ('학교', '기타1(면세사업장)'):
+        text += (
+            f"공급가액: {total_amount:,.0f}원\n"
+            f"(면세)\n"
+            f"합계: {total_amount:,.0f}원\n"
+        )
+    elif cust_type == '기타2(부가세포함)':
+        vat = total_amount * 0.1
+        total_with_vat = total_amount + vat
+        text += (
+            f"월 고정비용: {total_amount:,.0f}원\n"
+            f"VAT(10%): {vat:,.0f}원\n"
+            f"합계: {total_with_vat:,.0f}원\n"
+        )
+    else:
+        vat = total_amount * 0.1
+        total_with_vat = total_amount + vat
+        text += (
+            f"공급가액: {total_amount:,.0f}원\n"
+            f"VAT(10%): {vat:,.0f}원\n"
+            f"합계: {total_with_vat:,.0f}원\n"
+        )
     if overdue_amount > 0:
         text += f"\n※ 미납 안내: {overdue_amount:,.0f}원"
         if overdue_months:
