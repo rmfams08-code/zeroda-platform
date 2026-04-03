@@ -361,6 +361,9 @@ def load_customers_from_db(vendor):
         'price_food':    float(r.get('price_food', 0) or 0),
         'price_recycle': float(r.get('price_recycle', 0) or 0),
         'price_general': float(r.get('price_general', 0) or 0),
+        '미납금액': float(r.get('overdue_amount', 0) or 0),
+        '미납개월': r.get('overdue_months', ''),
+        '미납비고': r.get('overdue_note', ''),
     } for r in rows}
 
 
@@ -381,6 +384,9 @@ def save_customer_to_db(vendor, name, info):
         'price_food':    float(info.get('price_food', 0) or 0),
         'price_recycle': float(info.get('price_recycle', 0) or 0),
         'price_general': float(info.get('price_general', 0) or 0),
+        'overdue_amount': float(info.get('미납금액', 0) or 0),
+        'overdue_months': info.get('미납개월', ''),
+        'overdue_note':   info.get('미납비고', ''),
     })
 
 

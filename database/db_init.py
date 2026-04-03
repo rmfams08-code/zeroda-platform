@@ -636,3 +636,33 @@ def migrate_meal_analysis_remark():
         conn.close()
     except Exception as e:
         print(f"[migrate_meal_analysis_remark] {e}")
+
+
+def migrate_customer_overdue():
+    """
+    customer_info 테이블에 미납 관련 컬럼 추가
+    - overdue_amount: 미납금액 (원)
+    - overdue_months: 미납개월수 (예: '2026-01,2026-02')
+    - overdue_note: 미납 비고/메모
+    앱 시작 시 자동 실행
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(customer_info)").fetchall()]
+        added = 0
+        if 'overdue_amount' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN overdue_amount REAL DEFAULT 0")
+            added += 1
+        if 'overdue_months' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN overdue_months TEXT DEFAULT ''")
+            added += 1
+        if 'overdue_note' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN overdue_note TEXT DEFAULT ''")
+            added += 1
+        if added:
+            conn.commit()
+            print(f"[migrate_customer_overdue] 미납 컬럼 {added}개 추가")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_customer_overdue] {e}")

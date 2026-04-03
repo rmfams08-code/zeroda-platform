@@ -217,6 +217,14 @@ def _render_vendor_send(vendor):
     # 거래처 구분 (면세/과세 판단용) — 필터에서 선택한 구분 사용
     _cust_type = _sel_type
 
+    # ── 미납 정보 표시 ──
+    _overdue_amt = float(biz_info.get('미납금액', 0) or 0)
+    _overdue_mon = biz_info.get('미납개월', '') or ''
+    _overdue_note = biz_info.get('미납비고', '') or ''
+    if _overdue_amt > 0:
+        st.error(f"⚠️ **미납 안내** — 미납금액: {_overdue_amt:,.0f}원 | 미납개월: {_overdue_mon or '미입력'}"
+                 + (f" | 비고: {_overdue_note}" if _overdue_note else ""))
+
     # 수급자 정보 업데이트
     biz_info.update({
         '상호': school, '이메일': to_email, '전화번호': to_phone,
@@ -254,6 +262,17 @@ def _render_vendor_send(vendor):
         value=f"[{vendor}] {year}년 {month}월 거래명세서 - {school}",
         key=f"stmt_subject_{school}_{year}_{month}"
     )
+    # 미납 안내 문구 자동 생성
+    _overdue_body = ""
+    if _overdue_amt > 0:
+        _overdue_body = f"""
+※ 미납 안내
+미납금액: {_overdue_amt:,.0f}원
+미납개월: {_overdue_mon or '확인 필요'}"""
+        if _overdue_note:
+            _overdue_body += f"\n비고: {_overdue_note}"
+        _overdue_body += "\n조속한 납부 부탁드립니다.\n"
+
     body = st.text_area(
         "본문",
         value=f"""{school} 담당자님께,
@@ -262,11 +281,11 @@ def _render_vendor_send(vendor):
 
 {year}년 {month}월 거래명세서를 첨부하여 발송드립니다.
 확인 후 문의사항이 있으시면 연락 주시기 바랍니다.
-
+{_overdue_body}
 감사합니다.
 {vinfo.get('biz_name', vendor)} 드림
 연락처: {v_contact}""",
-        height=150,
+        height=180,
         key=f"stmt_body_{school}_{year}_{month}"
     )
 
@@ -362,7 +381,9 @@ def _render_vendor_send(vendor):
                     )
                     sms_text = build_summary_sms_text(
                         vinfo.get('biz_name', vendor), school,
-                        year, month, _total_w, _total_a
+                        year, month, _total_w, _total_a,
+                        overdue_amount=_overdue_amt,
+                        overdue_months=_overdue_mon
                     )
                     with st.spinner("문자 발송 중..."):
                         success, msg = send_statement_sms(
@@ -393,7 +414,9 @@ def _render_vendor_send(vendor):
                     )
                     sms_text = build_detail_sms_text(
                         vinfo.get('biz_name', vendor), school,
-                        year, month, rows, _total_w, _total_a
+                        year, month, rows, _total_w, _total_a,
+                        overdue_amount=_overdue_amt,
+                        overdue_months=_overdue_mon
                     )
                     with st.spinner("상세 문자 발송 중..."):
                         success, msg = send_statement_sms(

@@ -126,7 +126,9 @@ def send_statement_sms(to_phone: str, message: str,
 def build_summary_sms_text(vendor_name: str, school: str,
                             year: int, month: int,
                             total_weight: float, total_amount: float,
-                            contact: str = '') -> str:
+                            contact: str = '',
+                            overdue_amount: float = 0,
+                            overdue_months: str = '') -> str:
     """요약 정산 문자 본문 생성 (SMS 단문용, 90바이트 이내)"""
     vat = total_amount * 0.1
     total_with_vat = total_amount + vat
@@ -135,6 +137,10 @@ def build_summary_sms_text(vendor_name: str, school: str,
         f"{school} {total_weight:,.1f}kg\n"
         f"합계 {total_with_vat:,.0f}원(VAT포함)"
     )
+    if overdue_amount > 0:
+        text += f"\n※미납 {overdue_amount:,.0f}원"
+        if overdue_months:
+            text += f"({overdue_months})"
     if contact:
         text += f"\n문의:{contact}"
     return text
@@ -144,7 +150,9 @@ def build_detail_sms_text(vendor_name: str, school: str,
                            year: int, month: int,
                            rows: list,
                            total_weight: float, total_amount: float,
-                           contact: str = '') -> str:
+                           contact: str = '',
+                           overdue_amount: float = 0,
+                           overdue_months: str = '') -> str:
     """상세 정산 문자 본문 생성 (LMS 장문용, 일별 수거 내역 포함)
     Args:
         rows: 수거 데이터 리스트 [{'collect_date': '2026-03-05', 'item_type': '음식물', 'weight': 50.0, ...}, ...]
@@ -181,6 +189,11 @@ def build_detail_sms_text(vendor_name: str, school: str,
         f"VAT(10%): {vat:,.0f}원\n"
         f"합계: {total_with_vat:,.0f}원\n"
     )
+    if overdue_amount > 0:
+        text += f"\n※ 미납 안내: {overdue_amount:,.0f}원"
+        if overdue_months:
+            text += f" ({overdue_months})"
+        text += "\n조속한 납부 부탁드립니다.\n"
     if contact:
         text += f"\n문의: {contact}"
 
