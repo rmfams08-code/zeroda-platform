@@ -110,22 +110,22 @@ def render_login_page():
     .css-1dp5vir, .css-10pw50,
     [data-testid="stPageLink"] { display: none !important; }
 
-    /* ── 다크 배경 ── */
+    /* ── 밝은 배경 ── */
     .stApp {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+        background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 50%, #f8fafc 100%) !important;
     }
 
     /* ── 배경 장식 원 ── */
     .stApp::before {
         content: '';
         position: fixed; width: 500px; height: 500px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(56,189,148,0.07) 0%, transparent 70%);
+        background: radial-gradient(circle, rgba(56,189,148,0.12) 0%, transparent 70%);
         top: -120px; left: -100px; pointer-events: none;
     }
     .stApp::after {
         content: '';
         position: fixed; width: 400px; height: 400px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(59,130,246,0.05) 0%, transparent 70%);
+        background: radial-gradient(circle, rgba(59,130,246,0.08) 0%, transparent 70%);
         bottom: -80px; right: -60px; pointer-events: none;
     }
 
@@ -133,10 +133,11 @@ def render_login_page():
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stVerticalBlock"] > div.stMarkdown > div > div > .zeroda-brand) {
         background: #ffffff;
         border-radius: 24px;
-        padding: 48px 40px 40px !important;
-        box-shadow: 0 25px 60px rgba(0,0,0,0.35);
-        max-width: 440px;
+        padding: 48px 48px 40px !important;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06);
+        max-width: 520px;
         margin: 0 auto;
+        border: 1px solid rgba(226,232,240,0.6);
     }
 
     /* ── 브랜드 로고 ── */
@@ -165,36 +166,40 @@ def render_login_page():
 
     /* ── 로그인 타이틀 ── */
     .login-title {
-        font-size: 22px; font-weight: 700; color: #0f172a; margin-bottom: 4px;
+        font-size: 24px; font-weight: 700; color: #0f172a; margin-bottom: 4px;
     }
     .login-subtitle {
-        font-size: 14px; color: #94a3b8; margin-bottom: 24px;
+        font-size: 14px; color: #64748b; margin-bottom: 28px;
     }
 
     /* ── 입력 필드 라벨 ── */
     .field-label {
-        font-size: 13px; font-weight: 600; color: #334155;
-        margin-bottom: 6px; margin-top: 4px;
+        font-size: 13px; font-weight: 600; color: #1e293b;
+        margin-bottom: 6px; margin-top: 8px;
     }
 
     /* ── Streamlit 입력 필드 ── */
     .stTextInput > div > div > input {
         border-radius: 12px !important;
         border: 2px solid #e2e8f0 !important;
-        padding: 13px 16px !important;
-        font-size: 15px !important;
+        padding: 16px 18px !important;
+        font-size: 16px !important;
         background: #f8fafc !important;
         color: #0f172a !important;
         transition: all 0.2s !important;
+        width: 100% !important;
     }
     .stTextInput > div > div > input:focus {
         border-color: #38bd94 !important;
         background: #fff !important;
         color: #0f172a !important;
-        box-shadow: 0 0 0 4px rgba(56,189,148,0.1) !important;
+        box-shadow: 0 0 0 4px rgba(56,189,148,0.12) !important;
     }
     .stTextInput > div > div > input::placeholder {
         color: #94a3b8 !important;
+    }
+    .stTextInput > div {
+        width: 100% !important;
     }
 
     /* ── 로그인 버튼 ── */
@@ -217,7 +222,7 @@ def render_login_page():
     /* ── 하단 카피라이트 ── */
     .login-footer {
         text-align: center; margin-top: 28px;
-        font-size: 11px; color: rgba(148,163,184,0.5);
+        font-size: 11px; color: #94a3b8;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -226,7 +231,7 @@ def render_login_page():
     st.markdown("<div style='height:50px;'></div>", unsafe_allow_html=True)
 
     # ── 중앙 카드 ──
-    col1, col2, col3 = st.columns([1.3, 2, 1.3])
+    col1, col2, col3 = st.columns([1, 2.4, 1])
     with col2:
         # 브랜드 로고 + 타이틀
         st.markdown("""
