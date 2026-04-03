@@ -135,7 +135,7 @@ def render_login_page():
         border-radius: 24px;
         padding: 48px 48px 40px !important;
         box-shadow: 0 20px 50px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06);
-        max-width: 520px;
+        max-width: 600px;
         margin: 0 auto;
         border: 1px solid rgba(226,232,240,0.6);
     }
