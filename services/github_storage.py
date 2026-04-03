@@ -21,6 +21,7 @@ SHARED_TABLES = [
     'processing_confirm',    # 처리확인(계근표)
     'meal_menus',            # 급식식단 (메뉴·영양정보)
     'meal_analysis',         # 잔반분석 결과 캐시
+    'meal_schedules',        # 식단기반 수거일정 (급식담당→본사 승인)
 ]
 
 

@@ -228,6 +228,28 @@ def render_customer_tab(vendor):
                         key=f"ec_recycler_{_kp}"
                     )
 
+                    # ── NEIS 학교코드 (학교 구분일 때만 표시) ──
+                    edit_neis_edu = ci.get('neis_edu_code', '') or ''
+                    edit_neis_school = ci.get('neis_school_code', '') or ''
+                    if edit_ctype == '학교':
+                        with st.expander("🏫 NEIS 학교코드 (급식일정 API 연동용)", expanded=False):
+                            nc1, nc2 = st.columns(2)
+                            with nc1:
+                                edit_neis_edu = st.text_input(
+                                    "시도교육청코드",
+                                    value=edit_neis_edu,
+                                    placeholder="예: J10 (경기도)",
+                                    key=f"ec_neisedu_{_kp}"
+                                )
+                            with nc2:
+                                edit_neis_school = st.text_input(
+                                    "학교표준코드",
+                                    value=edit_neis_school,
+                                    placeholder="예: 7530560",
+                                    key=f"ec_neissch_{_kp}"
+                                )
+                            st.caption("나이스 교육정보 개방포털(open.neis.go.kr)에서 확인 가능합니다.")
+
                     # ── 단가 / 고정비용 정보 (구분에 따라 분기) ──
                     edit_fixed_fee = 0.0
                     edit_price_food = 0.0
@@ -292,6 +314,8 @@ def render_customer_tab(vendor):
                                     'price_recycle': edit_price_recycle,
                                     'price_general': edit_price_general,
                                     'fixed_monthly_fee': edit_fixed_fee,
+                                    'neis_edu_code': edit_neis_edu,
+                                    'neis_school_code': edit_neis_school,
                                 }
                                 if edit_name != edit_target:
                                     delete_customer_from_db(vendor, edit_target)

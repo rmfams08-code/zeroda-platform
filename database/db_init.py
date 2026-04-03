@@ -638,6 +638,69 @@ def migrate_meal_analysis_remark():
         print(f"[migrate_meal_analysis_remark] {e}")
 
 
+def migrate_neis_school_code():
+    """
+    customer_info 테이블에 NEIS 학교코드 컬럼 추가
+    - neis_edu_code: 시도교육청코드 (예: J10 = 경기도)
+    - neis_school_code: 학교표준코드 (예: 7530560)
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        cols = [row[1] for row in c.execute("PRAGMA table_info(customer_info)").fetchall()]
+        if 'neis_edu_code' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN neis_edu_code TEXT DEFAULT ''")
+            conn.commit()
+            print("[migrate_neis_school_code] neis_edu_code 컬럼 추가")
+        if 'neis_school_code' not in cols:
+            c.execute("ALTER TABLE customer_info ADD COLUMN neis_school_code TEXT DEFAULT ''")
+            conn.commit()
+            print("[migrate_neis_school_code] neis_school_code 컬럼 추가")
+        conn.close()
+    except Exception as e:
+        print(f"[migrate_neis_school_code] {e}")
+
+
+def migrate_meal_schedules_table():
+    """
+    식단기반 수거일정 테이블 생성 (없는 경우에만)
+    - 급식담당자가 식단 업로드 → draft 상태로 자동 생성
+    - 본사관리자 승인 → approved → schedules 테이블에 확정 반영
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS meal_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor TEXT NOT NULL DEFAULT '',
+                school_name TEXT NOT NULL,
+                meal_date TEXT NOT NULL,
+                collect_date TEXT NOT NULL,
+                item_type TEXT DEFAULT '음식물',
+                status TEXT DEFAULT 'draft',
+                uploaded_by TEXT DEFAULT '',
+                approved_by TEXT DEFAULT '',
+                note TEXT DEFAULT '',
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_meal_schedules_vendor_status
+            ON meal_schedules(vendor, status)
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_meal_schedules_school_date
+            ON meal_schedules(school_name, meal_date)
+        """)
+        conn.commit()
+        conn.close()
+        print("[migrate_meal_schedules_table] 식단기반 수거일정 테이블 준비 완료")
+    except Exception as e:
+        print(f"[migrate_meal_schedules_table] {e}")
+
+
 def migrate_customer_fixed_fee():
     """customer_info 테이블에 fixed_monthly_fee 컬럼 추가 (기타 구분 월 고정비용)"""
     try:

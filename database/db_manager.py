@@ -362,6 +362,8 @@ def load_customers_from_db(vendor):
         'price_recycle': float(r.get('price_recycle', 0) or 0),
         'price_general': float(r.get('price_general', 0) or 0),
         'fixed_monthly_fee': float(r.get('fixed_monthly_fee', 0) or 0),
+        'neis_edu_code':    r.get('neis_edu_code', ''),
+        'neis_school_code': r.get('neis_school_code', ''),
     } for r in rows}
 
 
@@ -383,6 +385,8 @@ def save_customer_to_db(vendor, name, info):
         'price_recycle': float(info.get('price_recycle', 0) or 0),
         'price_general': float(info.get('price_general', 0) or 0),
         'fixed_monthly_fee': float(info.get('fixed_monthly_fee', 0) or 0),
+        'neis_edu_code':    info.get('neis_edu_code', ''),
+        'neis_school_code': info.get('neis_school_code', ''),
     })
 
 
@@ -1288,3 +1292,216 @@ def save_schedule_by_vendor(vendor, month, weekdays,
                              ).strftime('%Y-%m-%d %H:%M:%S'),
         }
         return db_insert('schedules', data)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 식단기반 수거일정 (meal_schedules) CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_meal_schedule_bulk(school_name, vendor, meal_dates,
+                            uploaded_by='', item_type='음식물',
+                            collect_offset=0):
+    """
+    급식담당자가 식단 업로드 시 수거일정 일괄 생성 (draft 상태).
+    meal_dates: ['2026-04-07', '2026-04-08', ...] 급식일 리스트
+    collect_offset: 수거 예정일 오프셋 (0=당일, 1=다음날)
+    기존 같은 월 draft 데이터는 삭제 후 재생성.
+    """
+    from datetime import timedelta
+    now_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+
+    if not meal_dates:
+        return 0, 0
+
+    # 해당 월 추출 (첫번째 날짜 기준)
+    year_month = meal_dates[0][:7]
+
+    # 기존 draft 삭제 (같은 학교 + 같은 월)
+    _delete_meal_schedules_draft(school_name, year_month)
+
+    success = 0
+    fail = 0
+    for md in meal_dates:
+        try:
+            meal_dt = datetime.strptime(md, '%Y-%m-%d')
+            collect_dt = meal_dt + timedelta(days=collect_offset)
+            collect_date = collect_dt.strftime('%Y-%m-%d')
+
+            data = {
+                'vendor':       vendor,
+                'school_name':  school_name,
+                'meal_date':    md,
+                'collect_date': collect_date,
+                'item_type':    item_type,
+                'status':       'draft',
+                'uploaded_by':  uploaded_by,
+                'approved_by':  '',
+                'note':         '',
+                'created_at':   now_str,
+                'updated_at':   now_str,
+            }
+            db_insert('meal_schedules', data)
+            success += 1
+        except Exception as e:
+            print(f"[save_meal_schedule_bulk] {md} 오류: {e}")
+            fail += 1
+
+    return success, fail
+
+
+def _delete_meal_schedules_draft(school_name, year_month):
+    """특정 학교+월의 draft 상태 식단일정 삭제"""
+    try:
+        all_rows = db_get('meal_schedules', {'school_name': school_name, 'status': 'draft'})
+        if not isinstance(all_rows, list):
+            return
+        for r in all_rows:
+            if str(r.get('meal_date', ''))[:7] == year_month:
+                db_delete('meal_schedules', {'id': r.get('id')})
+    except Exception as e:
+        print(f"[_delete_meal_schedules_draft] {e}")
+
+
+def get_meal_schedules(vendor=None, school_name=None, status=None, year_month=None):
+    """
+    식단기반 수거일정 조회.
+    필터 조합: vendor, school_name, status, year_month (meal_date 기준)
+    """
+    where = {}
+    if vendor:
+        where['vendor'] = vendor
+    if school_name:
+        where['school_name'] = school_name
+    if status:
+        where['status'] = status
+
+    rows = db_get('meal_schedules', where if where else None)
+    if not isinstance(rows, list):
+        rows = []
+
+    # year_month 필터 (meal_date 앞 7자리 비교)
+    if year_month:
+        rows = [r for r in rows if str(r.get('meal_date', ''))[:7] == year_month]
+
+    return sorted(rows, key=lambda r: r.get('meal_date', ''))
+
+
+def approve_meal_schedules(ids, approved_by='admin', driver=''):
+    """
+    본사관리자가 식단기반 수거일정 승인.
+    1) meal_schedules.status → 'approved'
+    2) schedules 테이블에 일별 일정 자동 생성
+    """
+    now_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+    approved_count = 0
+
+    for row_id in ids:
+        try:
+            # 해당 행 조회
+            rows = db_get('meal_schedules', {'id': row_id})
+            if not rows:
+                continue
+            r = rows[0]
+            if r.get('status') != 'draft':
+                continue
+
+            # 상태 업데이트 → approved
+            update_data = dict(r)
+            update_data['status'] = 'approved'
+            update_data['approved_by'] = approved_by
+            update_data['updated_at'] = now_str
+            db_upsert('meal_schedules', update_data)
+
+            # schedules 테이블에 일별 일정 생성
+            collect_date = r.get('collect_date', '')
+            if collect_date:
+                _weekday_names = ['월', '화', '수', '목', '금', '토', '일']
+                try:
+                    _dt = datetime.strptime(collect_date, '%Y-%m-%d')
+                    _wd = _weekday_names[_dt.weekday()]
+                except Exception:
+                    _wd = ''
+
+                schedule_data = {
+                    'vendor':        r.get('vendor', ''),
+                    'month':         collect_date,  # 일별: YYYY-MM-DD
+                    'weekdays':      json.dumps([_wd], ensure_ascii=False) if _wd else '[]',
+                    'schools':       json.dumps([r.get('school_name', '')], ensure_ascii=False),
+                    'items':         json.dumps([r.get('item_type', '음식물')], ensure_ascii=False),
+                    'driver':        driver,
+                    'registered_by': 'meal_schedule',
+                    'created_at':    now_str,
+                }
+                db_insert('schedules', schedule_data)
+
+            approved_count += 1
+        except Exception as e:
+            print(f"[approve_meal_schedules] id={row_id} 오류: {e}")
+
+    return approved_count
+
+
+def cancel_meal_schedules(ids, note=''):
+    """식단기반 수거일정 취소 (draft → cancelled)"""
+    now_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+    count = 0
+    for row_id in ids:
+        try:
+            rows = db_get('meal_schedules', {'id': row_id})
+            if not rows:
+                continue
+            r = rows[0]
+            update_data = dict(r)
+            update_data['status'] = 'cancelled'
+            update_data['note'] = note
+            update_data['updated_at'] = now_str
+            db_upsert('meal_schedules', update_data)
+            count += 1
+        except Exception as e:
+            print(f"[cancel_meal_schedules] id={row_id} 오류: {e}")
+    return count
+
+
+def update_meal_schedule_date(row_id, new_collect_date, note=''):
+    """식단기반 수거일정 수거예정일 수정 (본사관리자용)"""
+    now_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        rows = db_get('meal_schedules', {'id': row_id})
+        if not rows:
+            return False
+        r = rows[0]
+        update_data = dict(r)
+        update_data['collect_date'] = new_collect_date
+        update_data['note'] = note
+        update_data['updated_at'] = now_str
+        return db_upsert('meal_schedules', update_data)
+    except Exception as e:
+        print(f"[update_meal_schedule_date] {e}")
+        return False
+
+
+def get_meal_schedule_stats(vendor=None):
+    """
+    식단기반 수거일정 통계 (본사관리자 알림용).
+    반환: {'draft': 건수, 'approved': 건수, 'cancelled': 건수, 'recent_changes': 건수}
+    """
+    where = {'vendor': vendor} if vendor else None
+    rows = db_get('meal_schedules', where)
+    if not isinstance(rows, list):
+        rows = []
+    stats = {'draft': 0, 'approved': 0, 'cancelled': 0, 'recent_changes': 0}
+    now = datetime.now(ZoneInfo('Asia/Seoul'))
+    for r in rows:
+        s = r.get('status', '')
+        if s in stats:
+            stats[s] += 1
+        # 최근 24시간 내 생성/변경된 건수
+        try:
+            ct = datetime.strptime(r.get('updated_at', r.get('created_at', '')),
+                                   '%Y-%m-%d %H:%M:%S')
+            ct = ct.replace(tzinfo=ZoneInfo('Asia/Seoul'))
+            if (now - ct).total_seconds() < 86400:
+                stats['recent_changes'] += 1
+        except Exception:
+            pass
+    return stats

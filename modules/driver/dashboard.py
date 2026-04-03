@@ -909,6 +909,25 @@ def render_dashboard(user: dict):
     # ══════════════════════════════════════════════
     st.markdown("### 📅 수거일정")
 
+    # ── 식단기반 일정 변경 알림 ─────────────────
+    try:
+        from database.db_manager import get_meal_schedules
+        _today_str = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d')
+        _ms_recent = get_meal_schedules(vendor=vendor, status='approved')
+        _ms_today_changed = [
+            r for r in _ms_recent
+            if r.get('collect_date', '') >= _today_str
+            and r.get('updated_at', '') > (
+                datetime.now(ZoneInfo('Asia/Seoul')).replace(
+                    hour=0, minute=0, second=0
+                ).strftime('%Y-%m-%d %H:%M:%S')
+            )
+        ]
+        if _ms_today_changed:
+            st.info(f"🔔 식단기반 수거일정이 {len(_ms_today_changed)}건 변경/추가되었습니다. 일정을 확인해주세요.")
+    except Exception:
+        pass
+
     # ── 날짜 필터 ──────────────────────────────
     _col_date, _col_today = st.columns([3, 1])
     with _col_date:

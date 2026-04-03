@@ -1,16 +1,24 @@
 # modules/hq_admin/schedule_tab.py
 import streamlit as st
 import pandas as pd
-from datetime import date
+import json
+import calendar
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from database.db_manager import (db_get, get_all_vendors, load_all_schedules,
-                                  save_schedule, delete_schedule)
+                                  save_schedule, delete_schedule,
+                                  load_customers_from_db,
+                                  save_meal_schedule_bulk, get_meal_schedules)
 from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
 
 def render_schedule_tab():
     st.markdown("## 수거일정 관리")
 
-    tab1, tab2, tab3 = st.tabs(["📋 일정 조회", "✏️ 일정 등록/수정", "📅 오늘 수거 현황"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📋 일정 조회", "✏️ 일정 등록/수정", "📅 오늘 수거 현황",
+        "🍽️ NEIS 급식일정 연동"
+    ])
 
     # ══════════════════════════════════════════════
     # 탭1: 일정 조회 (기존 유지 + 일별 필터 추가)
@@ -486,3 +494,226 @@ def render_schedule_tab():
                 st.metric("총 수거량", f"{df['weight'].sum():,.1f} kg")
             with c2:
                 st.metric("수거 건수", f"{len(df)}건")
+
+    # ══════════════════════════════════════════════
+    # 탭4: NEIS 급식일정 API 연동
+    # ══════════════════════════════════════════════
+    with tab4:
+        st.markdown("### 🍽️ NEIS 급식일정 → 수거일정 자동 생성")
+        st.caption("나이스(NEIS) Open API에서 학교 급식일을 조회하고, 급식일 기준 수거일정을 자동 생성합니다.")
+
+        from services.neis_api import fetch_meal_dates, EDU_OFFICE_CODES
+
+        # ── 필터 ──
+        nf1, nf2 = st.columns(2)
+        with nf1:
+            neis_vendors = get_all_vendors()
+            if not neis_vendors:
+                st.warning("등록된 업체가 없습니다.")
+                return
+            neis_vendor = st.selectbox("업체 선택", neis_vendors, key="neis_vendor")
+        with nf2:
+            now = datetime.now(ZoneInfo('Asia/Seoul'))
+            neis_months = []
+            for delta in range(-1, 3):
+                m = now.month + delta
+                y = now.year
+                if m < 1:
+                    m += 12; y -= 1
+                elif m > 12:
+                    m -= 12; y += 1
+                neis_months.append(f"{y}-{m:02d}")
+            neis_month = st.selectbox("조회 월", neis_months, index=1, key="neis_month")
+
+        # ── NEIS 코드가 등록된 학교 목록 ──
+        all_custs = load_customers_from_db(neis_vendor)
+        neis_schools = {
+            name: info for name, info in all_custs.items()
+            if info.get('neis_edu_code') and info.get('neis_school_code')
+            and info.get('구분') == '학교'
+        }
+
+        if not neis_schools:
+            st.warning(
+                "NEIS 학교코드가 등록된 거래처가 없습니다.\n\n"
+                "거래처 관리 → 학교 수정 → 'NEIS 학교코드' 항목에서 "
+                "시도교육청코드와 학교표준코드를 먼저 입력하세요.\n\n"
+                "예) 경기도: J10, 서울: B10 / 학교표준코드는 나이스 포털에서 확인"
+            )
+        else:
+            neis_school_names = sorted(neis_schools.keys())
+            sel_school = st.selectbox(
+                f"학교 선택 (NEIS 코드 등록 {len(neis_school_names)}개)",
+                neis_school_names, key="neis_school_sel"
+            )
+
+            sel_info = neis_schools[sel_school]
+            edu_code = sel_info['neis_edu_code']
+            sch_code = sel_info['neis_school_code']
+            edu_name = EDU_OFFICE_CODES.get(edu_code, edu_code)
+
+            st.info(f"🏫 {sel_school} · {edu_name} ({edu_code}) · 학교코드: {sch_code}")
+
+            # ── API 조회 버튼 ──
+            if st.button("🔍 NEIS 급식일 조회", type="primary",
+                         use_container_width=True, key="neis_fetch"):
+                year = int(neis_month[:4])
+                month = int(neis_month[5:7])
+
+                with st.spinner(f"{sel_school} {neis_month} 급식일 조회 중..."):
+                    result = fetch_meal_dates(edu_code, sch_code, year, month)
+
+                if result['success']:
+                    st.success(result['message'])
+                    st.session_state['neis_result'] = result
+                    st.session_state['neis_school'] = sel_school
+                    st.session_state['neis_vendor'] = neis_vendor
+                    st.session_state['neis_month'] = neis_month
+                else:
+                    st.error(result['message'])
+
+            # ── 조회 결과 표시 + 수거일정 생성 ──
+            if 'neis_result' in st.session_state:
+                result = st.session_state['neis_result']
+                meal_dates = result.get('meal_dates', [])
+                _stored_school = st.session_state.get('neis_school', '')
+                _stored_month = st.session_state.get('neis_month', '')
+
+                if meal_dates and _stored_school == sel_school and _stored_month == neis_month:
+                    st.divider()
+                    st.markdown(f"### 📅 {_stored_school} — {_stored_month} 급식일 ({len(meal_dates)}일)")
+
+                    # 캘린더 뷰
+                    _year = int(neis_month[:4])
+                    _month = int(neis_month[5:7])
+                    _cal = calendar.Calendar(firstweekday=0)
+                    _weeks = _cal.monthdayscalendar(_year, _month)
+                    _meal_day_set = set()
+                    for d in meal_dates:
+                        try:
+                            _meal_day_set.add(int(d.split('-')[2]))
+                        except (IndexError, ValueError):
+                            pass
+
+                    header = "| 월 | 화 | 수 | 목 | 금 | 토 | 일 |\n|:--:|:--:|:--:|:--:|:--:|:--:|:--:|"
+                    rows_md = []
+                    for week in _weeks:
+                        cells = []
+                        for day in week:
+                            if day == 0:
+                                cells.append("")
+                            elif day in _meal_day_set:
+                                cells.append(f"**🍽️{day}**")
+                            else:
+                                cells.append(f"{day}")
+                        rows_md.append("| " + " | ".join(cells) + " |")
+                    st.markdown(header + "\n" + "\n".join(rows_md))
+                    st.caption("🍽️ = 급식일 (수거일정 생성 대상)")
+
+                    # 메뉴 상세 (접기)
+                    meal_details = result.get('meal_details', {})
+                    if meal_details:
+                        with st.expander("📋 급식 메뉴 상세", expanded=False):
+                            for md_date in meal_dates:
+                                detail = meal_details.get(md_date, {})
+                                menu = detail.get('menu', '-')
+                                cal_info = detail.get('cal', '')
+                                st.caption(f"**{md_date}** {cal_info}")
+                                st.text(menu)
+
+                    # ── 수거일정 생성 옵션 ──
+                    st.divider()
+                    st.markdown("### 수거일정 생성")
+                    oc1, oc2, oc3 = st.columns(3)
+                    with oc1:
+                        neis_offset = st.radio(
+                            "수거 시점", [0, 1],
+                            format_func=lambda x: "급식 당일" if x == 0 else "급식 다음날",
+                            key="neis_offset", horizontal=True
+                        )
+                    with oc2:
+                        neis_item = st.selectbox("수거 품목", ["음식물", "음식물+재활용"],
+                                                  key="neis_item")
+                    with oc3:
+                        # 기사 배정
+                        driver_rows = [r for r in db_get('users')
+                                       if r.get('role') == 'driver'
+                                       and r.get('vendor') == neis_vendor]
+                        if not driver_rows:
+                            driver_rows = [r for r in db_get('users')
+                                           if r.get('role') == 'driver']
+                        driver_names = [r.get('name') or r.get('user_id', '')
+                                        for r in driver_rows if r.get('name') or r.get('user_id')]
+                        neis_driver = ''
+                        if driver_names:
+                            neis_driver = st.selectbox(
+                                "기사 배정", ["(미지정)"] + driver_names,
+                                key="neis_driver"
+                            )
+                            if neis_driver == "(미지정)":
+                                neis_driver = ''
+
+                    # 기존 수거일정 확인
+                    existing_ms = get_meal_schedules(
+                        school_name=sel_school, year_month=neis_month
+                    )
+                    existing_count = len(existing_ms)
+                    if existing_count > 0:
+                        st.info(f"ℹ️ 이미 등록된 식단 수거일정 {existing_count}건 (재생성 시 기존 대기건 교체)")
+
+                    btn_label = f"🗓️ 수거일정 생성 ({len(meal_dates)}일)"
+                    if st.button(btn_label, type="primary",
+                                 use_container_width=True, key="neis_create"):
+                        with st.spinner("수거일정 생성 중..."):
+                            items = ['음식물']
+                            if neis_item == '음식물+재활용':
+                                items = ['음식물', '재활용']
+
+                            total_ok = 0
+                            total_fail = 0
+
+                            for it in items:
+                                # meal_schedules에 이력 저장
+                                s, f = save_meal_schedule_bulk(
+                                    school_name=sel_school,
+                                    vendor=neis_vendor,
+                                    meal_dates=meal_dates,
+                                    uploaded_by='neis_api',
+                                    item_type=it,
+                                    collect_offset=neis_offset,
+                                )
+                                total_ok += s
+                                total_fail += f
+
+                                # schedules 테이블에 바로 반영 (승인 절차 없이)
+                                from datetime import timedelta
+                                _now_str = datetime.now(
+                                    ZoneInfo('Asia/Seoul')
+                                ).strftime('%Y-%m-%d %H:%M:%S')
+                                _wd_names = ['월','화','수','목','금','토','일']
+
+                                for md in meal_dates:
+                                    try:
+                                        _dt = datetime.strptime(md, '%Y-%m-%d')
+                                        _collect_dt = _dt + timedelta(days=neis_offset)
+                                        _cd = _collect_dt.strftime('%Y-%m-%d')
+                                        _wd = _wd_names[_collect_dt.weekday()]
+
+                                        save_schedule(
+                                            neis_vendor, _cd,
+                                            [_wd], [sel_school], [it],
+                                            neis_driver
+                                        )
+                                    except Exception as e:
+                                        print(f"[neis_schedule] {md}: {e}")
+
+                        if total_fail == 0:
+                            st.success(
+                                f"✅ 수거일정 {total_ok}건 생성 완료! "
+                                f"기사 일정에 바로 반영되었습니다."
+                            )
+                            # 결과 초기화
+                            del st.session_state['neis_result']
+                            st.rerun()
+                        else:
+                            st.warning(f"생성: 성공 {total_ok}건, 실패 {total_fail}건")
