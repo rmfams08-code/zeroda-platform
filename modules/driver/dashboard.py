@@ -11,6 +11,7 @@ from database.db_manager import (
     save_daily_safety_check, get_daily_safety_checks,
 )
 from config.settings import COMMON_CSS, DAILY_SAFETY_CHECKLIST
+from services.photo_storage import upload_photo, save_photo_record
 
 WEEKDAY_MAP = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
 
@@ -1480,17 +1481,33 @@ def render_dashboard(user: dict):
                     if _linked_items:
                         st.caption(f"📋 등록 품목: {', '.join(_linked_items)}")
 
-                    # 현장 증빙 사진
-                    with st.expander("📸 현장 증빙 사진 (선택)", expanded=False):
+                    # 현장 증빙 사진 (최대 3장)
+                    with st.expander("📸 현장 증빙 사진 (선택, 최대 3장)", expanded=False):
                         photo = st.file_uploader(
-                            "사진 촬영 또는 갤러리에서 선택",
+                            "사진 1 - 촬영 또는 갤러리에서 선택",
                             type=['jpg', 'jpeg', 'png'],
                             key=f"drv_photo_{school}",
                             help="모바일: 촬영 또는 갤러리 선택 가능"
                         )
                         if photo:
-                            st.image(photo, caption="첨부된 사진", use_container_width=True)
-                            st.success("📸 사진이 첨부되었습니다.")
+                            st.image(photo, caption="사진 1", use_container_width=True)
+                        photo_extra_1 = st.file_uploader(
+                            "사진 2 (선택)",
+                            type=['jpg', 'jpeg', 'png'],
+                            key=f"drv_photo_extra_{school}_1",
+                        )
+                        if photo_extra_1:
+                            st.image(photo_extra_1, caption="사진 2", use_container_width=True)
+                        photo_extra_2 = st.file_uploader(
+                            "사진 3 (선택)",
+                            type=['jpg', 'jpeg', 'png'],
+                            key=f"drv_photo_extra_{school}_2",
+                        )
+                        if photo_extra_2:
+                            st.image(photo_extra_2, caption="사진 3", use_container_width=True)
+                        _photo_count = sum(1 for p in [photo, photo_extra_1, photo_extra_2] if p)
+                        if _photo_count > 0:
+                            st.success(f"📸 사진 {_photo_count}장 첨부됨")
 
                     # ── 날짜별 다중행 수거량 입력 ──────────────────
                     _dr_key = f"drv_date_rows_{school}"
@@ -1616,6 +1633,7 @@ def render_dashboard(user: dict):
                         if st.button("✅ 수거완료 · 본사전송", type="primary",
                                      use_container_width=True, key=f"btn_submit_{school}"):
                             _saved = 0
+                            _first_date = None
                             for _row in st.session_state[_dr_key]:
                                 if _row["weight"] <= 0:
                                     continue
@@ -1624,7 +1642,38 @@ def render_dashboard(user: dict):
                                                driver_name, memo, 'submitted')
                                 if row_id:
                                     _saved += 1
+                                    if not _first_date:
+                                        _first_date = str(_row["date"])
                             if _saved > 0:
+                                # ── 사진 저장 (최대 3장) ──
+                                _photo_key = f"drv_photo_{school}"
+                                _photo_file = st.session_state.get(_photo_key)
+                                if _photo_file:
+                                    _p_url = upload_photo(
+                                        _photo_file, vendor, driver_name, school,
+                                        'collection', _first_date
+                                    )
+                                    if _p_url:
+                                        save_photo_record(
+                                            vendor, driver_name, school,
+                                            'collection', _p_url, _first_date,
+                                            memo=memo
+                                        )
+                                # 추가 사진 (최대 3장)
+                                for _pi in range(1, 3):
+                                    _extra_key = f"drv_photo_extra_{school}_{_pi}"
+                                    _extra_file = st.session_state.get(_extra_key)
+                                    if _extra_file:
+                                        _ep_url = upload_photo(
+                                            _extra_file, vendor, driver_name, school,
+                                            'collection', _first_date
+                                        )
+                                        if _ep_url:
+                                            save_photo_record(
+                                                vendor, driver_name, school,
+                                                'collection', _ep_url, _first_date,
+                                                memo=memo
+                                            )
                                 st.success(f"✅ 본사 전송 완료! ({_saved}건)")
                                 st.session_state[_dr_key] = [
                                     {"date": today, "weight": 0.0, "item": "음식물"}
@@ -1776,6 +1825,19 @@ def render_dashboard(user: dict):
             }
             ok = db_insert('processing_confirm', proc_data)
             if ok:
+                # ── 계근표 사진 저장 ──
+                if proc_photo:
+                    _proc_url = upload_photo(
+                        proc_photo, vendor, driver_name, '',
+                        'processing', _proc_now.strftime('%Y-%m-%d')
+                    )
+                    if _proc_url:
+                        save_photo_record(
+                            vendor, driver_name, '',
+                            'processing', _proc_url,
+                            _proc_now.strftime('%Y-%m-%d'),
+                            memo=proc_memo
+                        )
                 st.success(f"✅ 처리확인 전송 완료! ({proc_weight:.1f}kg @ {proc_location})")
                 st.balloons()
             else:
