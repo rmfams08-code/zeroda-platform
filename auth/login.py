@@ -1,5 +1,6 @@
 # zeroda_platform/auth/login.py
 import streamlit as st
+import streamlit.components.v1 as st_components
 import hashlib
 import hmac
 import json
@@ -304,42 +305,51 @@ def _verify_auto_login_token(token: str):
 
 
 def inject_auto_login_save_js(user):
-    """로그인 성공 직후: 기사 역할이면 localStorage에 토큰 저장"""
+    """로그인 성공 직후: 기사 역할이면 localStorage에 토큰 저장
+    ※ st.components.v1.html() 사용 — st.markdown은 <script> 실행 안 됨
+    """
     if user and user.get('role') == 'driver':
         token = _create_auto_login_token(user.get('user_id', ''))
-        st.markdown(f"""
+        st_components.html(f"""
         <script>
         try {{ localStorage.setItem('zeroda_auto_token', '{token}'); }} catch(e) {{}}
         </script>
-        """, unsafe_allow_html=True)
+        """, height=0, width=0)
 
 
 def inject_auto_login_redirect_js():
-    """로그인 페이지: localStorage에 토큰이 있으면 ?zat=토큰 붙여서 리다이렉트"""
-    st.markdown("""
+    """로그인 페이지: localStorage에 토큰이 있으면 ?zat=토큰 붙여서 리다이렉트
+    ※ st.components.v1.html() + window.parent 사용
+    """
+    st_components.html("""
     <script>
     (function() {
         try {
             var token = localStorage.getItem('zeroda_auto_token');
-            if (token && !window.location.search.includes('zat=')) {
-                // 토큰이 있고 아직 query param에 없으면 리다이렉트
-                var url = window.location.origin + window.location.pathname
-                          + '?zat=' + encodeURIComponent(token);
-                window.location.replace(url);
+            if (token) {
+                // 부모 프레임(Streamlit 메인)의 URL에 토큰 파라미터 추가
+                var parentUrl = window.parent.location;
+                if (!parentUrl.search.includes('zat=')) {
+                    var url = parentUrl.origin + parentUrl.pathname
+                              + '?zat=' + encodeURIComponent(token);
+                    window.parent.location.replace(url);
+                }
             }
-        } catch(e) {}
+        } catch(e) {
+            // cross-origin 등 오류 시 무시
+        }
     })();
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0, width=0)
 
 
 def clear_auto_login_js():
     """로그아웃 시 localStorage 토큰 삭제"""
-    st.markdown("""
+    st_components.html("""
     <script>
     try { localStorage.removeItem('zeroda_auto_token'); } catch(e) {}
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0, width=0)
 
 
 def logout():
@@ -536,29 +546,32 @@ def render_login_page():
         <div class="field-label">아이디</div>
         """, unsafe_allow_html=True)
 
-        user_id = st.text_input("아이디", key="login_id",
-                                placeholder="아이디를 입력하세요",
-                                label_visibility="collapsed")
+        with st.form("login_form", clear_on_submit=False):
+            user_id = st.text_input("아이디", key="login_id",
+                                    placeholder="아이디를 입력하세요",
+                                    label_visibility="collapsed")
 
-        st.markdown('<div class="field-label">비밀번호</div>', unsafe_allow_html=True)
+            st.markdown('<div class="field-label">비밀번호</div>', unsafe_allow_html=True)
 
-        password = st.text_input("비밀번호", key="login_pw", type="password",
-                                 placeholder="비밀번호를 입력하세요",
-                                 label_visibility="collapsed")
+            password = st.text_input("비밀번호", key="login_pw", type="password",
+                                     placeholder="비밀번호를 입력하세요",
+                                     label_visibility="collapsed")
 
-        if st.button("로그인", type="primary", use_container_width=True):
+            submitted = st.form_submit_button("로그인", type="primary", use_container_width=True)
+
+        if submitted:
             if not user_id or not password:
                 st.warning("아이디와 비밀번호를 모두 입력하세요.")
-                return
-            success, user, err_msg = authenticate(user_id, password)
-            if success:
-                st.session_state.user = user
-                st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                save_login_cookie(user)
-                # 기사 역할 토큰 저장은 main.py 대시보드 진입 시 실행
-                st.rerun()
             else:
-                st.error(err_msg if err_msg else "아이디 또는 비밀번호가 올바르지 않습니다.")
+                success, user, err_msg = authenticate(user_id, password)
+                if success:
+                    st.session_state.user = user
+                    st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    save_login_cookie(user)
+                    # 기사 역할 토큰 저장은 main.py 대시보드 진입 시 실행
+                    st.rerun()
+                else:
+                    st.error(err_msg if err_msg else "아이디 또는 비밀번호가 올바르지 않습니다.")
 
         # ── 회원가입 버튼 ──
         st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
