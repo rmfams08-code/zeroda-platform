@@ -9,7 +9,8 @@ from database.db_manager import (db_get, db_upsert, db_delete, get_all_schools,
 def render_vendor_mgmt_tab():
     st.markdown("## 외주업체 관리")
 
-    tab1, tab2, tab3, tab5 = st.tabs(["업체 목록", "업체 등록", "학교 별칭 관리", "🛡️ 안전관리 평가"])
+    tab1, tab2, tab2b, tab3, tab5 = st.tabs(
+        ["업체 목록", "업체 등록", "✏️ 업체 수정", "학교 별칭 관리", "🛡️ 안전관리 평가"])
     # ※ 품목별 단가 관리는 '거래처 관리' 메뉴로 통합 (중복 제거)
 
     with tab1:
@@ -34,6 +35,10 @@ def render_vendor_mgmt_tab():
             contact    = st.text_input("연락처", key="new_vcontact")
             email      = st.text_input("이메일", key="new_vemail")
 
+        vehicle_no = st.text_input("차량번호 (쉼표로 구분하여 여러 대 입력 가능)",
+                                   key="new_vvehicle",
+                                   help="예: 12가3456,78나9012")
+
         # 담당 학교 배정
         schools = get_all_schools()
         assigned = st.multiselect("담당 학교", schools, key="new_vschools")
@@ -46,7 +51,7 @@ def render_vendor_mgmt_tab():
                     'vendor': vendor_id, 'biz_name': biz_name,
                     'rep': rep, 'biz_no': biz_no,
                     'address': address, 'contact': contact,
-                    'email': email
+                    'email': email, 'vehicle_no': vehicle_no,
                 })
                 if ok:
                     for s in assigned:
@@ -54,6 +59,9 @@ def render_vendor_mgmt_tab():
                     st.success(f"업체 '{biz_name}' 등록 완료!")
                 else:
                     st.error("등록 실패")
+
+    with tab2b:
+        _render_vendor_edit()
 
     with tab3:
         st.markdown("### 학교 별칭 관리")
@@ -110,7 +118,7 @@ _GRADE_DESC   = {'S': '최우수 (90~100점)', 'A': '우수 (75~89점)',
 def _render_safety_eval():
     """안전관리 평가 탭"""
     st.markdown("### 🛡️ 외주업체 안전관리 평가")
-    st.caption("평가 기준: 스쿨존 위반 40점 + 차량점검 이행률 30점 + 교육이수율 30점 = 100점")
+    st.caption("평가 기준: 스쿨존 위반 40점 + 차량점검 15점 + 일일안전점검 15점 + 교육이수율 30점 = 100점")
 
     from config.settings import CURRENT_YEAR, CURRENT_MONTH
 
@@ -149,12 +157,14 @@ def _render_safety_eval():
             f"</div>", unsafe_allow_html=True
         )
         st.markdown("")
-        sc1, sc2, sc3 = st.columns(3)
+        sc1, sc2, sc3, sc4 = st.columns(4)
         with sc1:
             st.metric("스쿨존 위반 점수", f"{result['violation_score']:.0f} / 40점")
         with sc2:
-            st.metric("차량점검 점수", f"{result['checklist_score']:.1f} / 30점")
+            st.metric("차량점검 점수", f"{result['checklist_score']:.1f} / 15점")
         with sc3:
+            st.metric("일일안전점검 점수", f"{result.get('daily_check_score', 0):.1f} / 15점")
+        with sc4:
             st.metric("교육이수 점수", f"{result['education_score']:.1f} / 30점")
 
     st.divider()
@@ -223,12 +233,14 @@ def _render_safety_eval():
         # 등급 이모지 컬럼 추가
         df_s['등급'] = df_s['grade'].map(_GRADE_EMOJI).fillna(df_s['grade'])
         show_cols = [c for c in ['vendor','year_month','violation_score',
-                                 'checklist_score','education_score','total_score','등급']
+                                 'checklist_score','daily_check_score',
+                                 'education_score','total_score','등급']
                      if c in df_s.columns]
         rename_map = {
             'vendor': '업체', 'year_month': '평가월',
-            'violation_score': '위반점수', 'checklist_score': '점검점수',
-            'education_score': '교육점수', 'total_score': '총점',
+            'violation_score': '위반(40)', 'checklist_score': '차량점검(15)',
+            'daily_check_score': '일일점검(15)',
+            'education_score': '교육(30)', 'total_score': '총점',
         }
         st.dataframe(df_s[show_cols].rename(columns=rename_map).sort_values('총점', ascending=False),
                      use_container_width=True, hide_index=True)
@@ -263,3 +275,93 @@ def _render_safety_eval():
         st.metric("위반 건수", f"{len(violations)}건")
     else:
         st.info("위반 기록이 없습니다.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FEAT: 업체 정보 수정 탭 (기존 정보 불러오기 → 수정 → 저장)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _render_vendor_edit():
+    """업체 정보 수정 — 기존 데이터 불러오기 + 차량번호 포함"""
+    st.markdown("### ✏️ 업체 정보 수정")
+    st.caption("수정할 업체를 선택하면 기존 정보를 불러옵니다. 변경 후 [수정 저장] 버튼을 클릭하세요.")
+
+    vendors = db_get('vendor_info')
+    if not vendors:
+        st.info("등록된 업체가 없습니다. 먼저 '업체 등록' 탭에서 업체를 등록하세요.")
+        return
+
+    # 업체 선택
+    vendor_labels = {f"{v.get('biz_name', '')} ({v['vendor']})": v['vendor'] for v in vendors}
+    sel_label = st.selectbox("수정할 업체 선택", list(vendor_labels.keys()), key="edit_vendor_sel")
+    sel_vendor_id = vendor_labels[sel_label]
+
+    # 선택된 업체의 기존 정보 불러오기
+    cur = next((v for v in vendors if v['vendor'] == sel_vendor_id), {})
+
+    st.divider()
+
+    # 수정 폼 (기존 값 pre-fill)
+    col1, col2 = st.columns(2)
+    with col1:
+        edit_biz_name = st.text_input("상호명", value=cur.get('biz_name', ''), key="edit_vname")
+        edit_rep      = st.text_input("대표자", value=cur.get('rep', ''), key="edit_vrep")
+        edit_biz_no   = st.text_input("사업자번호", value=cur.get('biz_no', ''), key="edit_vbizno")
+    with col2:
+        edit_address  = st.text_input("주소", value=cur.get('address', ''), key="edit_vaddr")
+        edit_contact  = st.text_input("연락처", value=cur.get('contact', ''), key="edit_vcontact")
+        edit_email    = st.text_input("이메일", value=cur.get('email', ''), key="edit_vemail")
+
+    edit_vehicle  = st.text_input("차량번호 (쉼표로 구분)",
+                                  value=cur.get('vehicle_no', ''),
+                                  key="edit_vvehicle",
+                                  help="예: 12가3456,78나9012")
+
+    # 담당 학교 수정
+    all_schools = get_all_schools()
+    # 현재 배정된 학교 목록 조회
+    school_master = db_get('school_master')
+    current_schools = [s['school_name'] for s in (school_master or [])
+                       if s.get('vendor') == sel_vendor_id]
+    edit_schools = st.multiselect("담당 학교", all_schools,
+                                  default=[s for s in current_schools if s in all_schools],
+                                  key="edit_vschools")
+
+    st.divider()
+
+    # 현재 정보 vs 변경 정보 비교 표시
+    with st.expander("📋 현재 등록 정보 확인", expanded=False):
+        import pandas as pd
+        info_data = {
+            '항목': ['상호명', '대표자', '사업자번호', '주소', '연락처', '이메일', '차량번호', '담당학교'],
+            '현재 값': [
+                cur.get('biz_name', ''), cur.get('rep', ''), cur.get('biz_no', ''),
+                cur.get('address', ''), cur.get('contact', ''), cur.get('email', ''),
+                cur.get('vehicle_no', ''), ', '.join(current_schools),
+            ],
+        }
+        st.dataframe(pd.DataFrame(info_data), use_container_width=True, hide_index=True)
+
+    if st.button("💾 수정 저장", key="edit_vendor_save", type="primary"):
+        ok = db_upsert('vendor_info', {
+            'vendor': sel_vendor_id,
+            'biz_name': edit_biz_name,
+            'rep': edit_rep,
+            'biz_no': edit_biz_no,
+            'address': edit_address,
+            'contact': edit_contact,
+            'email': edit_email,
+            'vehicle_no': edit_vehicle,
+        })
+        if ok:
+            # 담당 학교 업데이트: 기존 배정 해제 후 새로 배정
+            for s in current_schools:
+                if s not in edit_schools:
+                    # 학교에서 업체 배정 해제 (vendor를 빈값으로)
+                    db_upsert('school_master', {'school_name': s, 'vendor': ''})
+            for s in edit_schools:
+                db_upsert('school_master', {'school_name': s, 'vendor': sel_vendor_id})
+            st.success(f"✅ '{edit_biz_name}' 업체 정보가 수정되었습니다.")
+            st.rerun()
+        else:
+            st.error("수정 저장에 실패했습니다.")

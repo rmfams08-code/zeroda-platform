@@ -367,7 +367,7 @@ def _render_safety_report(school: str):
 
     accident_data = db_get('accident_report')
     accident_rows = [r for r in (accident_data or [])
-                     if str(r.get('accident_date', '')).startswith(f"{year}-{m_str}")
+                     if str(r.get('occur_date', '')).startswith(f"{year}-{m_str}")
                      and (not my_vendors or r.get('vendor') in my_vendors)]
 
     c1, c2, c3 = st.columns(3)

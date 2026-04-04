@@ -2071,17 +2071,21 @@ def generate_safety_report_pdf(
 
     if checklist_records:
         ck_header = [P(h, size=9, align=1, color=colors.white) for h in
-                     ['점검일', '업체', '기사', '차량번호', '점검결과']]
+                     ['점검일', '업체', '기사', '차량번호', '양호', '불량']]
         ck_data = [ck_header]
         for ck in checklist_records[:50]:
+            t_ok = ck.get('total_ok', 0)
+            t_fail = ck.get('total_fail', 0)
             ck_data.append([
                 P(str(ck.get('check_date', '')), size=8),
                 P(str(ck.get('vendor', '')), size=8),
                 P(str(ck.get('driver', '')), size=8),
-                P(str(ck.get('vehicle', '')), size=8),
-                P(str(ck.get('result', '')), size=8, align=1),
+                P(str(ck.get('vehicle_no', '')), size=8),
+                P(str(t_ok), size=8, align=1),
+                P(str(t_fail), size=8, align=1,
+                  color=RED if int(t_fail or 0) > 0 else colors.black),
             ])
-        cw_ck = [26*mm, 28*mm, 24*mm, 40*mm, 42*mm]
+        cw_ck = [24*mm, 26*mm, 22*mm, 32*mm, 28*mm, 28*mm]
         ck_tbl = Table(ck_data, colWidths=cw_ck)
         ck_tbl.setStyle(TableStyle([
             ('FONTNAME',   (0,0), (-1,-1), font),

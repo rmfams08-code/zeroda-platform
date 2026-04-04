@@ -507,6 +507,12 @@ def migrate_safety_tables():
         except Exception:
             pass  # 이미 존재하면 무시
 
+        # vendor_info 테이블에 vehicle_no 컬럼 추가 (기존 DB 호환)
+        try:
+            c.execute("ALTER TABLE vendor_info ADD COLUMN vehicle_no TEXT DEFAULT ''")
+        except Exception:
+            pass  # 이미 존재하면 무시
+
         conn.commit()
         conn.close()
         print("[migrate_safety_tables] 안전관리 평가 테이블 준비 완료")
