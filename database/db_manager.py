@@ -31,12 +31,8 @@ def _use_supabase(table: str) -> bool:
 
 
 def db_get(table, where_dict=None):
-    """SELECT - Supabase 우선, GitHub 폴백, SQLite 폴백"""
-    if _use_supabase(table):
-        return supabase_get(table, where_dict)
-    if _use_github(table):
-        return github_get(table, where_dict)
-    # SQLite 폴백
+    """SELECT - SQLite(네이버클라우드) 우선, Supabase 폴백"""
+    # 1. SQLite (네이버클라우드 서버 - 메인)
     try:
         conn = _conn()
         c = conn.cursor()
@@ -49,17 +45,23 @@ def db_get(table, where_dict=None):
         c.execute(sql, params)
         rows = [dict(r) for r in c.fetchall()]
         conn.close()
-        return rows
+        if rows:
+            return rows
     except Exception:
-        return []
+        pass
+    # 2. Supabase 폴백 (백업)
+    if _use_supabase(table):
+        return supabase_get(table, where_dict)
+    # 3. GitHub 폴백
+    if _use_github(table):
+        return github_get(table, where_dict)
+    return []
 
 
 def db_upsert(table, data):
-    """INSERT OR REPLACE - Supabase 우선, GitHub 폴백, SQLite 폴백"""
-    if _use_supabase(table):
-        return supabase_upsert(table, data)
-    if _use_github(table):
-        return github_upsert(table, data)
+    """INSERT OR REPLACE - SQLite(메인) + Supabase(백업) 동시 저장"""
+    # 1. SQLite 저장 (네이버클라우드 - 메인)
+    sqlite_ok = False
     try:
         conn = _conn()
         c = conn.cursor()
@@ -69,20 +71,29 @@ def db_upsert(table, data):
         c.execute(sql, list(data.values()))
         conn.commit()
         conn.close()
-        return True
+        sqlite_ok = True
     except Exception as e:
         import traceback
-        print(f"[db_upsert ERROR] table={table}, error={e}")
+        print(f"[db_upsert SQLite ERROR] table={table}, error={e}")
         traceback.print_exc()
-        return False
+    # 2. Supabase 백업 (비동기적 — 실패해도 무시)
+    if _use_supabase(table):
+        try:
+            supabase_upsert(table, data)
+        except Exception:
+            pass
+    elif _use_github(table):
+        try:
+            github_upsert(table, data)
+        except Exception:
+            pass
+    return sqlite_ok
 
 
 def db_insert(table, data):
-    """순수 INSERT - Supabase 우선, GitHub 폴백, SQLite 폴백"""
-    if _use_supabase(table):
-        return supabase_insert(table, data)
-    if _use_github(table):
-        return github_insert(table, data)
+    """순수 INSERT - SQLite(메인) + Supabase(백업) 동시 저장"""
+    # 1. SQLite 저장 (네이버클라우드 - 메인)
+    row_id = None
     try:
         conn = _conn()
         c = conn.cursor()
@@ -93,20 +104,28 @@ def db_insert(table, data):
         row_id = c.lastrowid
         conn.commit()
         conn.close()
-        return row_id
     except Exception as e:
         import traceback
-        print(f"[db_insert ERROR] table={table}, error={e}")
+        print(f"[db_insert SQLite ERROR] table={table}, error={e}")
         traceback.print_exc()
-        return None
+    # 2. Supabase 백업 (실패해도 무시)
+    if _use_supabase(table):
+        try:
+            supabase_insert(table, data)
+        except Exception:
+            pass
+    elif _use_github(table):
+        try:
+            github_insert(table, data)
+        except Exception:
+            pass
+    return row_id
 
 
 def db_delete(table, where_dict):
-    """DELETE - Supabase 우선, GitHub 폴백, SQLite 폴백"""
-    if _use_supabase(table):
-        return supabase_delete(table, where_dict)
-    if _use_github(table):
-        return github_delete(table, where_dict)
+    """DELETE - SQLite(메인) + Supabase(백업) 동시 삭제"""
+    # 1. SQLite 삭제 (메인)
+    sqlite_ok = False
     try:
         conn = _conn()
         c = conn.cursor()
@@ -115,9 +134,21 @@ def db_delete(table, where_dict):
         c.execute(sql, list(where_dict.values()))
         conn.commit()
         conn.close()
-        return True
+        sqlite_ok = True
     except Exception:
-        return False
+        pass
+    # 2. Supabase 백업 삭제
+    if _use_supabase(table):
+        try:
+            supabase_delete(table, where_dict)
+        except Exception:
+            pass
+    elif _use_github(table):
+        try:
+            github_delete(table, where_dict)
+        except Exception:
+            pass
+    return sqlite_ok
 
 
 def db_execute(sql, params=None):
