@@ -1,0 +1,26 @@
+{
+  "name": "ZERODA 기사앱",
+  "short_name": "ZERODA",
+  "description": "제로다 폐기물수집운반 기사 전용 앱",
+  "start_url": "/?role=driver",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1a73e8",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "lang": "ko",
+  "categories": ["business", "utilities"]
+}

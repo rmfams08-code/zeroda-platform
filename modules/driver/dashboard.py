@@ -1025,104 +1025,155 @@ def render_dashboard(user: dict):
     # ══════════════════════════════════════════════
     # 섹션1: 일일 안전보건 점검 (산업안전보건법 제36조)
     # ══════════════════════════════════════════════
-    with st.expander("🚨 일일 안전보건 점검 (출발 전 필수)", expanded=True):
-        st.caption("산업안전보건법 제36조에 따른 위험성평가 기록물입니다. 모든 항목을 확인하세요.")
+    # ── 오늘 이미 완료했는지 DB 조회 ──
+    _today_safety = get_daily_safety_checks(
+        vendor=vendor, driver=driver_name, check_date=today_str
+    )
+    _saved_cats = set(r.get('category', '') for r in _today_safety)
+    _required_cats = set(DAILY_SAFETY_CHECKLIST.keys())
+    _safety_done_today = (_required_cats <= _saved_cats)  # 모든 카테고리 저장 완료 여부
 
-        # ── 전체 양호 버튼 ──
-        _chk_all_cols = st.columns([1, 1, 2])
-        with _chk_all_cols[0]:
-            if st.button("☑️ 전체 양호", key="dsc_check_all", use_container_width=True):
-                for _ca_key, _ca_info in DAILY_SAFETY_CHECKLIST.items():
-                    for _it in _ca_info['items']:
-                        st.session_state[f"dsc_{_it['id']}"] = True
-                st.rerun()
-        with _chk_all_cols[1]:
-            if st.button("⬜ 전체 해제", key="dsc_uncheck_all", use_container_width=True):
-                for _ca_key, _ca_info in DAILY_SAFETY_CHECKLIST.items():
-                    for _it in _ca_info['items']:
-                        st.session_state[f"dsc_{_it['id']}"] = False
-                st.rerun()
+    if _safety_done_today:
+        # ── 오늘 점검 완료: 요약만 표시 (접힘 상태) ──
+        _saved_time = ''
+        for r in _today_safety:
+            _ct = str(r.get('created_at', ''))
+            if len(_ct) >= 16:
+                _saved_time = _ct[11:16]  # HH:MM
+                break
+        with st.expander(f"✅ 일일 안전점검 완료 ({_saved_time} 저장)", expanded=False):
+            st.success("오늘 안전점검이 이미 완료되었습니다. 안전 운행하세요! 🚦")
+            # 저장된 결과 요약
+            for r in _today_safety:
+                _cat = r.get('category', '')
+                if _cat in DAILY_SAFETY_CHECKLIST:
+                    _label = DAILY_SAFETY_CHECKLIST[_cat]['label']
+                    _icon = DAILY_SAFETY_CHECKLIST[_cat]['icon']
+                    st.caption(f"{_icon} {_label}: 저장 완료")
 
-        _all_results = {}
-        _total_items = 0
-        _total_checked = 0
-        _fail_items = []
-
-        for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
-            # 카테고리 헤더 + 카테고리별 전체 양호 버튼
-            _cat_hdr = st.columns([3, 1])
-            with _cat_hdr[0]:
-                st.markdown(f"**{cat_info['icon']} {cat_info['label']}**")
-            with _cat_hdr[1]:
-                if st.button("✅전체", key=f"dsc_cat_all_{cat_key}"):
-                    for _it in cat_info['items']:
-                        st.session_state[f"dsc_{_it['id']}"] = True
-                    st.rerun()
-            _cat_results = {}
-            for item in cat_info['items']:
-                _ck_key = f"dsc_{item['id']}"
-                checked = st.checkbox(item['text'], key=_ck_key)
-                _cat_results[item['id']] = '양호' if checked else '미점검'
-                _total_items += 1
-                if checked:
-                    _total_checked += 1
-                else:
-                    _fail_items.append(item['text'][:20])
-            _all_results[cat_key] = _cat_results
-
-        # 전체 진행률
-        _safe_ratio = (_total_checked / _total_items) if _total_items > 0 else 0.0
-        _safe_ratio = max(0.0, min(1.0, _safe_ratio))
-        st.progress(_safe_ratio)
-        st.caption(f"{_total_checked} / {_total_items} 항목 완료")
-
-        if _total_checked == _total_items:
-            st.success("✅ 모든 안전점검 완료! 안전 운행하세요. 🚦")
-        else:
-            st.warning(f"⚠️ {_total_items - _total_checked}개 항목을 확인해 주세요.")
-
-        # 불량 항목 메모
-        _fail_memo = ''
-        if _total_items - _total_checked > 0:
-            _fail_memo = st.text_area(
-                "불량/미점검 항목 조치사항",
-                placeholder="예: 리프트 유압호스 미세 누유 발견 → 정비 예약",
-                key="dsc_fail_memo", height=80)
-
-        # 저장 버튼
-        if st.button("💾 점검 결과 저장", key="dsc_save_btn", use_container_width=True):
-            _save_ok = True
-            for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
-                _items_dict = _all_results.get(cat_key, {})
-                ok = save_daily_safety_check(
-                    vendor=vendor, driver=driver_name,
-                    check_date=today_str, category=cat_key,
-                    check_items=_items_dict, fail_memo=_fail_memo)
-                if not ok:
-                    _save_ok = False
-            if _save_ok:
-                st.success("✅ 일일 안전점검 결과가 저장되었습니다. (본사 자동 전송)")
+            st.divider()
+            # 스쿨존 GPS 알림 토글
+            st.markdown("### 🚸 스쿨존 알림")
+            schoolzone = st.toggle("스쿨존 진입 알림 활성화", key="schoolzone_toggle")
+            if schoolzone:
+                st.error("🚨 스쿨존 진입! 속도를 30km 이하로 줄이세요.")
+                st.markdown("""
+                <div style="text-align:center;background:#d93025;border-radius:50%;
+                            width:120px;height:120px;margin:0 auto;
+                            display:flex;align-items:center;justify-content:center;">
+                    <span style="color:white;font-size:56px;font-weight:900;">30</span>
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown("<div style='text-align:center;color:#d93025;font-weight:700;margin-top:8px;'>제한속도 30km/h</div>",
+                            unsafe_allow_html=True)
             else:
-                st.error("저장 중 오류가 발생했습니다.")
+                st.info("스쿨존 구역 진입 시 토글을 켜세요.")
+    else:
+        # ── 오늘 미완료: 체크리스트 표시 ──
+        with st.expander("🚨 일일 안전보건 점검 (출발 전 필수)", expanded=True):
+            st.caption("산업안전보건법 제36조에 따른 위험성평가 기록물입니다. 모든 항목을 확인하세요.")
 
-        st.divider()
+            # ── 전체 양호 버튼 ──
+            _chk_all_cols = st.columns([1, 1, 2])
+            with _chk_all_cols[0]:
+                if st.button("☑️ 전체 양호", key="dsc_check_all", use_container_width=True):
+                    for _ca_key, _ca_info in DAILY_SAFETY_CHECKLIST.items():
+                        for _it in _ca_info['items']:
+                            st.session_state[f"dsc_{_it['id']}"] = True
+                    st.rerun()
+            with _chk_all_cols[1]:
+                if st.button("⬜ 전체 해제", key="dsc_uncheck_all", use_container_width=True):
+                    for _ca_key, _ca_info in DAILY_SAFETY_CHECKLIST.items():
+                        for _it in _ca_info['items']:
+                            st.session_state[f"dsc_{_it['id']}"] = False
+                    st.rerun()
 
-        # 스쿨존 GPS 알림 토글
-        st.markdown("### 🚸 스쿨존 알림")
-        schoolzone = st.toggle("스쿨존 진입 알림 활성화", key="schoolzone_toggle")
-        if schoolzone:
-            st.error("🚨 스쿨존 진입! 속도를 30km 이하로 줄이세요.")
-            st.markdown("""
-            <div style="text-align:center;background:#d93025;border-radius:50%;
-                        width:120px;height:120px;margin:0 auto;
-                        display:flex;align-items:center;justify-content:center;">
-                <span style="color:white;font-size:56px;font-weight:900;">30</span>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown("<div style='text-align:center;color:#d93025;font-weight:700;margin-top:8px;'>제한속도 30km/h</div>",
-                        unsafe_allow_html=True)
-        else:
-            st.info("스쿨존 구역 진입 시 토글을 켜세요.")
+            _all_results = {}
+            _total_items = 0
+            _total_checked = 0
+            _fail_items = []
+
+            for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
+                # 카테고리 헤더 + 카테고리별 전체 양호 버튼
+                _cat_hdr = st.columns([3, 1])
+                with _cat_hdr[0]:
+                    st.markdown(f"**{cat_info['icon']} {cat_info['label']}**")
+                with _cat_hdr[1]:
+                    if st.button("✅전체", key=f"dsc_cat_all_{cat_key}"):
+                        for _it in cat_info['items']:
+                            st.session_state[f"dsc_{_it['id']}"] = True
+                        st.rerun()
+                _cat_results = {}
+                for item in cat_info['items']:
+                    _ck_key = f"dsc_{item['id']}"
+                    checked = st.checkbox(item['text'], key=_ck_key)
+                    _cat_results[item['id']] = '양호' if checked else '미점검'
+                    _total_items += 1
+                    if checked:
+                        _total_checked += 1
+                    else:
+                        _fail_items.append(item['text'][:20])
+                _all_results[cat_key] = _cat_results
+
+            # 전체 진행률
+            _safe_ratio = (_total_checked / _total_items) if _total_items > 0 else 0.0
+            _safe_ratio = max(0.0, min(1.0, _safe_ratio))
+            st.progress(_safe_ratio)
+            st.caption(f"{_total_checked} / {_total_items} 항목 완료")
+
+            if _total_checked == _total_items:
+                st.success("✅ 모든 안전점검 완료! 안전 운행하세요. 🚦")
+            else:
+                st.warning(f"⚠️ {_total_items - _total_checked}개 항목을 확인해 주세요.")
+
+            # 불량 항목 메모
+            _fail_memo = ''
+            if _total_items - _total_checked > 0:
+                _fail_memo = st.text_area(
+                    "불량/미점검 항목 조치사항",
+                    placeholder="예: 리프트 유압호스 미세 누유 발견 → 정비 예약",
+                    key="dsc_fail_memo", height=80)
+
+            # 저장 버튼
+            if st.button("💾 점검 결과 저장", key="dsc_save_btn", use_container_width=True):
+                _save_ok = True
+                for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
+                    _items_dict = _all_results.get(cat_key, {})
+                    ok = save_daily_safety_check(
+                        vendor=vendor, driver=driver_name,
+                        check_date=today_str, category=cat_key,
+                        check_items=_items_dict, fail_memo=_fail_memo)
+                    if not ok:
+                        _save_ok = False
+                if _save_ok:
+                    # 저장 성공 → 자동 닫힘 (rerun으로 완료 상태 전환)
+                    st.session_state['_safety_just_saved'] = True
+                    st.rerun()
+                else:
+                    st.error("저장 중 오류가 발생했습니다.")
+
+            st.divider()
+
+            # 스쿨존 GPS 알림 토글
+            st.markdown("### 🚸 스쿨존 알림")
+            schoolzone = st.toggle("스쿨존 진입 알림 활성화", key="schoolzone_toggle")
+            if schoolzone:
+                st.error("🚨 스쿨존 진입! 속도를 30km 이하로 줄이세요.")
+                st.markdown("""
+                <div style="text-align:center;background:#d93025;border-radius:50%;
+                            width:120px;height:120px;margin:0 auto;
+                            display:flex;align-items:center;justify-content:center;">
+                    <span style="color:white;font-size:56px;font-weight:900;">30</span>
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown("<div style='text-align:center;color:#d93025;font-weight:700;margin-top:8px;'>제한속도 30km/h</div>",
+                            unsafe_allow_html=True)
+            else:
+                st.info("스쿨존 구역 진입 시 토글을 켜세요.")
+
+    # ── 저장 직후 토스트 메시지 ──
+    if st.session_state.pop('_safety_just_saved', False):
+        st.toast("✅ 안전점검 저장 완료!", icon="✅")
 
     st.divider()
 
@@ -1882,9 +1933,7 @@ def render_dashboard(user: dict):
     with c3:
         st.metric("거래처 완료율", f"{len(done_schools2)}/{len(all_schools)}개")
 
-    remain = [s for s in all_schools if s not in done_schools2]
-    if remain:
-        st.warning(f"⚠️ 미완료 거래처 {len(remain)}곳: {', '.join(remain)}")
+    # 미완료 거래처 표시 제거 (2026-04-05)
 
     # 일일안전점검 DB 저장 여부로 완료 확인
     _today_str = date.today().strftime('%Y-%m-%d')

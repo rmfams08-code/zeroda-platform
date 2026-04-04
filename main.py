@@ -26,6 +26,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ── PWA (Progressive Web App) 메타태그 주입 ──
+# 기사모드에서 모바일 홈화면 추가 시 네이티브 앱처럼 동작
+st.markdown("""
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#1a73e8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ZERODA">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/static/service-worker.js', {scope: '/'})
+        .then(function(reg) { console.log('ZERODA SW registered:', reg.scope); })
+        .catch(function(err) { console.log('ZERODA SW failed:', err); });
+    });
+}
+</script>
+""", unsafe_allow_html=True)
+
 @st.cache_resource
 def startup():
     init_db()
