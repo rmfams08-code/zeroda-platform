@@ -1919,8 +1919,8 @@ def generate_safety_report_pdf(
 
     if vendor_scores:
         grade_header = [P(h, size=9, align=1, color=colors.white) for h in
-                        ['업체', '평가월', '스쿨존위반(40)', '차량점검(30)',
-                         '교육이수(30)', '총점', '등급']]
+                        ['업체', '평가월', '스쿨존위반(40)', '차량점검(15)',
+                         '일일점검(15)', '교육이수(30)', '총점', '등급']]
         grade_data = [grade_header]
         for sc in vendor_scores:
             grade = sc.get('grade', 'D')
@@ -1930,11 +1930,12 @@ def generate_safety_report_pdf(
                 P(sc.get('year_month', ''), size=9, align=1),
                 P(f"{sc.get('violation_score', 0):.0f}", size=9, align=2),
                 P(f"{sc.get('checklist_score', 0):.1f}", size=9, align=2),
+                P(f"{sc.get('daily_check_score', 0):.1f}", size=9, align=2),
                 P(f"{sc.get('education_score', 0):.1f}", size=9, align=2),
                 P(f"{sc.get('total_score', 0):.0f}", size=10, align=2, color=g_color),
                 P(_GRADE_EMOJI_PDF.get(grade, grade), size=9, align=1, color=g_color),
             ])
-        cw_g = [30*mm, 22*mm, 24*mm, 22*mm, 22*mm, 18*mm, 30*mm]
+        cw_g = [28*mm, 20*mm, 22*mm, 20*mm, 20*mm, 20*mm, 16*mm, 22*mm]
         grade_tbl = Table(grade_data, colWidths=cw_g)
         grade_tbl.setStyle(TableStyle([
             ('FONTNAME',   (0,0), (-1,-1), font),
@@ -2038,13 +2039,13 @@ def generate_safety_report_pdf(
         e_header = [P(h, size=9, align=1, color=colors.white) for h in
                     ['교육일', '업체', '기사', '교육내용', '이수여부']]
         e_data = [e_header]
-        for ed in education_records[:20]:
+        for ed in education_records[:50]:
             e_data.append([
                 P(str(ed.get('edu_date', '')), size=8),
                 P(str(ed.get('vendor', '')), size=8),
                 P(str(ed.get('driver', '')), size=8),
-                P(str(ed.get('subject', '')), size=8),
-                P(str(ed.get('status', '')), size=8, align=1),
+                P(str(ed.get('edu_type', ed.get('subject', ''))), size=8),
+                P(str(ed.get('result', ed.get('status', ''))), size=8, align=1),
             ])
         cw_e = [26*mm, 26*mm, 24*mm, 58*mm, 26*mm]
         e_tbl = Table(e_data, colWidths=cw_e)
@@ -2072,7 +2073,7 @@ def generate_safety_report_pdf(
         ck_header = [P(h, size=9, align=1, color=colors.white) for h in
                      ['점검일', '업체', '기사', '차량번호', '점검결과']]
         ck_data = [ck_header]
-        for ck in checklist_records[:20]:
+        for ck in checklist_records[:50]:
             ck_data.append([
                 P(str(ck.get('check_date', '')), size=8),
                 P(str(ck.get('vendor', '')), size=8),
@@ -2106,12 +2107,12 @@ def generate_safety_report_pdf(
         a_header = [P(h, size=9, align=1, color=colors.white) for h in
                     ['사고일', '업체', '기사', '사고유형', '상태']]
         a_data = [a_header]
-        for ac in accident_records[:20]:
+        for ac in accident_records[:50]:
             a_data.append([
-                P(str(ac.get('accident_date', '')), size=8),
+                P(str(ac.get('occur_date', ac.get('accident_date', ''))), size=8),
                 P(str(ac.get('vendor', '')), size=8),
                 P(str(ac.get('driver', '')), size=8),
-                P(str(ac.get('type', '')), size=8),
+                P(str(ac.get('accident_type', ac.get('type', ''))), size=8),
                 P(str(ac.get('status', '')), size=8, align=1),
             ])
         cw_a = [26*mm, 28*mm, 24*mm, 46*mm, 36*mm]
@@ -2198,6 +2199,97 @@ def generate_safety_report_pdf(
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ]))
         story.append(t_cat)
+        story.append(Spacer(1, 3*mm))
+
+        # ── 일별 상세 이력 테이블 ──
+        story.append(P("▸ 일별 점검 상세", size=10, color=NAVY))
+        story.append(Spacer(1, 2*mm))
+        _dc_detail_header = [
+            P('점검일', size=8, align=1, color=colors.white),
+            P('업체', size=8, align=1, color=colors.white),
+            P('기사', size=8, align=1, color=colors.white),
+            P('카테고리', size=8, align=1, color=colors.white),
+            P('양호', size=8, align=1, color=colors.white),
+            P('불량', size=8, align=1, color=colors.white),
+            P('메모', size=8, align=1, color=colors.white),
+        ]
+        _dc_detail_data = [_dc_detail_header]
+        _sorted_dc = sorted(daily_checks, key=lambda x: x.get('check_date', ''), reverse=True)
+        for _drow in _sorted_dc[:50]:
+            _cat_lbl = _DSC.get(_drow.get('category', ''), {}).get('label', _drow.get('category', ''))
+            _f_cnt = int(_drow.get('total_fail', 0))
+            _dc_detail_data.append([
+                P(str(_drow.get('check_date', ''))[-5:], size=8, align=1),
+                P(str(_drow.get('vendor', '')), size=8),
+                P(str(_drow.get('driver', '')), size=8),
+                P(_cat_lbl, size=8),
+                P(str(_drow.get('total_ok', 0)), size=8, align=1),
+                P(str(_f_cnt), size=8, align=1,
+                  color=colors.red if _f_cnt > 0 else colors.black),
+                P(str(_drow.get('fail_memo', ''))[:30], size=7),
+            ])
+        _dc_dtbl = Table(_dc_detail_data,
+                         colWidths=[18*mm, 22*mm, 18*mm, 30*mm, 12*mm, 12*mm, 48*mm])
+        _dc_d_style = [
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0), NAVY),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]
+        for _di in range(1, len(_dc_detail_data)):
+            _dc_d_style.append(('BACKGROUND', (0,_di), (-1,_di),
+                                LGRAY if _di % 2 == 0 else colors.white))
+        _dc_dtbl.setStyle(TableStyle(_dc_d_style))
+        story.append(_dc_dtbl)
+        story.append(Spacer(1, 4*mm))
+
+        # ── 종합 평가 코멘트 (일일점검 + 체크리스트 연계) ──
+        story.append(P("▸ 종합 안전관리 평가", size=10, color=NAVY))
+        story.append(Spacer(1, 2*mm))
+
+        # 일일점검 이행률 평가
+        if _dc_rate >= 95:
+            _dc_eval = f"일일안전점검 양호율 {_dc_rate:.1f}% — 우수 (안전관리 체계 정상 운영)"
+        elif _dc_rate >= 80:
+            _dc_eval = f"일일안전점검 양호율 {_dc_rate:.1f}% — 양호 (일부 불량 항목 개선 필요)"
+        elif _dc_rate >= 60:
+            _dc_eval = f"일일안전점검 양호율 {_dc_rate:.1f}% — 주의 (불량 항목 즉시 시정 조치 필요)"
+        else:
+            _dc_eval = f"일일안전점검 양호율 {_dc_rate:.1f}% — 경보 (안전관리 전반 재점검 필요)"
+
+        # 체크리스트(7항목) 결과 연계
+        cl_yes = sum(1 for r in (checklist_results or []) if r == '예')
+        cl_total = len(checklist_results or [])
+        cl_rate = (cl_yes / cl_total * 100) if cl_total > 0 else 0
+        if cl_total > 0:
+            _cl_eval = f"안전보건 점검 체크리스트 {cl_yes}/{cl_total}항목 이행 ({cl_rate:.0f}%)"
+        else:
+            _cl_eval = "안전보건 점검 체크리스트 미작성"
+
+        eval_data = [
+            [P('평가 항목', size=8, align=1, color=colors.white),
+             P('결과', size=8, align=1, color=colors.white)],
+            [P('기사 일일안전점검 (산업안전보건법 §36)', size=9),
+             P(_dc_eval, size=8)],
+            [P('행정실 안전보건 체크리스트 (7항목)', size=9),
+             P(_cl_eval, size=8)],
+            [P('종합 의견', size=9),
+             P(f"일일점검 양호율 {_dc_rate:.0f}% + 체크리스트 이행률 {cl_rate:.0f}% → "
+               f"{'적정' if _dc_rate >= 80 and cl_rate >= 80 else '개선 필요'}",
+               size=8, color=GREEN if _dc_rate >= 80 and cl_rate >= 80 else ORANGE)],
+        ]
+        _eval_tbl = Table(eval_data, colWidths=[65*mm, 95*mm])
+        _eval_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0), NAVY),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(_eval_tbl)
         story.append(Spacer(1, 6*mm))
 
     # ── 8. 공사업체 확인서 ───────────────────────────────────────────────────

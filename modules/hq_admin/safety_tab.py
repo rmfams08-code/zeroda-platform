@@ -131,14 +131,14 @@ def _render_accident():
     if not df.empty and 'id' in df.columns:
         st.divider()
         st.markdown("#### 처리 상태 변경")
-        import sqlite3
-        from config.settings import DB_PATH
+        from database.db_manager import _conn as _db_conn
         sel_id = st.number_input("사고 ID", min_value=1, step=1, key="acc_id")
         new_status = st.selectbox("변경할 상태", ['처리중', '완료'], key="acc_new_status")
         if st.button("상태 변경", key="acc_update"):
             try:
-                conn = sqlite3.connect(DB_PATH)
-                conn.execute("UPDATE accident_report SET status=? WHERE id=?", (new_status, sel_id))
+                conn = _db_conn()
+                conn.execute("UPDATE accident_report SET status=? WHERE id=?",
+                             (new_status, sel_id))
                 conn.commit()
                 conn.close()
                 st.success(f"ID {sel_id} 상태 → {new_status}")

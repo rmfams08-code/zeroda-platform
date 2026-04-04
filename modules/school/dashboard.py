@@ -402,6 +402,36 @@ def _render_safety_report(school: str):
             st.metric("양호율", f"{ok_rate:.1f}%")
         with dc4:
             st.metric("불량 항목", f"{total_fail}건")
+
+        # ── 일별·카테고리별 상세 (접기/펼치기) ──
+        with st.expander("📄 일일점검 상세 이력 보기 (PDF에 반영됩니다)", expanded=False):
+            if 'category' in _dc_df.columns:
+                _dc_df['카테고리'] = _dc_df['category'].map(
+                    lambda x: DAILY_SAFETY_CHECKLIST.get(x, {}).get('label', x))
+            _dc_show = [c for c in ['check_date','vendor','driver','카테고리',
+                                     'total_ok','total_fail','fail_memo'] if c in _dc_df.columns]
+            st.dataframe(
+                _dc_df[_dc_show].sort_values('check_date', ascending=False)
+                if 'check_date' in _dc_df.columns else _dc_df[_dc_show],
+                use_container_width=True, hide_index=True,
+                column_config={'check_date': '점검일', 'vendor': '업체',
+                               'driver': '기사', 'total_ok': '양호',
+                               'total_fail': '불량', 'fail_memo': '메모'},
+            )
+
+            # 불량 항목 상세
+            if total_fail > 0:
+                st.markdown("**❌ 불량 발생 내역**")
+                _fail_rows = _dc_df[_dc_df['total_fail'] > 0]
+                for _, _fr in _fail_rows.iterrows():
+                    _cat_nm = DAILY_SAFETY_CHECKLIST.get(
+                        _fr.get('category', ''), {}).get('label', '')
+                    _memo = _fr.get('fail_memo', '')
+                    st.caption(
+                        f"📅 {_fr.get('check_date','')} | 👤 {_fr.get('driver','')} | "
+                        f"📂 {_cat_nm} | ❌ {_fr.get('total_fail',0)}개"
+                        + (f" | {_memo}" if _memo else "")
+                    )
     else:
         st.info("해당 기간 일일안전점검 이력이 없습니다.")
 

@@ -1027,13 +1027,36 @@ def render_dashboard(user: dict):
     with st.expander("🚨 일일 안전보건 점검 (출발 전 필수)", expanded=True):
         st.caption("산업안전보건법 제36조에 따른 위험성평가 기록물입니다. 모든 항목을 확인하세요.")
 
+        # ── 전체 양호 버튼 ──
+        _chk_all_cols = st.columns([1, 1, 2])
+        with _chk_all_cols[0]:
+            if st.button("☑️ 전체 양호", key="dsc_check_all", use_container_width=True):
+                for _ca_key, _ca_info in DAILY_SAFETY_CHECKLIST.items():
+                    for _it in _ca_info['items']:
+                        st.session_state[f"dsc_{_it['id']}"] = True
+                st.rerun()
+        with _chk_all_cols[1]:
+            if st.button("⬜ 전체 해제", key="dsc_uncheck_all", use_container_width=True):
+                for _ca_key, _ca_info in DAILY_SAFETY_CHECKLIST.items():
+                    for _it in _ca_info['items']:
+                        st.session_state[f"dsc_{_it['id']}"] = False
+                st.rerun()
+
         _all_results = {}
         _total_items = 0
         _total_checked = 0
         _fail_items = []
 
         for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
-            st.markdown(f"**{cat_info['icon']} {cat_info['label']}**")
+            # 카테고리 헤더 + 카테고리별 전체 양호 버튼
+            _cat_hdr = st.columns([3, 1])
+            with _cat_hdr[0]:
+                st.markdown(f"**{cat_info['icon']} {cat_info['label']}**")
+            with _cat_hdr[1]:
+                if st.button("✅전체", key=f"dsc_cat_all_{cat_key}"):
+                    for _it in cat_info['items']:
+                        st.session_state[f"dsc_{_it['id']}"] = True
+                    st.rerun()
             _cat_results = {}
             for item in cat_info['items']:
                 _ck_key = f"dsc_{item['id']}"
