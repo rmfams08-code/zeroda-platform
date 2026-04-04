@@ -255,22 +255,7 @@ def is_logged_in():
                     pass
         except Exception:
             pass
-    # ── localStorage 토큰 기반 자동 로그인 (PWA 기사앱) ──
-    auto_token = st.session_state.get('_auto_login_token', '')
-    if auto_token:
-        uid = _verify_auto_login_token(auto_token)
-        if uid:
-            db_rows = db_get('users', {'user_id': uid})
-            if db_rows and int(db_rows[0].get('is_active', 1)) == 1:
-                user = db_rows[0]
-                # 승인 상태 확인
-                if user.get('approval_status', 'approved') == 'approved' or not user.get('approval_status'):
-                    st.session_state.user = user
-                    st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    st.session_state['_last_activity'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    return True
-        # 토큰 무효 → 세션에서 제거
-        st.session_state.pop('_auto_login_token', None)
+    # 자동 로그인은 render_login_page()에서 query_params 방식으로 처리
     return False
 
 
@@ -318,49 +303,34 @@ def _verify_auto_login_token(token: str):
         return None
 
 
-def inject_auto_login_js(user=None):
-    """
-    로그인 페이지 또는 메인 페이지에 JS를 주입:
-    - user가 주어지면: localStorage에 토큰 저장 (로그인 성공 직후)
-    - user가 None이면: localStorage에서 토큰 읽어 hidden input에 전달
-    """
-    if user:
-        # 로그인 성공 → 토큰 저장 (기사 역할만)
-        if user.get('role') == 'driver':
-            token = _create_auto_login_token(user.get('user_id', ''))
-            st.markdown(f"""
-            <script>
-            try {{ localStorage.setItem('zeroda_auto_token', '{token}'); }} catch(e) {{}}
-            </script>
-            """, unsafe_allow_html=True)
-    else:
-        # 로그인 페이지 → 토큰 존재 시 자동 로그인 시도
-        # hidden text_input에 토큰 값을 JS로 주입 → Streamlit에서 읽기
-        st.markdown("""
+def inject_auto_login_save_js(user):
+    """로그인 성공 직후: 기사 역할이면 localStorage에 토큰 저장"""
+    if user and user.get('role') == 'driver':
+        token = _create_auto_login_token(user.get('user_id', ''))
+        st.markdown(f"""
         <script>
-        (function() {
-            try {
-                var token = localStorage.getItem('zeroda_auto_token');
-                if (token) {
-                    // 숨겨진 input에 토큰 전달
-                    var attempts = 0;
-                    var interval = setInterval(function() {
-                        var inputs = document.querySelectorAll('input[aria-label="__zeroda_auto_token__"]');
-                        if (inputs.length > 0) {
-                            var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                                window.HTMLInputElement.prototype, 'value').set;
-                            nativeInputValueSetter.call(inputs[0], token);
-                            inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-                            clearInterval(interval);
-                        }
-                        attempts++;
-                        if (attempts > 30) clearInterval(interval);
-                    }, 200);
-                }
-            } catch(e) {}
-        })();
+        try {{ localStorage.setItem('zeroda_auto_token', '{token}'); }} catch(e) {{}}
         </script>
         """, unsafe_allow_html=True)
+
+
+def inject_auto_login_redirect_js():
+    """로그인 페이지: localStorage에 토큰이 있으면 ?zat=토큰 붙여서 리다이렉트"""
+    st.markdown("""
+    <script>
+    (function() {
+        try {
+            var token = localStorage.getItem('zeroda_auto_token');
+            if (token && !window.location.search.includes('zat=')) {
+                // 토큰이 있고 아직 query param에 없으면 리다이렉트
+                var url = window.location.origin + window.location.pathname
+                          + '?zat=' + encodeURIComponent(token);
+                window.location.replace(url);
+            }
+        } catch(e) {}
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
 
 def clear_auto_login_js():
@@ -393,17 +363,11 @@ def render_login_page():
         _render_register_page()
         return
 
-    # ── localStorage 자동 로그인 토큰 수신용 hidden input ──
-    inject_auto_login_js()  # JS: localStorage → hidden input 전달
-    # hidden input (화면에 안 보이게 CSS 처리)
-    st.markdown("""<style>
-    div:has(> div > div > input[aria-label="__zeroda_auto_token__"]) {
-        position: absolute; left: -9999px; height: 0; overflow: hidden;
-    }
-    </style>""", unsafe_allow_html=True)
-    _auto_tok = st.text_input("__zeroda_auto_token__", key="_auto_token_input",
-                               label_visibility="collapsed")
+    # ── 자동 로그인: query_params 방식 (localStorage → URL → Python) ──
+    _qp = st.query_params
+    _auto_tok = _qp.get('zat', '')
     if _auto_tok:
+        # query param에서 토큰 발견 → 검증 후 자동 로그인
         uid = _verify_auto_login_token(_auto_tok)
         if uid:
             db_rows = db_get('users', {'user_id': uid})
@@ -413,7 +377,14 @@ def render_login_page():
                     st.session_state.user = user
                     st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     st.session_state['_last_activity'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    # URL에서 토큰 제거 후 진입
+                    st.query_params.clear()
                     st.rerun()
+        # 토큰 무효 → URL 정리 후 일반 로그인 표시
+        st.query_params.clear()
+    else:
+        # 토큰이 URL에 없으면 → JS가 localStorage 확인 후 리다이렉트
+        inject_auto_login_redirect_js()
 
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
 
@@ -585,7 +556,7 @@ def render_login_page():
                 st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 save_login_cookie(user)
                 # 기사 역할: localStorage에 자동 로그인 토큰 저장
-                inject_auto_login_js(user)
+                inject_auto_login_save_js(user)
                 st.rerun()
             else:
                 st.error(err_msg if err_msg else "아이디 또는 비밀번호가 올바르지 않습니다.")
