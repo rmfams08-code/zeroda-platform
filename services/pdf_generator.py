@@ -861,6 +861,7 @@ def generate_ai_meal_statement_pdf(
     anomalies: list = None,
     combo_analysis: list = None,
     school_standard: dict = None,
+    ai_daily_remarks: dict = None,
 ) -> bytes:
     """
     AI 월말명세서 PDF — 스마트월말명세서와 차별화된 AI 전용 보고서
@@ -1243,12 +1244,15 @@ def generate_ai_meal_statement_pdf(
         story.append(Spacer(1, 5*mm))
 
     # ══════════════════════════════════════════
-    # 일별 상세 테이블 (기존과 동일)
+    # 일별 상세 테이블 (AI 특이사항 강화)
     # ══════════════════════════════════════════
     story.append(P("■ 일별 식단 × 잔반량", size=11, color=PURPLE))
     story.append(Spacer(1, 2*mm))
 
-    header = ['날짜', '메뉴', '인원', '잔반(kg)', '1인당(g)', '등급', '특이사항']
+    _ai_rmk = ai_daily_remarks or {}
+    _has_ai = bool(_ai_rmk)
+    _col_label = '특이사항 (공식기준 + AI)' if _has_ai else '특이사항'
+    header = ['날짜', '메뉴', '인원', '잔반(kg)', '1인당(g)', '등급', _col_label]
     tdata = [[P(h, size=9, align=1, color=colors.white) for h in header]]
 
     for r in analysis_rows:
@@ -1267,17 +1271,27 @@ def generate_ai_meal_statement_pdf(
         grade_color = GREEN if grade == 'A' else (ORANGE if grade == 'B' else (RED if grade == 'D' else colors.black))
         remark = r.get('remark', '')
 
+        # AI 일별 코멘트 병합
+        meal_date = r.get('meal_date', '')
+        ai_rmk_text = _ai_rmk.get(meal_date, '')
+        if ai_rmk_text:
+            combined = f"{remark}<br/><font color='#6A1B9A'><b>[AI]</b> {ai_rmk_text}</font>"
+        else:
+            combined = remark
+
         tdata.append([
-            P(r.get('meal_date', '')[-5:], size=9, align=1),
+            P(meal_date[-5:] if meal_date else '', size=9, align=1),
             P(menu_str, size=8),
             P(f"{srv:,}" if srv > 0 else '-', size=9, align=2),
             P(f"{wkg:.1f}", size=9, align=2),
             P(f"{wpp:.1f}", size=9, align=2),
             P(grade, size=10, align=1, color=grade_color),
-            P(remark, size=7),
+            P(combined, size=7),
         ])
 
-    detail_tbl = Table(tdata, colWidths=[16*mm, 48*mm, 14*mm, 14*mm, 14*mm, 10*mm, 49*mm])
+    _rmk_w = 53*mm if _has_ai else 49*mm
+    _menu_w = 44*mm if _has_ai else 48*mm
+    detail_tbl = Table(tdata, colWidths=[16*mm, _menu_w, 14*mm, 14*mm, 14*mm, 10*mm, _rmk_w])
     detail_style = [
         ('FONTNAME',   (0,0), (-1,-1), font),
         ('BACKGROUND', (0,0), (-1,0),  PURPLE),
@@ -1851,6 +1865,7 @@ def generate_safety_report_pdf(
     accident_records: list,
     vendor_name: str = '',
     checklist_results: list = None,
+    daily_checks: list = None,
 ) -> bytes:
     """
     안전관리보고서 PDF 생성 (학교·교육청 공용)
@@ -2117,8 +2132,76 @@ def generate_safety_report_pdf(
         story.append(P("해당 기간 사고 보고 없음", size=10, color=GREEN))
     story.append(Spacer(1, 6*mm))
 
+    # ── 7-2. 일일안전보건 점검 이행 현황 ──────────────────────────────────────
+    if daily_checks:
+        story.append(P("7. 일일안전보건 점검 이행 현황 (산업안전보건법 제36조)", size=12, color=NAVY))
+        story.append(Spacer(1, 2*mm))
+
+        import json as _json
+        from config.settings import DAILY_SAFETY_CHECKLIST as _DSC
+
+        _dc_total_ok = sum(int(r.get('total_ok', 0)) for r in daily_checks)
+        _dc_total_fail = sum(int(r.get('total_fail', 0)) for r in daily_checks)
+        _dc_all = _dc_total_ok + _dc_total_fail
+        _dc_rate = (_dc_total_ok / _dc_all * 100) if _dc_all > 0 else 0
+        _dc_dates = len(set(r.get('check_date', '') for r in daily_checks))
+
+        dc_summary = [
+            [P('총 점검 건수', size=8, align=1, color=colors.white),
+             P('점검일 수', size=8, align=1, color=colors.white),
+             P('양호 항목', size=8, align=1, color=colors.white),
+             P('불량 항목', size=8, align=1, color=colors.white),
+             P('양호율', size=8, align=1, color=colors.white)],
+            [P(f'{len(daily_checks)}건', size=9, align=1),
+             P(f'{_dc_dates}일', size=9, align=1),
+             P(f'{_dc_total_ok}개', size=9, align=1),
+             P(f'{_dc_total_fail}개', size=9, align=1,
+               color=colors.red if _dc_total_fail > 0 else colors.black),
+             P(f'{_dc_rate:.1f}%', size=9, align=1)],
+        ]
+        t_dc = Table(dc_summary, colWidths=[35*mm, 30*mm, 30*mm, 30*mm, 30*mm])
+        t_dc.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), NAVY),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(t_dc)
+        story.append(Spacer(1, 3*mm))
+
+        # 카테고리별 요약
+        from collections import Counter
+        _cat_counter = Counter()
+        _cat_fail_counter = Counter()
+        for r in daily_checks:
+            cat = r.get('category', '')
+            _cat_counter[cat] += int(r.get('total_ok', 0)) + int(r.get('total_fail', 0))
+            _cat_fail_counter[cat] += int(r.get('total_fail', 0))
+
+        dc_cat_data = [[
+            P('점검 카테고리', size=8, align=1, color=colors.white),
+            P('총 항목 수', size=8, align=1, color=colors.white),
+            P('불량 건수', size=8, align=1, color=colors.white),
+        ]]
+        for cat_key, cat_info in _DSC.items():
+            total_items = _cat_counter.get(cat_key, 0)
+            fail_items = _cat_fail_counter.get(cat_key, 0)
+            dc_cat_data.append([
+                P(f"{cat_info['icon']} {cat_info['label']}", size=9),
+                P(f'{total_items}', size=9, align=1),
+                P(f'{fail_items}', size=9, align=1,
+                  color=colors.red if fail_items > 0 else colors.black),
+            ])
+        t_cat = Table(dc_cat_data, colWidths=[70*mm, 40*mm, 40*mm])
+        t_cat.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), NAVY),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(t_cat)
+        story.append(Spacer(1, 6*mm))
+
     # ── 8. 공사업체 확인서 ───────────────────────────────────────────────────
-    story.append(P("7. 공사업체 확인서", size=12, color=NAVY))
+    story.append(P("8. 공사업체 확인서", size=12, color=NAVY))
     story.append(Spacer(1, 2*mm))
 
     confirm_text = (

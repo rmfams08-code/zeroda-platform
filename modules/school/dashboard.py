@@ -267,7 +267,9 @@ def _render_safety_report(school: str):
     st.caption("중대재해예방점검 서류 기반 월간 안전관리 보고서를 조회·다운로드할 수 있습니다.")
 
     from database.db_manager import (db_get, get_safety_scores, get_violations,
-                                     get_vendors_by_school, calculate_safety_score)
+                                     get_vendors_by_school, calculate_safety_score,
+                                     get_daily_safety_checks)
+    from config.settings import DAILY_SAFETY_CHECKLIST
 
     col1, col2 = st.columns(2)
     with col1:
@@ -376,6 +378,33 @@ def _render_safety_report(school: str):
     with c3:
         st.metric("사고 보고", f"{len(accident_rows)}건")
 
+    # ── 일일안전점검 이행 현황 ────────────────────────────────────────────
+    st.markdown("#### 📋 일일안전보건 점검 이행 현황")
+    daily_checks = []
+    for v in (my_vendors or []):
+        daily_checks.extend(get_daily_safety_checks(vendor=v, year_month=year_month))
+
+    if daily_checks:
+        _dc_df = pd.DataFrame(daily_checks)
+        required_cats = len(DAILY_SAFETY_CHECKLIST)
+        unique_dates = _dc_df['check_date'].nunique() if 'check_date' in _dc_df.columns else 0
+        total_ok = int(_dc_df['total_ok'].sum()) if 'total_ok' in _dc_df.columns else 0
+        total_fail = int(_dc_df['total_fail'].sum()) if 'total_fail' in _dc_df.columns else 0
+        all_items = total_ok + total_fail
+        ok_rate = (total_ok / all_items * 100) if all_items > 0 else 0
+
+        dc1, dc2, dc3, dc4 = st.columns(4)
+        with dc1:
+            st.metric("점검 건수", f"{len(daily_checks)}건")
+        with dc2:
+            st.metric("점검일 수", f"{unique_dates}일")
+        with dc3:
+            st.metric("양호율", f"{ok_rate:.1f}%")
+        with dc4:
+            st.metric("불량 항목", f"{total_fail}건")
+    else:
+        st.info("해당 기간 일일안전점검 이력이 없습니다.")
+
     st.divider()
 
     # ── 안전보건 점검 체크리스트 (HWP 기반) ──────────────────────────────
@@ -429,6 +458,7 @@ def _render_safety_report(school: str):
                 accident_records=accident_rows,
                 vendor_name=vendor_name,
                 checklist_results=checklist_results,
+                daily_checks=daily_checks,
             )
             st.download_button(
                 label="⬇️ PDF 다운로드",

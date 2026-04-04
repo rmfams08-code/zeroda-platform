@@ -483,6 +483,30 @@ def migrate_safety_tables():
             )
         """)
 
+        # 일일 안전보건 점검표 테이블 (산업안전보건법 제36조)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS daily_safety_check (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor TEXT NOT NULL,
+                driver TEXT NOT NULL,
+                check_date TEXT NOT NULL,
+                vehicle_no TEXT DEFAULT '',
+                category TEXT NOT NULL,
+                check_items TEXT DEFAULT '{}',
+                total_ok INTEGER DEFAULT 0,
+                total_fail INTEGER DEFAULT 0,
+                fail_memo TEXT DEFAULT '',
+                created_at TEXT,
+                UNIQUE(vendor, driver, check_date, category)
+            )
+        """)
+
+        # safety_scores 테이블에 daily_check_score 컬럼 추가 (기존 DB 호환)
+        try:
+            c.execute("ALTER TABLE safety_scores ADD COLUMN daily_check_score REAL DEFAULT 0.0")
+        except Exception:
+            pass  # 이미 존재하면 무시
+
         conn.commit()
         conn.close()
         print("[migrate_safety_tables] 안전관리 평가 테이블 준비 완료")

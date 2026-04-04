@@ -373,7 +373,9 @@ def _render_safety(managed_schools: list = None):
 
     # ── 관할학교의 담당 수거업체만 조회 ───────────────────────────────
     from database.db_manager import (get_safety_scores, get_vendors_by_schools,
-                                     calculate_safety_score, get_vendor_name)
+                                     calculate_safety_score, get_vendor_name,
+                                     get_daily_safety_checks)
+    from config.settings import DAILY_SAFETY_CHECKLIST
     my_vendors = get_vendors_by_schools(managed_schools) if managed_schools else []
 
     # ── 섹션1: 업체별 안전관리 등급 요약 카드 ─────────────────────────
@@ -577,6 +579,11 @@ def _render_safety(managed_schools: list = None):
                     if str(r.get('accident_date', '')).startswith(f"{year}-{str(pdf_month).zfill(2)}")
                     and (not my_vendors or r.get('vendor') in my_vendors)]
 
+    # 일일안전점검 데이터 수집
+    edu_daily_checks = []
+    for v in (my_vendors or []):
+        edu_daily_checks.extend(get_daily_safety_checks(vendor=v, year_month=pdf_ym))
+
     if st.button("📄 안전관리보고서 PDF 생성", key="edu_safety_pdf_btn", type="primary"):
         try:
             from services.pdf_generator import generate_safety_report_pdf
@@ -592,6 +599,7 @@ def _render_safety(managed_schools: list = None):
                 accident_records=pdf_accident,
                 vendor_name=edu_vendor_name,
                 checklist_results=edu_cl_results,
+                daily_checks=edu_daily_checks,
             )
             st.download_button(
                 label="⬇️ PDF 다운로드",

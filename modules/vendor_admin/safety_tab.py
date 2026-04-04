@@ -6,7 +6,17 @@ from datetime import date, datetime
 from database.db_manager import db_get, db_insert
 
 
-CHECKLIST_ITEMS = ['브레이크', '타이어', '등화장치', '와이퍼', '냉각수', '엔진오일', '안전벨트', '소화기']
+# 수거차량 특화 점검항목 (기존 일반차량 8항목 → 폐기물수집운반 특화 8항목)
+CHECKLIST_ITEMS = [
+    '타이어·제동장치·오일류',
+    '리프트 유압호스·연결부',
+    '리프트 비상정지 스위치',
+    '리프트 승강구간 이물질',
+    '체인·와이어로프 상태',
+    '적재함 도어 잠금장치',
+    '후진경보음·경광등',
+    '사이드브레이크·고임목',
+]
 
 
 def render_safety_tab(vendor):

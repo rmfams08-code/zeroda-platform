@@ -20,7 +20,7 @@ from services.pdf_generator import (
 )
 from config.settings import (
     COMMON_CSS, get_school_standard, detect_school_level,
-    OFFICIAL_REFERENCES,
+    OFFICIAL_REFERENCES, AI_DAILY_REMARK_PROMPT,
 )
 
 
@@ -880,11 +880,71 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
     combo_data = _build_combo_analysis(analysis)
     school_std = get_school_standard(site_name)
 
+    # ── AI 일별 특이사항 생성 함수 ──
+    def _generate_ai_daily_remarks(rows, site, ym, std):
+        """Claude API로 일별 AI 코멘트를 생성하여 dict(날짜→코멘트)로 반환"""
+        api_key = os.environ.get('ANTHROPIC_API_KEY') or st.session_state.get('api_key', '')
+        if not api_key:
+            return {}
+
+        # 공식기준 텍스트
+        _nut = std.get('nutrition', {})
+        _comp = std.get('composition', {})
+        std_txt = (
+            f"학교급: {_nut.get('label','')}, "
+            f"1끼 에너지: {_nut.get('energy_kcal','')}kcal, "
+            f"잔반등급: A(<150g), B(150~245g), C(245~300g), D(300g+)"
+        )
+
+        # 일별 데이터 텍스트
+        lines = []
+        for r in rows:
+            dt = r.get('meal_date', '')
+            try:
+                menu_items = json.loads(r.get('menu_items', '[]'))
+            except Exception:
+                menu_items = []
+            menu_str = ', '.join(menu_items[:4])
+            wpp = float(r.get('waste_per_person', 0) or 0)
+            grade = r.get('grade', '-')
+            srv = int(r.get('servings', 0) or 0)
+            lines.append(f"{dt} | 메뉴: {menu_str} | 인원: {srv} | 1인당: {wpp:.1f}g | 등급: {grade}")
+
+        daily_text = '\n'.join(lines)
+
+        prompt = AI_DAILY_REMARK_PROMPT.format(
+            site_name=site, year_month=ym,
+            school_standard_text=std_txt,
+            daily_data_text=daily_text,
+        )
+
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            message = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            resp_text = message.content[0].text.strip()
+            # JSON 파싱 (코드블럭 포함 대응)
+            if '```' in resp_text:
+                resp_text = resp_text.split('```')[1]
+                if resp_text.startswith('json'):
+                    resp_text = resp_text[4:]
+            parsed = json.loads(resp_text)
+            return parsed.get('remarks', parsed)
+        except Exception as e:
+            st.warning(f"AI 일별 코멘트 생성 실패 (기본 특이사항으로 대체): {str(e)[:60]}")
+            return {}
+
     bc1, bc2 = st.columns(2)
 
     with bc1:
         if st.button("📄 AI월말명세서 생성", type="primary",
                      key="aiwt_stmt_basic", use_container_width=True):
+            with st.spinner("AI가 일별 특이사항을 분석하고 있습니다..."):
+                ai_remarks = _generate_ai_daily_remarks(analysis, site_name, sel_month, school_std)
             with st.spinner("AI월말명세서 PDF 생성 중..."):
                 pdf_bytes = generate_ai_meal_statement_pdf(
                     site_name=site_name,
@@ -898,6 +958,7 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
                     anomalies=anomalies_raw,
                     combo_analysis=combo_data,
                     school_standard=school_std,
+                    ai_daily_remarks=ai_remarks,
                 )
                 st.session_state['_aiwt_stmt_pdf'] = pdf_bytes
                 st.session_state['_aiwt_stmt_filename'] = f"AI월말명세서_{site_name}_{sel_month}.pdf"
@@ -907,6 +968,8 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
         if ai_meals:
             if st.button("📄 AI월말명세서 생성 (추천 포함)",
                          key="aiwt_stmt_ai", use_container_width=True):
+                with st.spinner("AI가 일별 특이사항을 분석하고 있습니다..."):
+                    ai_remarks = _generate_ai_daily_remarks(analysis, site_name, sel_month, school_std)
                 with st.spinner("AI월말명세서 PDF 생성 중 (추천 포함)..."):
                     pdf_bytes = generate_ai_meal_statement_pdf(
                         site_name=site_name,
@@ -920,6 +983,7 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
                         anomalies=anomalies_raw,
                         combo_analysis=combo_data,
                         school_standard=school_std,
+                        ai_daily_remarks=ai_remarks,
                     )
                     st.session_state['_aiwt_stmt_pdf'] = pdf_bytes
                     st.session_state['_aiwt_stmt_filename'] = f"AI월말명세서_{site_name}_{sel_month}_AI추천포함.pdf"

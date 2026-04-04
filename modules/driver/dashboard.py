@@ -6,8 +6,11 @@ import urllib.parse
 import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-from database.db_manager import db_insert, db_get, db_upsert, get_schools_by_vendor, save_customer_gps
-from config.settings import COMMON_CSS
+from database.db_manager import (
+    db_insert, db_get, db_upsert, get_schools_by_vendor, save_customer_gps,
+    save_daily_safety_check, get_daily_safety_checks,
+)
+from config.settings import COMMON_CSS, DAILY_SAFETY_CHECKLIST
 
 WEEKDAY_MAP = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
 
@@ -1019,26 +1022,64 @@ def render_dashboard(user: dict):
             pass
 
     # ══════════════════════════════════════════════
-    # 섹션1: 안전점검
+    # 섹션1: 일일 안전보건 점검 (산업안전보건법 제36조)
     # ══════════════════════════════════════════════
-    with st.expander("🚨 운행 전 안전점검", expanded=True):
-        st.caption("출발 전 반드시 확인하세요.")
+    with st.expander("🚨 일일 안전보건 점검 (출발 전 필수)", expanded=True):
+        st.caption("산업안전보건법 제36조에 따른 위험성평가 기록물입니다. 모든 항목을 확인하세요.")
 
-        results = {}
-        for key, label in SAFETY_CHECKS:
-            results[key] = st.checkbox(label, key=key)
+        _all_results = {}
+        _total_items = 0
+        _total_checked = 0
+        _fail_items = []
 
-        checked_count = sum(results.values())
-        total_count   = len(SAFETY_CHECKS)
-        _safe_ratio = (checked_count / total_count) if total_count > 0 else 0.0
+        for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
+            st.markdown(f"**{cat_info['icon']} {cat_info['label']}**")
+            _cat_results = {}
+            for item in cat_info['items']:
+                _ck_key = f"dsc_{item['id']}"
+                checked = st.checkbox(item['text'], key=_ck_key)
+                _cat_results[item['id']] = '양호' if checked else '미점검'
+                _total_items += 1
+                if checked:
+                    _total_checked += 1
+                else:
+                    _fail_items.append(item['text'][:20])
+            _all_results[cat_key] = _cat_results
+
+        # 전체 진행률
+        _safe_ratio = (_total_checked / _total_items) if _total_items > 0 else 0.0
         _safe_ratio = max(0.0, min(1.0, _safe_ratio))
         st.progress(_safe_ratio)
-        st.caption(f"{checked_count} / {total_count} 항목 완료")
+        st.caption(f"{_total_checked} / {_total_items} 항목 완료")
 
-        if checked_count == total_count:
+        if _total_checked == _total_items:
             st.success("✅ 모든 안전점검 완료! 안전 운행하세요. 🚦")
         else:
-            st.warning(f"⚠️ {total_count - checked_count}개 항목을 확인해 주세요.")
+            st.warning(f"⚠️ {_total_items - _total_checked}개 항목을 확인해 주세요.")
+
+        # 불량 항목 메모
+        _fail_memo = ''
+        if _total_items - _total_checked > 0:
+            _fail_memo = st.text_area(
+                "불량/미점검 항목 조치사항",
+                placeholder="예: 리프트 유압호스 미세 누유 발견 → 정비 예약",
+                key="dsc_fail_memo", height=80)
+
+        # 저장 버튼
+        if st.button("💾 점검 결과 저장", key="dsc_save_btn", use_container_width=True):
+            _save_ok = True
+            for cat_key, cat_info in DAILY_SAFETY_CHECKLIST.items():
+                _items_dict = _all_results.get(cat_key, {})
+                ok = save_daily_safety_check(
+                    vendor=vendor, driver=driver_name,
+                    check_date=today_str, category=cat_key,
+                    check_items=_items_dict, fail_memo=_fail_memo)
+                if not ok:
+                    _save_ok = False
+            if _save_ok:
+                st.success("✅ 일일 안전점검 결과가 저장되었습니다. (본사 자동 전송)")
+            else:
+                st.error("저장 중 오류가 발생했습니다.")
 
         st.divider()
 
@@ -1760,11 +1801,17 @@ def render_dashboard(user: dict):
     if remain:
         st.warning(f"⚠️ 미완료 거래처 {len(remain)}곳: {', '.join(remain)}")
 
-    safety_done = all(
-        st.session_state.get(key, False) for key, _ in SAFETY_CHECKS
+    # 일일안전점검 DB 저장 여부로 완료 확인
+    _today_str = date.today().strftime('%Y-%m-%d')
+    _today_checks = get_daily_safety_checks(
+        vendor=vendor, driver=driver_name, check_date=_today_str
     )
-    if not safety_done:
-        st.warning("⚠️ 안전점검이 완료되지 않았습니다. 위 안전점검 섹션을 확인하세요.")
+    _saved_categories = set(r.get('category', '') for r in _today_checks)
+    _required_categories = set(DAILY_SAFETY_CHECKLIST.keys())
+    _missing = _required_categories - _saved_categories
+    if _missing:
+        _missing_labels = [DAILY_SAFETY_CHECKLIST[c]['label'] for c in _missing if c in DAILY_SAFETY_CHECKLIST]
+        st.warning(f"⚠️ 일일안전점검 미완료: {', '.join(_missing_labels)}")
 
     if st.button("🏠 퇴근하기", use_container_width=True,
                  type="primary", key="btn_off"):

@@ -586,14 +586,15 @@ def calculate_safety_score(vendor: str, year_month: str) -> dict:
 
     평가 기준:
       - 스쿨존 위반: 40점 만점, 1건당 -8점
-      - 차량점검 이행률: 30점 만점, 이행률(%) × 30
+      - 차량점검 이행률: 15점 만점, 이행률(%) × 15
+      - 일일안전점검 이행률: 15점 만점, 이행률(%) × 15
       - 교육이수율: 30점 만점, 이수율(%) × 30
 
     등급:
       S(90~100), A(75~89), B(60~74), C(40~59), D(0~39)
 
     반환: {'vendor', 'year_month', 'violation_score', 'checklist_score',
-            'education_score', 'total_score', 'grade'}
+            'daily_check_score', 'education_score', 'total_score', 'grade'}
     """
     year, month = year_month.split('-')
     month_prefix = f"{year}-{month}"
@@ -614,7 +615,28 @@ def calculate_safety_score(vendor: str, year_month: str) -> dict:
                       if str(r.get('check_date', '')).startswith(month_prefix)]
     checked_drivers = len(set(r.get('driver', '') for r in checklist_rows if r.get('driver')))
     checklist_rate   = min(checked_drivers / driver_count, 1.0)
-    checklist_score  = round(checklist_rate * 30.0, 1)
+    checklist_score  = round(checklist_rate * 15.0, 1)
+
+    # ── 2-2) 일일안전점검 이행률 점수 (15점 만점) ──────────────────────
+    from config.settings import DAILY_SAFETY_CHECKLIST
+    daily_rows = [r for r in db_get('daily_safety_check', {'vendor': vendor})
+                  if str(r.get('check_date', '')).startswith(month_prefix)]
+    required_cats = len(DAILY_SAFETY_CHECKLIST)
+    # 기사별·일별 카테고리 수 → 이행률
+    if daily_rows and driver_count > 0:
+        from collections import defaultdict
+        _daily_map = defaultdict(set)
+        for dr in daily_rows:
+            key = (dr.get('driver', ''), dr.get('check_date', ''))
+            _daily_map[key].add(dr.get('category', ''))
+        # 완전 이행(4카테고리 모두 점검) 건수
+        full_days = sum(1 for cats in _daily_map.values() if len(cats) >= required_cats)
+        # 해당 월 근무일수 추정 (점검 시도가 있는 고유 날짜 수)
+        unique_dates = len(set(dr.get('check_date', '') for dr in daily_rows))
+        daily_rate = min(full_days / max(unique_dates * driver_count, 1), 1.0)
+    else:
+        daily_rate = 0.0
+    daily_check_score = round(daily_rate * 15.0, 1)
 
     # ── 3) 교육이수율 점수 (30점 만점) ──────────────────────────────────
     edu_rows = [r for r in db_get('safety_education', {'vendor': vendor})
@@ -624,7 +646,7 @@ def calculate_safety_score(vendor: str, year_month: str) -> dict:
     education_score  = round(edu_rate * 30.0, 1)
 
     # ── 총점 & 등급 ──────────────────────────────────────────────────────
-    total_score = round(violation_score + checklist_score + education_score, 1)
+    total_score = round(violation_score + checklist_score + daily_check_score + education_score, 1)
     if total_score >= 90:
         grade = 'S'
     elif total_score >= 75:
@@ -637,14 +659,15 @@ def calculate_safety_score(vendor: str, year_month: str) -> dict:
         grade = 'D'
 
     result = {
-        'vendor':           vendor,
-        'year_month':       year_month,
-        'violation_score':  violation_score,
-        'checklist_score':  checklist_score,
-        'education_score':  education_score,
-        'total_score':      total_score,
-        'grade':            grade,
-        'updated_at':       datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S'),
+        'vendor':            vendor,
+        'year_month':        year_month,
+        'violation_score':   violation_score,
+        'checklist_score':   checklist_score,
+        'daily_check_score': daily_check_score,
+        'education_score':   education_score,
+        'total_score':       total_score,
+        'grade':             grade,
+        'updated_at':        datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S'),
     }
 
     # safety_scores 테이블에 저장 (UNIQUE(vendor, year_month) → upsert)
@@ -654,17 +677,18 @@ def calculate_safety_score(vendor: str, year_month: str) -> dict:
         c.execute("""
             INSERT INTO safety_scores
                 (vendor, year_month, violation_score, checklist_score,
-                 education_score, total_score, grade, updated_at)
-            VALUES (?,?,?,?,?,?,?,?)
+                 daily_check_score, education_score, total_score, grade, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?)
             ON CONFLICT(vendor, year_month) DO UPDATE SET
                 violation_score=excluded.violation_score,
                 checklist_score=excluded.checklist_score,
+                daily_check_score=excluded.daily_check_score,
                 education_score=excluded.education_score,
                 total_score=excluded.total_score,
                 grade=excluded.grade,
                 updated_at=excluded.updated_at
         """, (vendor, year_month, violation_score, checklist_score,
-              education_score, total_score, grade,
+              daily_check_score, education_score, total_score, grade,
               result['updated_at']))
         conn.commit()
         conn.close()
@@ -693,6 +717,100 @@ def get_violations(vendor: str = None, year_month: str = None) -> list:
     if year_month:
         rows = [r for r in rows if str(r.get('violation_date', '')).startswith(year_month)]
     return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 일일 안전보건 점검표 CRUD (산업안전보건법 제36조)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_daily_safety_check(vendor: str, driver: str, check_date: str,
+                            category: str, check_items: dict,
+                            vehicle_no: str = '', fail_memo: str = '') -> bool:
+    """일일 안전보건 점검 결과 저장 (UPSERT)"""
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    total_ok = sum(1 for v in check_items.values() if v == '양호')
+    total_fail = sum(1 for v in check_items.values() if v == '불량')
+    now = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+
+    try:
+        import sqlite3
+        from config.settings import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO daily_safety_check
+                (vendor, driver, check_date, vehicle_no, category,
+                 check_items, total_ok, total_fail, fail_memo, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(vendor, driver, check_date, category)
+            DO UPDATE SET
+                check_items = excluded.check_items,
+                total_ok = excluded.total_ok,
+                total_fail = excluded.total_fail,
+                fail_memo = excluded.fail_memo,
+                vehicle_no = excluded.vehicle_no,
+                created_at = excluded.created_at
+        """, (vendor, driver, check_date, vehicle_no, category,
+              json.dumps(check_items, ensure_ascii=False),
+              total_ok, total_fail, fail_memo, now))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[save_daily_safety_check] {e}")
+        return False
+
+
+def get_daily_safety_checks(vendor: str = None, driver: str = None,
+                            check_date: str = None,
+                            year_month: str = None) -> list:
+    """일일 안전보건 점검 이력 조회"""
+    filters = {}
+    if vendor:
+        filters['vendor'] = vendor
+    if driver:
+        filters['driver'] = driver
+    if check_date:
+        filters['check_date'] = check_date
+
+    rows = db_get('daily_safety_check', filters if filters else None)
+
+    if year_month:
+        rows = [r for r in rows
+                if str(r.get('check_date', '')).startswith(year_month)]
+    return rows
+
+
+def get_driver_last_activity(vendor: str = None) -> list:
+    """기사별 마지막 수거 입력 시각 조회 (활동 모니터링용)"""
+    try:
+        import sqlite3
+        from config.settings import DB_PATH
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        query = """
+            SELECT driver, school_name, collect_date, created_at,
+                   MAX(created_at) as last_activity
+            FROM real_collection
+        """
+        params = []
+        if vendor:
+            query += " WHERE vendor = ?"
+            params.append(vendor)
+        query += " GROUP BY driver ORDER BY last_activity DESC"
+
+        c.execute(query, params)
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"[get_driver_last_activity] {e}")
+        return []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1118,6 +1236,23 @@ def _generate_menu_remark(menu_items_json, grade, waste_per_person):
     shell_found = [kw for kw in shell_keywords if kw in menu_text]
     if shell_found:
         remarks.append(f"패류({','.join(shell_found[:2])}) → 껍데기 일반쓰레기 분류 필요")
+
+    # ── 공식기준 대비 수치 (학교급식법 시행규칙 [별표 3]) ──
+    from config.settings import WASTE_GRADE_STANDARD
+    grade_info = WASTE_GRADE_STANDARD.get(grade, {})
+    grade_label = grade_info.get('label', '')
+    grade_max = grade_info.get('max', 0)
+    if grade in ('C', 'D') and waste_per_person > 0:
+        threshold = WASTE_GRADE_STANDARD.get('B', {}).get('max', 245)
+        exceed_pct = ((waste_per_person - threshold) / threshold * 100) if threshold > 0 else 0
+        remarks.insert(0, f"[기준] {waste_per_person:.0f}g/{threshold}g → {grade}등급({grade_label}), 기준대비 +{exceed_pct:.0f}%")
+    elif grade == 'A' and waste_per_person > 0:
+        threshold = WASTE_GRADE_STANDARD.get('A', {}).get('max', 150)
+        achieve_pct = ((threshold - waste_per_person) / threshold * 100) if threshold > 0 else 0
+        remarks.insert(0, f"[기준] {waste_per_person:.0f}g/{threshold}g → A등급(우수), 기준대비 -{achieve_pct:.0f}%")
+    elif grade == 'B' and waste_per_person > 0:
+        threshold = WASTE_GRADE_STANDARD.get('B', {}).get('max', 245)
+        remarks.insert(0, f"[기준] {waste_per_person:.0f}g/{threshold}g → B등급(양호)")
 
     # ── 등급별 종합 코멘트 ──
     if grade == 'D':
