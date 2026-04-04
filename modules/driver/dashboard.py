@@ -37,10 +37,13 @@ _NUMPAD_CSS = """
 
 def _render_numpad(dr_key: str, school: str):
     """
-    전체 너비 4×4 숫자 키패드.
+    JS 기반 4×4 숫자 키패드 — 버튼 클릭 시 rerun 없이 JS 내부 처리.
+    ✅ 확인 시에만 bridge로 값 전달 → Streamlit rerun 1회.
     _np_target_{school} : 편집 중인 행 인덱스 (-1이면 닫힘)
-    _np_buf_{school}    : 입력 버퍼 문자열
+    _np_buf_{school}    : (초기값 전달용, JS 내부 처리 후 최종값만 전달)
     """
+    import streamlit.components.v1 as components
+
     _tgt_key = f"_np_target_{school}"
     _buf_key = f"_np_buf_{school}"
     tgt = st.session_state.get(_tgt_key, -1)
@@ -50,58 +53,117 @@ def _render_numpad(dr_key: str, school: str):
     # 모바일 CSS 주입 (키패드 열릴 때만)
     st.markdown(_NUMPAD_CSS, unsafe_allow_html=True)
 
-    buf = st.session_state.get(_buf_key, "")
-    display = buf if buf else "0"
+    # JS 키패드 bridge input (숨김) — 확인 시 여기에 값 전달
+    _np_bridge_key = f"_np_val_{school}"
+    _np_bridge_val = st.text_input(
+        f"_np_val_{school}", value="", key=_np_bridge_key,
+        label_visibility="collapsed"
+    )
 
-    st.markdown(f"**수거량 입력** &nbsp; 👉 &nbsp; "
-                f"<span style='font-size:28px;font-weight:bold;color:#1a73e8'>"
-                f"{display} kg</span>",
-                unsafe_allow_html=True)
-
-    # 4×4 키패드 레이아웃
-    _rows = [
-        ['7', '8', '9', '⌫'],
-        ['4', '5', '6', 'C'],
-        ['1', '2', '3', '.'],
-        ['0', '00', '✅', '🗑️'],
-    ]
-    _pressed = None
-    for _r in _rows:
-        _c = st.columns(4)
-        for _col, _k in zip(_c, _r):
-            with _col:
-                _btn_type = "primary" if _k == '✅' else "secondary"
-                if st.button(_k, key=f"_np_{school}_{_k}",
-                             use_container_width=True, type=_btn_type):
-                    _pressed = _k
-
-    # 버튼 입력 처리
-    if _pressed:
-        v = st.session_state.get(_buf_key, "")
-        if _pressed == '⌫':
-            st.session_state[_buf_key] = v[:-1]
-        elif _pressed == 'C':
-            st.session_state[_buf_key] = ""
-        elif _pressed == '.':
-            if '.' not in v:
-                st.session_state[_buf_key] = v + '.'
-        elif _pressed == '00':
-            st.session_state[_buf_key] = v + '00'
-        elif _pressed == '✅':
-            # 확인 — 값 저장 후 키패드 닫기
-            try:
-                _val = float(v) if v.strip() else 0.0
-            except ValueError:
-                _val = 0.0
-            if 0 <= tgt < len(st.session_state.get(dr_key, [])):
-                st.session_state[dr_key][tgt]["weight"] = _val
-            st.session_state[_tgt_key] = -1
-            st.session_state[_buf_key] = ""
-        elif _pressed == '🗑️':
-            st.session_state[_buf_key] = ""
-        else:
-            st.session_state[_buf_key] = v + _pressed
+    # bridge로 값이 들어오면 저장 처리
+    if _np_bridge_val and _np_bridge_val.strip():
+        try:
+            _val = float(_np_bridge_val.strip())
+        except ValueError:
+            _val = 0.0
+        if 0 <= tgt < len(st.session_state.get(dr_key, [])):
+            st.session_state[dr_key][tgt]["weight"] = _val
+        st.session_state[_tgt_key] = -1
+        st.session_state[_buf_key] = ""
+        st.session_state[_np_bridge_key] = ""
         st.rerun()
+
+    init_buf = st.session_state.get(_buf_key, "")
+
+    # JS 기반 키패드 HTML
+    _np_html = f"""
+    <div id="np-wrap" style="padding:8px 0;">
+      <div style="text-align:center;margin-bottom:10px;">
+        <span style="font-size:14px;color:#555;">수거량 입력</span>
+        <span id="np-display" style="font-size:32px;font-weight:bold;color:#1a73e8;margin-left:12px;">
+          {init_buf if init_buf else '0'} kg
+        </span>
+      </div>
+      <div id="np-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:380px;margin:0 auto;">
+      </div>
+    </div>
+    <script>
+    (function() {{
+      let buf = '{init_buf}';
+      const keys = [
+        ['7','8','9','⌫'],
+        ['4','5','6','C'],
+        ['1','2','3','.'],
+        ['0','00','✅','🗑️']
+      ];
+      const grid = document.getElementById('np-grid');
+      const disp = document.getElementById('np-display');
+
+      function updateDisplay() {{
+        disp.textContent = (buf || '0') + ' kg';
+      }}
+
+      function sendValue() {{
+        // bridge input에 값 설정 → Streamlit rerun
+        const doc = window.parent.document;
+        const inp = doc.querySelector('input[aria-label="_np_val_{school}"]');
+        if (!inp) return;
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, 'value'
+        ).set;
+        nativeSetter.call(inp, buf || '0');
+        const reactKey = Object.keys(inp).find(k => k.startsWith('__reactProps$'));
+        if (reactKey && inp[reactKey] && inp[reactKey].onChange) {{
+          inp[reactKey].onChange({{ target: inp }});
+        }}
+        inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        setTimeout(() => {{
+          inp.dispatchEvent(new KeyboardEvent('keydown', {{
+            key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true
+          }}));
+          inp.dispatchEvent(new KeyboardEvent('keyup', {{
+            key:'Enter', code:'Enter', keyCode:13, which:13, bubbles:true
+          }}));
+        }}, 50);
+        setTimeout(() => {{
+          inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
+          inp.blur();
+        }}, 200);
+      }}
+
+      keys.forEach(row => {{
+        row.forEach(k => {{
+          const btn = document.createElement('button');
+          btn.textContent = k;
+          btn.style.cssText = 'min-height:52px;font-size:20px;font-weight:bold;' +
+            'border:1px solid #ddd;border-radius:8px;cursor:pointer;' +
+            'touch-action:manipulation;background:' +
+            (k === '✅' ? '#1a73e8;color:#fff' : '#f8f9fa;color:#333') + ';';
+          btn.addEventListener('click', function(e) {{
+            e.preventDefault();
+            if (k === '⌫') {{
+              buf = buf.slice(0, -1);
+            }} else if (k === 'C' || k === '🗑️') {{
+              buf = '';
+            }} else if (k === '.') {{
+              if (!buf.includes('.')) buf += '.';
+            }} else if (k === '00') {{
+              buf += '00';
+            }} else if (k === '✅') {{
+              sendValue();
+              return;
+            }} else {{
+              buf += k;
+            }}
+            updateDisplay();
+          }});
+          grid.appendChild(btn);
+        }});
+      }});
+    }})();
+    </script>
+    """
+    components.html(_np_html, height=310)
 
 # ── 음성 입력 헬퍼 (Web Speech API) ───────────────────────────────
 import streamlit.components.v1 as components
@@ -403,8 +465,41 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       return '음식물';
     }}
 
+    function findDate(text) {{
+      // "24일", "4월24일", "4월 24일" 등에서 날짜 추출
+      const fullMatch = text.match(/(\\d{{1,2}})\\s*월\\s*(\\d{{1,2}})\\s*일/);
+      if (fullMatch) {{
+        const m = parseInt(fullMatch[1]);
+        const d = parseInt(fullMatch[2]);
+        const now = new Date();
+        const y = now.getFullYear();
+        return {{ month: m, day: d, year: y,
+                 str: y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0') }};
+      }}
+      const dayMatch = text.match(/(\\d{{1,2}})\\s*일/);
+      if (dayMatch) {{
+        const d = parseInt(dayMatch[1]);
+        if (d >= 1 && d <= 31) {{
+          const now = new Date();
+          const y = now.getFullYear();
+          const m = now.getMonth() + 1;
+          return {{ month: m, day: d, year: y,
+                   str: y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0') }};
+        }}
+      }}
+      return null;
+    }}
+
+    function removeDate(text) {{
+      // 날짜 패턴 제거 후 나머지 텍스트 반환
+      return text.replace(/(\\d{{1,2}})\\s*월\\s*(\\d{{1,2}})\\s*일/g, '')
+                 .replace(/(\\d{{1,2}})\\s*일/g, '')
+                 .trim();
+    }}
+
     function findWeight(text) {{
-      const nums = text.match(/\\d+\\.?\\d*/g);
+      const cleaned = removeDate(text);
+      const nums = cleaned.match(/\\d+\\.?\\d*/g);
       if (nums && nums.length > 0) {{
         return parseFloat(nums[nums.length - 1]);
       }}
@@ -484,7 +579,7 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       }}
     }}
 
-    function applyVoiceResult(school, item, weight) {{
+    function applyVoiceResult(school, item, weight, dateStr) {{
       const el   = document.getElementById('mic-result');
       const btn  = document.getElementById('mic-btn');
       btn.disabled = true;
@@ -492,13 +587,14 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       // ── 카운트 타이머 + 프로그레스바 ──
       let sec = 0;
       const MAX_SEC = 3;
+      const dateLabel = dateStr ? ' (' + dateStr + ')' : '';
       function updateUI() {{
         sec++;
         const pct = Math.min(100, Math.round((sec / MAX_SEC) * 100));
         el.innerHTML =
           '<div style="text-align:center">'
           + '<div style="font-size:17px;color:#1a73e8;font-weight:700;margin-bottom:6px;">'
-          + '⏳ ' + school + ' / ' + item + ' / ' + weight + 'kg'
+          + '⏳ ' + school + dateLabel + ' / ' + item + ' / ' + weight + 'kg'
           + '</div>'
           + '<div style="background:#e0e0e0;border-radius:8px;height:10px;'
           + 'width:100%;max-width:320px;margin:0 auto 6px;">'
@@ -513,7 +609,9 @@ def _render_voice_input(schools: list, school_key_prefix: str,
       const timer = setInterval(updateUI, 1000);
 
       // 숨겨진 input에 JSON 전달 → Streamlit rerun → Python에서 DB 저장
-      const data = JSON.stringify({{s: school, i: item, w: weight}});
+      const payload = {{s: school, i: item, w: weight}};
+      if (dateStr) payload.d = dateStr;
+      const data = JSON.stringify(payload);
       const ok = setBridgeValue('_vc_data_', data);
       if (ok) {{
         setTimeout(function() {{ clearInterval(timer); }}, 3000);
@@ -593,17 +691,22 @@ def _render_voice_input(schools: list, school_key_prefix: str,
             }}
           }}
 
+          const voiceDate = findDate(final_text);
+          const textNoDate = removeDate(final_text);
           const weight = findWeight(final_text);
-          const item   = findItem(final_text);
+          const item   = findItem(textNoDate);
 
           // ── GPS 키워드 우선 감지: "학교", "기업" 등 단독 키워드면 GPS 직행 ──
-          const isTypeOnly = checkTypeKeywordOnly(final_text);
-          const match = isTypeOnly ? null : findSchool(final_text);
+          const isTypeOnly = checkTypeKeywordOnly(textNoDate);
+          const match = isTypeOnly ? null : findSchool(textNoDate);
 
           if (match && weight !== null && weight > 0) {{
             const school = match.name;
             const conf = match.confidence;
             const method = match.method;
+
+            const dateLabel = voiceDate ? ' (' + voiceDate.str + ')' : '';
+            const dateStr = voiceDate ? voiceDate.str : null;
 
             // fuzzy_confirm(55~80%) 또는 short_confirm(2자 약칭 90%): 추천 확인 팝업
             if (method === 'fuzzy_confirm' || method === 'short_confirm') {{
@@ -618,13 +721,12 @@ def _render_voice_input(schools: list, school_key_prefix: str,
                   + '확인 → 등록 / 취소 → 다시 말하기'
                 );
                 if (ok) {{
-                  // 확인 후 등록 진행
                   const ok2 = confirm(
-                    school + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
+                    school + dateLabel + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
                     + '수거 등록하시겠습니까?'
                   );
                   if (ok2) {{
-                    applyVoiceResult(school, item, weight);
+                    applyVoiceResult(school, item, weight, dateStr);
                   }} else {{
                     status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
                   }}
@@ -639,17 +741,18 @@ def _render_voice_input(schools: list, school_key_prefix: str,
                 matchLabel = ' (자동매칭 ' + Math.round(conf * 100) + '%)';
               }}
               result.innerHTML = '🗣️ "' + final_text + '"<br>'
+                + (voiceDate ? '📅 <b>' + voiceDate.str + '</b> / ' : '')
                 + '📍 <b>' + school + '</b>' + matchLabel + ' / '
                 + '📦 <b>' + item + '</b> / '
                 + '⚖️ <b>' + weight + 'kg</b>';
 
               setTimeout(function() {{
                 const ok = confirm(
-                  school + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
+                  school + dateLabel + ' / ' + item + ' / ' + weight + 'kg\\n\\n'
                   + '수거 등록하시겠습니까?'
                 );
                 if (ok) {{
-                  applyVoiceResult(school, item, weight);
+                  applyVoiceResult(school, item, weight, dateStr);
                 }} else {{
                   status.textContent = '❌ 취소됨 — 다시 말씀해 주세요';
                 }}
@@ -791,20 +894,29 @@ def render_dashboard(user: dict):
             _vc_school = _vb.get('s', '')
             _vc_weight = float(_vb.get('w', 0))
             _vc_item = _vb.get('i', '음식물')
+            _vc_date_str = _vb.get('d', '')  # 음성으로 지정한 날짜 (YYYY-MM-DD)
         except (json.JSONDecodeError, ValueError, TypeError):
-            _vc_school, _vc_weight, _vc_item = '', 0.0, '음식물'
+            _vc_school, _vc_weight, _vc_item, _vc_date_str = '', 0.0, '음식물', ''
         # 브릿지 즉시 초기화 (재진입 방지)
         st.session_state["drv_voice_bridge"] = ""
         if _vc_school and _vc_weight > 0:
+            # ── 수거일: 음성 지정 날짜 우선, 없으면 오늘 ──
+            _vc_collect_date = today
+            if _vc_date_str:
+                try:
+                    _vc_collect_date = datetime.strptime(_vc_date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    _vc_collect_date = today
             # ── 자동 본사전송: DB에 바로 submitted 상태로 저장 ──
             _vc_time = datetime.now(ZoneInfo('Asia/Seoul')).strftime("%H:%M")
             _vc_saved = _save(
-                vendor, _vc_school, today, _vc_time,
+                vendor, _vc_school, _vc_collect_date, _vc_time,
                 _vc_item, _vc_weight, 0, driver_name, '', 'submitted'
             )
             if _vc_saved:
                 st.session_state["_voice_success"] = (
                     f"✅ 음성입력 → 본사전송 완료: {_vc_school} / {_vc_item} / {_vc_weight}kg"
+                    + (f" ({_vc_collect_date})" if _vc_date_str else "")
                 )
                 # 다음 미완료 거래처로 자동 스크롤 설정
                 _vc_all_schools = get_schools_by_vendor(vendor)
@@ -929,7 +1041,15 @@ def render_dashboard(user: dict):
         pass
 
     # ── 날짜 필터 ──────────────────────────────
+    def _set_today():
+        st.session_state["drv_schedule_date"] = \
+            datetime.now(ZoneInfo('Asia/Seoul')).date()
+
     _col_date, _col_today = st.columns([3, 1])
+    with _col_today:
+        st.write("")  # 간격 맞춤
+        st.button("오늘", key="drv_today_btn",
+                  use_container_width=True, on_click=_set_today)
     with _col_date:
         _sel_date = st.date_input(
             "날짜 선택",
@@ -939,13 +1059,6 @@ def render_dashboard(user: dict):
             ),
             key="drv_schedule_date"
         )
-    with _col_today:
-        st.write("")  # 간격 맞춤
-        if st.button("오늘", key="drv_today_btn",
-                     use_container_width=True):
-            st.session_state["drv_schedule_date"] = \
-                datetime.now(ZoneInfo('Asia/Seoul')).date()
-            st.rerun()
 
     # ── 선택일 요일 계산 ───────────────────────
     _weekday_map = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
@@ -957,6 +1070,31 @@ def render_dashboard(user: dict):
     _all_schedules = db_get('schedules')
     if not isinstance(_all_schedules, list):
         _all_schedules = []
+
+    # ── 식단기반 관리 학교 필터용 데이터 조회 ──
+    _meal_sched_all = db_get('meal_schedules')
+    if not isinstance(_meal_sched_all, list):
+        _meal_sched_all = []
+    # 해당 월에 meal_schedules 데이터가 있는 학교 = 식단기반 관리 대상
+    _meal_managed_schools = set()
+    _meal_approved_dates = {}  # {학교명: set(수거예정일)}
+    for _ms in _meal_sched_all:
+        if not isinstance(_ms, dict):
+            continue
+        _ms_md = str(_ms.get('meal_date', ''))
+        if not _ms_md.startswith(_sel_month):
+            continue
+        _ms_sn = _ms.get('school_name', '')
+        if _ms_sn:
+            _meal_managed_schools.add(_ms_sn)
+            if _ms.get('status') == 'approved':
+                if _ms_sn not in _meal_approved_dates:
+                    _meal_approved_dates[_ms_sn] = set()
+                _ms_cd = str(_ms.get('collect_date', ''))
+                if _ms_cd:
+                    _meal_approved_dates[_ms_sn].add(_ms_cd)
+
+    _sel_date_str = str(_sel_date)
 
     _sched_schools = []
     for _sr in _all_schedules:
@@ -994,6 +1132,12 @@ def render_dashboard(user: dict):
             _sr_items = []
 
         for _sch in _sr_schools:
+            # ── 식단기반 필터: 급식 없는 날 제외 ──
+            if _sch in _meal_managed_schools:
+                _approved_dates = _meal_approved_dates.get(_sch, set())
+                if _sel_date_str not in _approved_dates:
+                    continue  # 급식 없는 날 → 수거 불필요, 제외
+
             _sched_schools.append({
                 '학교명':   _sch,
                 '수거품목': ', '.join(_sr_items) if _sr_items else '-',
@@ -1598,11 +1742,33 @@ def _validate(school, weight):
 
 def _save(vendor, school, collect_date, collect_time,
           item_type, weight, unit_price, driver, memo, status):
+    from datetime import timedelta as _td
     now = datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+
+    # ── 학교 토요일 수거 → 금요일 자동 변환 ──
+    _cd = collect_date
+    try:
+        if isinstance(_cd, str):
+            _cd_date = datetime.strptime(_cd, '%Y-%m-%d').date()
+        else:
+            _cd_date = _cd
+        # 토요일(weekday=5)인 경우 학교 타입 확인
+        if _cd_date.weekday() == 5:
+            _cust_rows = db_get('customer_info', {'name': school, 'vendor': vendor})
+            _cust_type = ''
+            if _cust_rows:
+                _cust_type = _cust_rows[0].get('cust_type', '')
+            if _cust_type == '학교':
+                _cd_date = _cd_date - _td(days=1)  # 금요일로 변환
+                _cd = str(_cd_date)
+                st.toast(f"🔄 {school}: 토요일 수거 → 금요일({_cd})로 자동 변환")
+    except Exception:
+        pass
+
     return db_insert('real_collection', {
         'vendor':       vendor,
         'school_name':  school,
-        'collect_date': str(collect_date),
+        'collect_date': str(_cd),
         'collect_time': collect_time,
         'item_type':    item_type,
         'weight':       weight,
