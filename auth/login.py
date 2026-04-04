@@ -485,6 +485,37 @@ def _render_register_page():
     .stApp {
         background: linear-gradient(135deg, #f0f4f8 0%, #e2e8f0 50%, #f8fafc 100%) !important;
     }
+    /* 회원가입 카드 배경 흰색 */
+    div[data-testid="stVerticalBlock"] {
+        background: transparent;
+    }
+    .stTextInput > div > div > input {
+        border-radius: 12px !important;
+        border: 2px solid #e2e8f0 !important;
+        padding: 14px 16px !important;
+        font-size: 15px !important;
+        background: #f8fafc !important;
+        color: #0f172a !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #38bd94 !important;
+        background: #fff !important;
+        box-shadow: 0 0 0 4px rgba(56,189,148,0.12) !important;
+    }
+    label, .stMarkdown p, .stMarkdown div, h1, h2, h3, h4 {
+        color: #0f172a !important;
+    }
+    .stSelectbox label, .stMultiSelect label {
+        color: #0f172a !important;
+    }
+    /* 가입신청 버튼 */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #38bd94, #2da37e) !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
