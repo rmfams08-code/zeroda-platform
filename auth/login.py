@@ -1,6 +1,6 @@
 # zeroda_platform/auth/login.py
 import streamlit as st
-import streamlit.components.v1 as st_components
+from streamlit_javascript import st_javascript
 import hashlib
 import hmac
 import json
@@ -305,51 +305,23 @@ def _verify_auto_login_token(token: str):
 
 
 def inject_auto_login_save_js(user):
-    """로그인 성공 직후: 기사 역할이면 localStorage에 토큰 저장
-    ※ st.components.v1.html() 사용 — st.markdown은 <script> 실행 안 됨
+    """기사 역할이면 localStorage에 토큰 저장
+    ※ st_javascript()는 메인 페이지에서 직접 실행 — iframe 문제 없음
     """
     if user and user.get('role') == 'driver':
         token = _create_auto_login_token(user.get('user_id', ''))
-        st_components.html(f"""
-        <script>
-        try {{ localStorage.setItem('zeroda_auto_token', '{token}'); }} catch(e) {{}}
-        </script>
-        """, height=0, width=0)
+        st_javascript(f"localStorage.setItem('zeroda_auto_token', '{token}')")
 
 
-def inject_auto_login_redirect_js():
-    """로그인 페이지: localStorage에 토큰이 있으면 ?zat=토큰 붙여서 리다이렉트
-    ※ st.components.v1.html() + window.parent 사용
-    """
-    st_components.html("""
-    <script>
-    (function() {
-        try {
-            var token = localStorage.getItem('zeroda_auto_token');
-            if (token) {
-                // 부모 프레임(Streamlit 메인)의 URL에 토큰 파라미터 추가
-                var parentUrl = window.parent.location;
-                if (!parentUrl.search.includes('zat=')) {
-                    var url = parentUrl.origin + parentUrl.pathname
-                              + '?zat=' + encodeURIComponent(token);
-                    window.parent.location.replace(url);
-                }
-            }
-        } catch(e) {
-            // cross-origin 등 오류 시 무시
-        }
-    })();
-    </script>
-    """, height=0, width=0)
+def read_auto_login_token():
+    """localStorage에서 토큰을 읽어 반환. 없으면 빈 문자열/0"""
+    result = st_javascript("localStorage.getItem('zeroda_auto_token') || ''")
+    return result if isinstance(result, str) else ''
 
 
 def clear_auto_login_js():
     """로그아웃 시 localStorage 토큰 삭제"""
-    st_components.html("""
-    <script>
-    try { localStorage.removeItem('zeroda_auto_token'); } catch(e) {}
-    </script>
-    """, height=0, width=0)
+    st_javascript("localStorage.removeItem('zeroda_auto_token')")
 
 
 def logout():
@@ -373,11 +345,9 @@ def render_login_page():
         _render_register_page()
         return
 
-    # ── 자동 로그인: query_params 방식 (localStorage → URL → Python) ──
-    _qp = st.query_params
-    _auto_tok = _qp.get('zat', '')
-    if _auto_tok:
-        # query param에서 토큰 발견 → 검증 후 자동 로그인
+    # ── 자동 로그인: localStorage에서 토큰 직접 읽기 (streamlit-javascript) ──
+    _auto_tok = read_auto_login_token()
+    if _auto_tok and isinstance(_auto_tok, str) and len(_auto_tok) > 10:
         uid = _verify_auto_login_token(_auto_tok)
         if uid:
             db_rows = db_get('users', {'user_id': uid})
@@ -387,14 +357,7 @@ def render_login_page():
                     st.session_state.user = user
                     st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     st.session_state['_last_activity'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    # URL에서 토큰 제거 후 진입
-                    st.query_params.clear()
                     st.rerun()
-        # 토큰 무효 → URL 정리 후 일반 로그인 표시
-        st.query_params.clear()
-    else:
-        # 토큰이 URL에 없으면 → JS가 localStorage 확인 후 리다이렉트
-        inject_auto_login_redirect_js()
 
     st.markdown(COMMON_CSS, unsafe_allow_html=True)
 
