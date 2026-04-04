@@ -305,10 +305,10 @@ def _verify_auto_login_token(token: str):
 
 
 def inject_auto_login_save_js(user):
-    """기사 역할이면 localStorage에 토큰 저장
+    """모든 역할: localStorage에 자동 로그인 토큰 저장
     ※ st_javascript()는 메인 페이지에서 직접 실행 — iframe 문제 없음
     """
-    if user and user.get('role') == 'driver':
+    if user and user.get('user_id'):
         token = _create_auto_login_token(user.get('user_id', ''))
         st_javascript(f"localStorage.setItem('zeroda_auto_token', '{token}')")
 

@@ -84,6 +84,10 @@ role   = user.get('role', '')
 vendor = user.get('vendor', '')
 name   = user.get('name', '')
 
+# ── 모든 역할: 자동 로그인 토큰 갱신 (새로고침 시 세션 유지) ──
+from auth.login import inject_auto_login_save_js
+inject_auto_login_save_js(user)
+
 
 def render_sidebar(menu_items):
     with st.sidebar:
@@ -221,9 +225,6 @@ elif role == 'vendor_admin':
 
 elif role == 'driver':
     # 기사 앱은 탭 통합 단일 페이지
-    # ── PWA 자동 로그인 토큰 갱신 (대시보드 진입 시마다) ──
-    from auth.login import inject_auto_login_save_js
-    inject_auto_login_save_js(user)
     from modules.driver.dashboard import render_dashboard
     render_dashboard(user)
 
