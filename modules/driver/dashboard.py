@@ -974,6 +974,47 @@ def render_dashboard(user: dict):
     """, unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════
+    # 날씨 알림 (로그인 세션당 1회)
+    # ══════════════════════════════════════════════
+    _weather_key = '_drv_weather_shown'
+    if not st.session_state.get(_weather_key):
+        st.session_state[_weather_key] = True
+        try:
+            from services.weather_api import fetch_today_weather_alert
+            _wa = fetch_today_weather_alert()
+            if _wa.get('available'):
+                _lvl = _wa.get('level', 'normal')
+                _icon = _wa.get('icon', '☀️')
+                _summary = _wa.get('summary', '')
+                _alerts = _wa.get('alerts', [])
+
+                if _lvl == 'warning':
+                    _bg = 'linear-gradient(135deg,#d93025,#ea4335)'
+                    _border = '#d93025'
+                elif _lvl == 'caution':
+                    _bg = 'linear-gradient(135deg,#f9ab00,#fbbc04)'
+                    _border = '#f9ab00'
+                else:
+                    _bg = 'linear-gradient(135deg,#34a853,#1e8e3e)'
+                    _border = '#34a853'
+
+                _alert_html = ''.join(
+                    f'<div style="padding:4px 0;font-size:14px;">{a}</div>'
+                    for a in _alerts
+                )
+                st.markdown(f"""
+                <div style="background:{_bg};border-radius:12px;padding:16px;
+                            margin-bottom:16px;color:white;border-left:5px solid {_border};">
+                    <div style="font-size:18px;font-weight:700;margin-bottom:8px;">
+                        {_icon} 오늘의 날씨  —  {_summary}
+                    </div>
+                    {_alert_html}
+                </div>
+                """, unsafe_allow_html=True)
+        except Exception:
+            pass  # API 키 미설정 시 무시
+
+    # ══════════════════════════════════════════════
     # 섹션1: 안전점검
     # ══════════════════════════════════════════════
     with st.expander("🚨 운행 전 안전점검", expanded=True):

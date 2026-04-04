@@ -108,6 +108,7 @@ if role == 'admin':
         ("계정 관리",     "account"),
         ("안전관리",      "safety"),
         ("탄소감축 현황", "carbon"),
+        ("폐기물 분석",   "analytics"),
     ]
     page = render_sidebar(menu)
 
@@ -147,6 +148,9 @@ if role == 'admin':
     elif page == "carbon":
         from modules.hq_admin.carbon_tab import render_carbon_tab
         render_carbon_tab()
+    elif page == "analytics":
+        from modules.hq_admin.analytics_tab import render_analytics_tab
+        render_analytics_tab()
 
 elif role == 'vendor_admin':
     menu = [
@@ -156,6 +160,7 @@ elif role == 'vendor_admin':
         ("거래처 관리",  "customer"),
         ("거래명세서 발송", "statement"),
         ("안전관리",     "safety"),
+        ("수거 분석",    "analytics"),
     ]
     page = render_sidebar(menu)
 
@@ -180,6 +185,9 @@ elif role == 'vendor_admin':
     elif page == "safety":
         from modules.vendor_admin.safety_tab import render_safety_tab
         render_safety_tab(vendor)
+    elif page == "analytics":
+        from modules.vendor_admin.analytics_tab import render_analytics_tab
+        render_analytics_tab()
 
 elif role == 'driver':
     # 기사 앱은 탭 통합 단일 페이지
