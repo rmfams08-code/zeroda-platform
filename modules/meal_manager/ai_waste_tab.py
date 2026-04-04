@@ -1,6 +1,7 @@
 # modules/meal_manager/ai_waste_tab.py
 # 단체급식 담당 — AI잔반분석 (4탭: 잔반요약 / 메뉴별상세 / AI분석생성 / AI월말명세서)
 # Claude API 기반 잔반 패턴 분석 + 추천식단 생성 + AI 월말명세서
+# v2.0 — 비용절감 효과, 이상치 탐지, 요일패턴, 메뉴조합, 배식인원 대비 분석 추가
 import streamlit as st
 import json
 import re
@@ -11,9 +12,19 @@ from zoneinfo import ZoneInfo
 from database.db_manager import (
     analyze_meal_waste, get_meal_menus, get_meal_analysis,
     save_meal_menu, get_school_student_count,
+    get_unit_price, db_get,
 )
-from services.pdf_generator import generate_meal_statement_pdf
+from services.pdf_generator import (
+    generate_meal_statement_pdf,
+    generate_ai_meal_statement_pdf,
+)
 from config.settings import COMMON_CSS
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 요일 / 계절 상수
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WEEKDAY_KR = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
 
 
 def render_ai_waste_tab(user: dict):
@@ -54,10 +65,10 @@ def render_ai_waste_tab(user: dict):
             months_with_data.append(pm)
 
     with tab1:
-        _render_summary_tab(all_analysis, months_with_data, site_name)
+        _render_summary_tab(all_analysis, months_with_data, site_name, user)
 
     with tab2:
-        _render_detail_tab(all_analysis, site_name)
+        _render_detail_tab(all_analysis, site_name, user)
 
     with tab3:
         _render_ai_analysis_tab(user, site_name, all_analysis, months_with_data)
@@ -67,9 +78,9 @@ def render_ai_waste_tab(user: dict):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 1: 잔반요약 + AI 인사이트
+# TAB 1: 잔반요약 + AI 인사이트 + 비용절감 + 이상치 + 요일패턴
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def _render_summary_tab(all_analysis, months_with_data, site_name):
+def _render_summary_tab(all_analysis, months_with_data, site_name, user):
     if not all_analysis:
         st.info("아직 잔반 분석 데이터가 없습니다.\n"
                 "식단을 등록하고 기사가 수거량을 입력하면 자동으로 데이터가 쌓입니다.")
@@ -95,7 +106,38 @@ def _render_summary_tab(all_analysis, months_with_data, site_name):
         data_score = "충분" if len(months_with_data) >= 3 else ("보통" if len(months_with_data) >= 2 else "부족")
         st.metric("데이터 충분도", data_score)
 
-    # 월별 추이 차트
+    # ── 비용 절감 효과 (신규) ──
+    cost_info = _calc_cost_savings(site_name, user, all_analysis, months_with_data)
+    if cost_info and cost_info.get('unit_price', 0) > 0:
+        st.divider()
+        st.markdown("""
+        <div style="background:linear-gradient(135deg,#00c853,#00bfa5);
+                    padding:14px;border-radius:10px;color:white;">
+            <div style="font-size:14px;font-weight:700;">💰 비용 절감 효과</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        cc1, cc2, cc3, cc4 = st.columns(4)
+        with cc1:
+            st.metric("처리 단가", f"{cost_info['unit_price']:,.0f} 원/kg")
+        with cc2:
+            st.metric("이번 기간 처리비", f"{cost_info['current_cost']:,.0f} 원")
+        with cc3:
+            if cost_info.get('prev_cost', 0) > 0:
+                delta_val = cost_info['mom_save']
+                st.metric("전월 대비", f"{abs(delta_val):,.0f} 원",
+                          delta=f"{'절감' if delta_val > 0 else '증가'}",
+                          delta_color="normal" if delta_val > 0 else "inverse")
+            else:
+                st.metric("전월 대비", "데이터 없음")
+        with cc4:
+            st.metric("10% 감소 시 절감", f"{cost_info.get('save_amount', 0):,.0f} 원/월")
+
+        if cost_info.get('save_amount', 0) > 0:
+            yearly = cost_info['save_amount'] * 12
+            st.info(f"💡 잔반량을 10% 줄이면 **연간 약 {yearly:,.0f}원** 절감이 가능합니다.")
+
+    # ── 월별 추이 차트 ──
     if len(months_with_data) >= 2:
         st.subheader("📈 월별 잔반량 추이")
         monthly = {}
@@ -122,7 +164,40 @@ def _render_summary_tab(all_analysis, months_with_data, site_name):
         )
         st.bar_chart(grade_df.set_index('등급'), use_container_width=True)
 
-    # ── AI 인사이트 (간략 코멘트) ──
+    # ── 요일별 잔반 패턴 (신규) ──
+    weekday_data = _build_weekday_pattern(all_analysis)
+    if weekday_data and weekday_data.get('data'):
+        st.subheader("📅 요일별 잔반 패턴")
+        wd_rows = []
+        for wd in weekday_data['data']:
+            wd_rows.append({
+                '요일': wd['weekday_name'] + '요일',
+                '평균 잔반(kg)': round(wd['avg_kg'], 1),
+                '평균 1인당(g)': round(wd['avg_pp'], 1),
+                '수거 일수': wd['count'],
+                '주요 메뉴': wd.get('top_menus', '-'),
+            })
+        wd_df = pd.DataFrame(wd_rows)
+        st.dataframe(wd_df, use_container_width=True, hide_index=True)
+
+        if weekday_data.get('insight'):
+            st.info(weekday_data['insight'])
+
+    # ── 이상치 탐지 (신규) ──
+    anomalies = _detect_anomalies(all_analysis)
+    if anomalies:
+        st.subheader("🚨 이상치 탐지")
+        st.caption("평소 대비 잔반량이 급증/급감한 날을 감지합니다.")
+        for a in anomalies[:5]:
+            z = a['z_score']
+            icon = "🔴" if z > 0 else "🟢"
+            direction = "급증" if z > 0 else "급감"
+            st.markdown(
+                f"{icon} **{a['date']}** — 잔반 {a['waste_kg']:.1f}kg "
+                f"({direction}, Z={z:.2f}) | 메뉴: {a.get('menus', '-')}"
+            )
+
+    # ── AI 인사이트 (규칙기반 + 강화) ──
     if len(months_with_data) >= 2:
         st.divider()
         st.markdown("""
@@ -135,7 +210,6 @@ def _render_summary_tab(all_analysis, months_with_data, site_name):
         </div>
         """, unsafe_allow_html=True)
 
-        # 간단 규칙 기반 인사이트
         insights = []
         if avg_pp > 300:
             insights.append("⚠️ 1인당 평균 잔반량이 300g 이상입니다. 메뉴 구성 재검토가 필요합니다.")
@@ -147,15 +221,24 @@ def _render_summary_tab(all_analysis, months_with_data, site_name):
         if grade_counts.get('D', 0) > grade_counts.get('A', 0):
             insights.append("⚠️ D등급 일수가 A등급보다 많습니다. 잔반 많은 메뉴 교체를 권장합니다.")
 
+        # 배식인원 대비 분석 (신규)
+        servings_waste = _analyze_servings_efficiency(all_analysis)
+        if servings_waste:
+            insights.append(servings_waste)
+
+        # 요일 패턴 인사이트
+        if weekday_data and weekday_data.get('insight'):
+            insights.append(weekday_data['insight'])
+
         if insights:
             for ins in insights:
                 st.markdown(f"- {ins}")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 2: 메뉴별 상세 + AI 원인분석 가능
+# TAB 2: 메뉴별 상세 + AI 원인분석 + 메뉴조합 분석
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def _render_detail_tab(all_analysis, site_name):
+def _render_detail_tab(all_analysis, site_name, user):
     if not all_analysis:
         st.info("분석 데이터가 없습니다.")
         return
@@ -190,6 +273,43 @@ def _render_detail_tab(all_analysis, site_name):
     else:
         st.info("데이터 부족")
 
+    # ── 메뉴 조합 분석 (신규) ──
+    combo = _build_combo_analysis(all_analysis)
+    if combo:
+        st.divider()
+        st.markdown("### 🔗 메뉴 조합 효과 분석")
+        st.caption("같은 날 함께 제공된 메뉴 세트 단위로 잔반량을 분석합니다.")
+
+        combo_good = [c for c in combo if c['avg_waste'] < 200][:5]
+        combo_bad = [c for c in combo if c['avg_waste'] >= 245][:5]
+
+        if combo_good:
+            st.markdown("**✅ 잔반 적은 조합 TOP 5**")
+            df_cg = pd.DataFrame([
+                {'메뉴 조합': c['combo'], '평균 잔반(g/인)': round(c['avg_waste'], 1),
+                 '등장 횟수': c['count']}
+                for c in combo_good
+            ])
+            st.dataframe(df_cg, use_container_width=True, hide_index=True)
+
+        if combo_bad:
+            st.markdown("**⚠️ 잔반 많은 조합 TOP 5**")
+            df_cb = pd.DataFrame([
+                {'메뉴 조합': c['combo'], '평균 잔반(g/인)': round(c['avg_waste'], 1),
+                 '등장 횟수': c['count']}
+                for c in combo_bad
+            ])
+            st.dataframe(df_cb, use_container_width=True, hide_index=True)
+
+    # ── 배식인원 대비 효율 분석 (신규) ──
+    srv_analysis = _build_servings_analysis(all_analysis)
+    if srv_analysis:
+        st.divider()
+        st.markdown("### 👥 배식인원 대비 잔반 효율")
+        st.caption("배식인원 구간별 1인당 잔반량을 비교합니다.")
+        df_srv = pd.DataFrame(srv_analysis)
+        st.dataframe(df_srv, use_container_width=True, hide_index=True)
+
     # AI 원인분석 버튼
     st.divider()
     api_key = _get_api_key()
@@ -202,15 +322,32 @@ def _render_detail_tab(all_analysis, site_name):
                 f"- {m['menu']} (평균 잔반 {m['avg_waste']:.1f}g/인, {m['count']}회)"
                 for m in bad[:10]
             )
+
+            # 요일별 메뉴 패턴 추가 (신규 강화)
+            weekday_info = _build_weekday_menu_text(all_analysis)
+
+            # 메뉴 조합 정보 추가 (신규 강화)
+            combo_text = ""
+            if combo:
+                combo_bad_items = [c for c in combo if c['avg_waste'] >= 245][:5]
+                if combo_bad_items:
+                    combo_text = "\n## 잔반 많은 메뉴 조합\n" + "\n".join(
+                        f"- {c['combo']} (평균 {c['avg_waste']:.1f}g/인, {c['count']}회)"
+                        for c in combo_bad_items
+                    )
+
             prompt = f"""당신은 단체급식 영양전문가입니다.
 아래 메뉴들은 잔반량이 많은 메뉴입니다. 각 메뉴에 대해:
 1. 잔반이 많은 원인을 추정하세요
 2. 개선 방안 또는 대체 메뉴를 제안하세요
+3. 어떤 메뉴와 조합하면 잔반이 줄어들지 제안하세요
 
 ## 잔반 많은 메뉴 (기관: {site_name})
 {bad_list}
+{weekday_info}
+{combo_text}
 
-간결하게 메뉴별로 1~2줄씩 답변하세요. 마크다운 형식으로."""
+간결하게 메뉴별로 2~3줄씩 답변하세요. 마크다운 형식으로."""
 
             with st.spinner("🤖 AI가 원인을 분석하고 있습니다..."):
                 try:
@@ -250,7 +387,7 @@ def _render_detail_tab(all_analysis, site_name):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 3: AI 분석생성 (종합분석 + 추천식단)
+# TAB 3: AI 분석생성 (종합분석 + 추천식단) — 프롬프트 강화
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def _render_ai_analysis_tab(user, site_name, all_analysis, months_with_data):
     # 데이터 충분도 안내
@@ -286,14 +423,14 @@ def _render_ai_analysis_tab(user, site_name, all_analysis, months_with_data):
     sub1, sub2 = st.tabs(["📊 AI 종합분석", "🍽️ AI 추천식단"])
 
     with sub1:
-        _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data)
+        _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data, user)
 
     with sub2:
         _render_ai_recommend(api_key, site_name, all_analysis, months_with_data, user)
 
 
-def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data):
-    """AI 종합 잔반분석 리포트 생성"""
+def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data, user):
+    """AI 종합 잔반분석 리포트 생성 — 프롬프트 강화 (요일, 배식인원, 비용, 조합)"""
     st.markdown("#### 📊 AI 종합 잔반분석")
     st.caption("Claude AI가 잔반 데이터를 종합 분석하여 인사이트를 제공합니다.")
 
@@ -335,6 +472,47 @@ def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data)
             for m in menu_stats['bad'][:10]
         ) or "- 데이터 없음"
 
+        # ── 신규: 요일별 패턴 데이터 ──
+        weekday_text = _build_weekday_menu_text(all_analysis)
+
+        # ── 신규: 배식인원 대비 효율 ──
+        srv_text = _build_servings_text(all_analysis)
+
+        # ── 신규: 비용 데이터 ──
+        cost_info = _calc_cost_savings(site_name, user, all_analysis, months_with_data)
+        cost_text = ""
+        if cost_info and cost_info.get('unit_price', 0) > 0:
+            cost_text = f"""
+## 비용 정보
+- 음식물 처리 단가: {cost_info['unit_price']:,.0f}원/kg
+- 분석 기간 처리비용: {cost_info['current_cost']:,.0f}원
+- 10% 감소 시 절감 예상: 월 {cost_info.get('save_amount', 0):,.0f}원, 연간 {cost_info.get('save_amount', 0) * 12:,.0f}원"""
+
+        # ── 신규: 이상치 데이터 ──
+        anomalies = _detect_anomalies(all_analysis)
+        anomaly_text = ""
+        if anomalies:
+            anomaly_text = "\n## 이상치 (평소 대비 급증/급감일)\n" + "\n".join(
+                f"- {a['date']}: {a['waste_kg']:.1f}kg (Z={a['z_score']:.2f}, {'급증' if a['z_score'] > 0 else '급감'}) 메뉴: {a.get('menus', '-')}"
+                for a in anomalies[:5]
+            )
+
+        # ── 신규: 메뉴 조합 데이터 ──
+        combo = _build_combo_analysis(all_analysis)
+        combo_text = ""
+        if combo:
+            combo_good = [c for c in combo if c['avg_waste'] < 200][:3]
+            combo_bad = [c for c in combo if c['avg_waste'] >= 245][:3]
+            parts = []
+            if combo_good:
+                parts.append("잔반 적은 조합:\n" + "\n".join(
+                    f"- {c['combo']} ({c['avg_waste']:.1f}g/인, {c['count']}회)" for c in combo_good))
+            if combo_bad:
+                parts.append("잔반 많은 조합:\n" + "\n".join(
+                    f"- {c['combo']} ({c['avg_waste']:.1f}g/인, {c['count']}회)" for c in combo_bad))
+            if parts:
+                combo_text = "\n## 메뉴 조합 분석\n" + "\n".join(parts)
+
         prompt = f"""당신은 단체급식 잔반 분석 전문가입니다.
 아래 데이터를 기반으로 종합 분석 리포트를 작성하세요.
 
@@ -350,13 +528,22 @@ def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data)
 
 ## 잔반 많은 메뉴 TOP 10
 {bad_list}
+{weekday_text}
+{srv_text}
+{cost_text}
+{anomaly_text}
+{combo_text}
 
-## 작성 항목
+## 작성 항목 (반드시 모두 포함)
 1. **종합 평가**: 전체적인 잔반 관리 수준 평가 (A~D 등급 기준)
 2. **월별 트렌드 분석**: 증감 패턴 및 원인 추정
-3. **메뉴 분석**: 잔반 많은 메뉴의 원인 추정과 개선 방안
-4. **개선 권고사항**: 3가지 구체적인 실행 방안
-5. **목표 설정**: 다음 분기 잔반 감소 목표 제안
+3. **요일별 패턴 분석**: 요일별 잔반 차이의 원인 추정과 대응 방안
+4. **메뉴 분석**: 잔반 많은 메뉴의 원인 추정과 개선 방안 (조합 효과 포함)
+5. **배식인원 대비 효율**: 인원수와 잔반의 관계, 조리량 조절 권고
+6. **비용 절감 방안**: 구체적인 비용 절감 목표와 실행 방안
+7. **이상치 분석**: 급증/급감일 원인 추정
+8. **개선 권고사항**: 5가지 구체적이고 즉시 실행 가능한 방안
+9. **목표 설정**: 다음 분기 잔반 감소 목표 (kg, g/인, 원 단위 모두)
 
 마크다운 형식으로 간결하게 작성하세요."""
 
@@ -366,7 +553,7 @@ def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data)
                 client = anthropic.Anthropic(api_key=api_key)
                 message = client.messages.create(
                     model="claude-sonnet-4-20250514",
-                    max_tokens=3000,
+                    max_tokens=4000,
                     messages=[{"role": "user", "content": prompt}]
                 )
                 st.session_state['_ai_comprehensive_result'] = message.content[0].text
@@ -537,11 +724,29 @@ def _render_recommendation(rec, site_name, user):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 4: AI월말명세서
+# TAB 4: AI월말명세서 — 차별화된 AI 전용 PDF
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
     st.subheader("📄 AI월말명세서")
-    st.caption("AI 분석 코멘트가 포함된 월말명세서를 생성합니다.")
+    st.caption("AI 분석 코멘트 + 비용절감 + 요일패턴 + 이상치가 포함된 차별화된 보고서입니다.")
+
+    # ── 스마트명세서와의 차이 안내 ──
+    with st.expander("📌 스마트월말명세서와 무엇이 다른가요?", expanded=False):
+        st.markdown("""
+**스마트월말명세서**는 수치 데이터만 나열합니다.
+**AI월말명세서**는 아래 5가지를 추가로 제공합니다:
+
+| 항목 | 스마트 | AI |
+|---|:---:|:---:|
+| 일별 잔반 테이블 | ✅ | ✅ |
+| 메뉴별 순위 | ✅ | ✅ |
+| **AI 종합 코멘트** | ❌ | ✅ |
+| **비용 절감 효과** | ❌ | ✅ |
+| **요일별 잔반 패턴** | ❌ | ✅ |
+| **이상치 탐지 결과** | ❌ | ✅ |
+| **메뉴 조합 분석** | ❌ | ✅ |
+| AI 추천식단 | 선택 | 선택 |
+        """)
 
     now = datetime.now(ZoneInfo('Asia/Seoul'))
     month_options = []
@@ -583,20 +788,36 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
         ai_meals = ai_rec['meals']
         st.info(f"💡 AI 추천식단이 포함됩니다 ({len(ai_meals)}일)")
 
+    # AI 종합분석 결과 (이전에 생성한 것이 있으면)
+    ai_comment = st.session_state.get('_ai_comprehensive_result', '')
+    if ai_comment:
+        st.info("💡 AI 종합분석 코멘트가 포함됩니다.")
+
     st.divider()
+
+    # ── AI 전용 데이터 준비 ──
+    cost_info = _calc_cost_savings(site_name, user, analysis, [sel_month])
+    weekday_pattern = _build_weekday_pattern(analysis)
+    anomalies_raw = _detect_anomalies(analysis)
+    combo_data = _build_combo_analysis(analysis)
 
     bc1, bc2 = st.columns(2)
 
     with bc1:
-        if st.button("📄 AI월말명세서 생성 (분석만)", type="primary",
+        if st.button("📄 AI월말명세서 생성", type="primary",
                      key="aiwt_stmt_basic", use_container_width=True):
-            with st.spinner("PDF 생성 중..."):
-                pdf_bytes = generate_meal_statement_pdf(
+            with st.spinner("AI월말명세서 PDF 생성 중..."):
+                pdf_bytes = generate_ai_meal_statement_pdf(
                     site_name=site_name,
                     year=year, month=month,
                     analysis_rows=analysis,
                     menu_ranking=menu_ranking,
                     ai_recommendation=None,
+                    ai_comment=ai_comment,
+                    cost_savings=cost_info,
+                    weekday_pattern=weekday_pattern,
+                    anomalies=anomalies_raw,
+                    combo_analysis=combo_data,
                 )
                 st.session_state['_aiwt_stmt_pdf'] = pdf_bytes
                 st.session_state['_aiwt_stmt_filename'] = f"AI월말명세서_{site_name}_{sel_month}.pdf"
@@ -606,13 +827,18 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
         if ai_meals:
             if st.button("📄 AI월말명세서 생성 (추천 포함)",
                          key="aiwt_stmt_ai", use_container_width=True):
-                with st.spinner("PDF 생성 중..."):
-                    pdf_bytes = generate_meal_statement_pdf(
+                with st.spinner("AI월말명세서 PDF 생성 중 (추천 포함)..."):
+                    pdf_bytes = generate_ai_meal_statement_pdf(
                         site_name=site_name,
                         year=year, month=month,
                         analysis_rows=analysis,
                         menu_ranking=menu_ranking,
                         ai_recommendation=ai_meals,
+                        ai_comment=ai_comment,
+                        cost_savings=cost_info,
+                        weekday_pattern=weekday_pattern,
+                        anomalies=anomalies_raw,
+                        combo_analysis=combo_data,
                     )
                     st.session_state['_aiwt_stmt_pdf'] = pdf_bytes
                     st.session_state['_aiwt_stmt_filename'] = f"AI월말명세서_{site_name}_{sel_month}_AI추천포함.pdf"
@@ -635,9 +861,11 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 헬퍼 함수
+# 헬퍼 함수 (기존 유지 + 신규 추가)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 def _build_menu_stats(analysis_rows):
+    """분석 데이터에서 메뉴별 통계 생성"""
     menu_waste = {}
     total_wpp = []
     for r in analysis_rows:
@@ -668,6 +896,7 @@ def _build_menu_stats(analysis_rows):
 
 
 def _build_menu_ranking(analysis_rows):
+    """PDF용 메뉴 순위"""
     menu_waste = {}
     for r in analysis_rows:
         wpp = float(r.get('waste_per_person', 0) or 0)
@@ -689,6 +918,304 @@ def _build_menu_ranking(analysis_rows):
     return {'good': ranking[:20], 'bad': list(reversed(ranking))[:20]}
 
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 신규: 비용 절감 효과 계산
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _calc_cost_savings(site_name, user, analysis_rows, months_with_data):
+    """음식물 처리 단가를 기반으로 비용 절감 효과 계산"""
+    vendor = user.get('vendor', '')
+    if not vendor:
+        return None
+
+    unit_price = get_unit_price(vendor, site_name, '음식물')
+    if unit_price <= 0:
+        # 기본 단가 (업계 평균)
+        unit_price = 0
+
+    if unit_price <= 0:
+        return None
+
+    total_waste = sum(float(r.get('waste_kg', 0) or 0) for r in analysis_rows)
+    current_cost = total_waste * unit_price
+
+    # 10% 감소 시 절감 (월 기준)
+    months_count = max(len(months_with_data), 1)
+    monthly_avg = total_waste / months_count
+    save_amount = monthly_avg * 0.1 * unit_price
+
+    # 전월 대비 (최근 2개월 비교)
+    prev_cost = 0
+    mom_save = 0
+    if len(months_with_data) >= 2:
+        latest_ym = months_with_data[-1]
+        prev_ym = months_with_data[-2]
+        latest_kg = sum(float(r.get('waste_kg', 0) or 0) for r in analysis_rows
+                        if (r.get('year_month', '') or r.get('meal_date', '')[:7]) == latest_ym)
+        prev_kg = sum(float(r.get('waste_kg', 0) or 0) for r in analysis_rows
+                      if (r.get('year_month', '') or r.get('meal_date', '')[:7]) == prev_ym)
+        prev_cost = prev_kg * unit_price
+        mom_save = (prev_kg - latest_kg) * unit_price
+
+    target_cost = current_cost * 0.9
+
+    return {
+        'unit_price': unit_price,
+        'current_cost': current_cost,
+        'target_cost': target_cost,
+        'save_amount': round(save_amount),
+        'save_pct': 10,
+        'prev_cost': prev_cost,
+        'mom_save': round(mom_save),
+    }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 신규: 요일별 잔반 패턴 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _build_weekday_pattern(analysis_rows):
+    """요일별 잔반량 + 주요 메뉴 키워드 분석"""
+    weekday_data = {}
+
+    for r in analysis_rows:
+        meal_date = r.get('meal_date', '')
+        waste_kg = float(r.get('waste_kg', 0) or 0)
+        wpp = float(r.get('waste_per_person', 0) or 0)
+        if not meal_date or waste_kg <= 0:
+            continue
+        try:
+            dt = datetime.strptime(meal_date, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            continue
+
+        wd = dt.weekday()
+        if wd not in weekday_data:
+            weekday_data[wd] = {'kg_list': [], 'pp_list': [], 'menus': []}
+        weekday_data[wd]['kg_list'].append(waste_kg)
+        weekday_data[wd]['pp_list'].append(wpp)
+
+        try:
+            menu_items = json.loads(r.get('menu_items', '[]'))
+            weekday_data[wd]['menus'].extend(menu_items)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    if not weekday_data:
+        return None
+
+    result = []
+    for wd in sorted(weekday_data.keys()):
+        d = weekday_data[wd]
+        avg_kg = sum(d['kg_list']) / len(d['kg_list'])
+        avg_pp = sum(d['pp_list']) / len(d['pp_list']) if d['pp_list'] else 0
+
+        # 주요 메뉴 키워드 (빈도 상위 3개)
+        from collections import Counter
+        menu_counter = Counter(d['menus'])
+        top_menus = ", ".join(m for m, _ in menu_counter.most_common(3))
+
+        result.append({
+            'weekday': wd,
+            'weekday_name': WEEKDAY_KR.get(wd, ''),
+            'avg_kg': avg_kg,
+            'avg_pp': avg_pp,
+            'count': len(d['kg_list']),
+            'top_menus': top_menus or '-',
+        })
+
+    # 인사이트 생성
+    insight = ""
+    if len(result) >= 2:
+        worst = max(result, key=lambda x: x['avg_kg'])
+        best = min(result, key=lambda x: x['avg_kg'])
+        insight = (f"💡 **{worst['weekday_name']}요일**에 잔반이 가장 많고 "
+                   f"(평균 {worst['avg_kg']:.1f}kg, 주요메뉴: {worst['top_menus']}), "
+                   f"**{best['weekday_name']}요일**에 가장 적습니다 "
+                   f"(평균 {best['avg_kg']:.1f}kg).")
+
+    return {'data': result, 'insight': insight}
+
+
+def _build_weekday_menu_text(analysis_rows):
+    """AI 프롬프트용 요일별 메뉴-잔반 텍스트"""
+    pattern = _build_weekday_pattern(analysis_rows)
+    if not pattern or not pattern.get('data'):
+        return ""
+
+    lines = ["## 요일별 잔반 패턴"]
+    for wd in pattern['data']:
+        lines.append(
+            f"- {wd['weekday_name']}요일: 평균 {wd['avg_kg']:.1f}kg, "
+            f"1인당 {wd['avg_pp']:.1f}g, {wd['count']}일, "
+            f"주요메뉴: {wd['top_menus']}"
+        )
+    return "\n".join(lines)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 신규: 이상치 탐지
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _detect_anomalies(analysis_rows, threshold=1.8):
+    """잔반 이상치 (평소 대비 급증/급감) 탐지"""
+    valid = []
+    for r in analysis_rows:
+        waste_kg = float(r.get('waste_kg', 0) or 0)
+        if waste_kg <= 0:
+            continue
+        try:
+            menu_items = json.loads(r.get('menu_items', '[]'))
+        except (json.JSONDecodeError, TypeError):
+            menu_items = []
+        valid.append({
+            'date': r.get('meal_date', ''),
+            'waste_kg': waste_kg,
+            'menus': ", ".join(menu_items[:3]) if menu_items else '-',
+        })
+
+    if len(valid) < 5:
+        return []
+
+    kg_values = [v['waste_kg'] for v in valid]
+    mean_kg = sum(kg_values) / len(kg_values)
+    std_kg = (sum((x - mean_kg) ** 2 for x in kg_values) / len(kg_values)) ** 0.5
+
+    if std_kg == 0:
+        return []
+
+    anomalies = []
+    for v in valid:
+        z = (v['waste_kg'] - mean_kg) / std_kg
+        if abs(z) > threshold:
+            v['z_score'] = round(z, 2)
+            anomalies.append(v)
+
+    anomalies.sort(key=lambda x: abs(x['z_score']), reverse=True)
+    return anomalies
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 신규: 메뉴 조합 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _build_combo_analysis(analysis_rows):
+    """같은 날 제공된 메뉴 세트 단위로 잔반량 분석"""
+    combo_waste = {}
+
+    for r in analysis_rows:
+        wpp = float(r.get('waste_per_person', 0) or 0)
+        if wpp <= 0:
+            continue
+        try:
+            menu_items = json.loads(r.get('menu_items', '[]'))
+        except (json.JSONDecodeError, TypeError):
+            menu_items = []
+
+        if len(menu_items) < 2:
+            continue
+
+        # 메뉴를 정렬하여 조합 키 생성 (밥/김치 제외하고 주반찬 위주)
+        filtered = [m for m in menu_items
+                    if not any(k in m for k in ['밥', '김치', '공기'])]
+        if len(filtered) < 2:
+            filtered = menu_items[:3]
+        else:
+            filtered = filtered[:3]
+
+        combo_key = " + ".join(sorted(filtered))
+        if combo_key not in combo_waste:
+            combo_waste[combo_key] = []
+        combo_waste[combo_key].append(wpp)
+
+    if not combo_waste:
+        return []
+
+    result = []
+    for combo, wastes in combo_waste.items():
+        if len(wastes) >= 2:  # 최소 2회 이상 등장한 조합만
+            avg = sum(wastes) / len(wastes)
+            result.append({
+                'combo': combo,
+                'avg_waste': avg,
+                'count': len(wastes),
+            })
+
+    result.sort(key=lambda x: x['avg_waste'])
+    return result
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 신규: 배식인원 대비 효율 분석
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+def _analyze_servings_efficiency(analysis_rows):
+    """배식인원과 잔반의 관계 분석 → 인사이트 텍스트"""
+    high_srv = []
+    low_srv = []
+
+    for r in analysis_rows:
+        srv = int(r.get('servings', 0) or 0)
+        wpp = float(r.get('waste_per_person', 0) or 0)
+        if srv <= 0 or wpp <= 0:
+            continue
+        if srv >= 300:
+            high_srv.append(wpp)
+        elif srv < 200:
+            low_srv.append(wpp)
+
+    if high_srv and low_srv:
+        avg_high = sum(high_srv) / len(high_srv)
+        avg_low = sum(low_srv) / len(low_srv)
+        if avg_low > avg_high * 1.15:
+            return (f"📌 배식인원이 적은 날({len(low_srv)}일) 1인당 잔반이 "
+                    f"{avg_low:.0f}g으로, 인원 많은 날({len(high_srv)}일) "
+                    f"{avg_high:.0f}g보다 높습니다. 소인원 시 조리량 조절을 권장합니다.")
+    return None
+
+
+def _build_servings_analysis(analysis_rows):
+    """배식인원 구간별 1인당 잔반 통계"""
+    bins = {'~100명': [], '100~200명': [], '200~300명': [], '300명~': []}
+
+    for r in analysis_rows:
+        srv = int(r.get('servings', 0) or 0)
+        wpp = float(r.get('waste_per_person', 0) or 0)
+        if srv <= 0 or wpp <= 0:
+            continue
+        if srv < 100:
+            bins['~100명'].append(wpp)
+        elif srv < 200:
+            bins['100~200명'].append(wpp)
+        elif srv < 300:
+            bins['200~300명'].append(wpp)
+        else:
+            bins['300명~'].append(wpp)
+
+    result = []
+    for label, values in bins.items():
+        if values:
+            result.append({
+                '배식인원 구간': label,
+                '평균 1인당 잔반(g)': round(sum(values) / len(values), 1),
+                '데이터 수': len(values),
+            })
+
+    return result if result else None
+
+
+def _build_servings_text(analysis_rows):
+    """AI 프롬프트용 배식인원 대비 텍스트"""
+    stats = _build_servings_analysis(analysis_rows)
+    if not stats:
+        return ""
+
+    lines = ["## 배식인원 대비 1인당 잔반"]
+    for s in stats:
+        lines.append(
+            f"- {s['배식인원 구간']}: 평균 {s['평균 1인당 잔반(g)']}g/인 ({s['데이터 수']}일)"
+        )
+    return "\n".join(lines)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 기존 헬퍼 (유지)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def _build_recommend_prompt(site_name, target_month, menu_stats, extra_request,
                             nutrition_summary=None):
     good_list = "\n".join(

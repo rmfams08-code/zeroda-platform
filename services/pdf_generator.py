@@ -755,6 +755,488 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AI 월말명세서 PDF 생성 함수 (AI 분석 코멘트 + 비용절감 + 요일패턴 + 이상치)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_ai_meal_statement_pdf(
+    site_name: str, year: int, month: int,
+    analysis_rows: list,
+    menu_ranking: dict = None,
+    ai_recommendation: list = None,
+    ai_comment: str = '',
+    cost_savings: dict = None,
+    weekday_pattern: dict = None,
+    anomalies: list = None,
+    combo_analysis: list = None,
+) -> bytes:
+    """
+    AI 월말명세서 PDF — 스마트월말명세서와 차별화된 AI 전용 보고서
+    추가 섹션:
+      - AI 종합 코멘트 (Claude API 분석 결과)
+      - 비용 절감 효과 (처리비용 기반)
+      - 요일별 잔반 패턴 분석
+      - 이상치 탐지 결과
+      - 메뉴 조합 분석
+      - AI 추천식단 (선택)
+    """
+    import json
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
+                                     Paragraph, Spacer, HRFlowable, PageBreak)
+    from reportlab.lib.styles import ParagraphStyle
+
+    font = _get_korean_font()
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=15*mm, leftMargin=15*mm,
+                            topMargin=15*mm, bottomMargin=15*mm)
+
+    def P(text, size=10, bold=False, align=0, color=colors.black, leading=None):
+        ld = leading if leading else size * 1.4
+        style = ParagraphStyle('s', fontName=font, fontSize=size,
+                               alignment=align, textColor=color,
+                               leading=ld)
+        return Paragraph(str(text), style)
+
+    BLUE   = colors.HexColor('#1a73e8')
+    GREEN  = colors.HexColor('#34a853')
+    ORANGE = colors.HexColor('#fbbc05')
+    RED    = colors.HexColor('#ea4335')
+    PURPLE = colors.HexColor('#7c4dff')
+    LGRAY  = colors.HexColor('#f5f5f5')
+    DGRAY  = colors.HexColor('#e0e0e0')
+
+    story = []
+
+    # ══════════════════════════════════════════
+    # 1페이지: AI 월말명세서 헤더 + 요약 + AI 코멘트
+    # ══════════════════════════════════════════
+    story.append(P("AI 월말명세서", size=22, align=1, color=PURPLE))
+    story.append(Spacer(1, 2*mm))
+    story.append(P("ZERODA AI Analytics Report", size=9, align=1, color=colors.grey))
+    story.append(Spacer(1, 2*mm))
+    today = datetime.now().strftime('%Y년 %m월 %d일')
+    story.append(P(f"발행일: {today}　　분석기간: {year}년 {month}월", size=9, align=2))
+    story.append(HRFlowable(width="100%", thickness=2, color=PURPLE))
+    story.append(Spacer(1, 4*mm))
+
+    # ── 기관 정보 ──
+    info_data = [
+        [P('기관명', size=9, align=1, color=colors.white),
+         P(site_name, size=10)],
+        [P('분석기간', size=9, align=1, color=colors.white),
+         P(f"{year}년 {month}월", size=10)],
+        [P('보고서 유형', size=9, align=1, color=colors.white),
+         P("AI 분석 보고서 (Claude API 기반)", size=10, color=PURPLE)],
+    ]
+    info_tbl = Table(info_data, colWidths=[35*mm, 145*mm])
+    info_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (0,-1),  PURPLE),
+        ('BACKGROUND', (1,0), (1,-1),  LGRAY),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 5),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(info_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── 월간 요약 KPI ──
+    story.append(P("■ 월간 핵심 지표", size=11, color=PURPLE))
+    story.append(Spacer(1, 2*mm))
+
+    total_waste = sum(float(r.get('waste_kg', 0) or 0) for r in analysis_rows)
+    valid_days = [r for r in analysis_rows if float(r.get('waste_per_person', 0) or 0) > 0]
+    avg_pp = sum(float(r['waste_per_person']) for r in valid_days) / len(valid_days) if valid_days else 0
+    matched_cnt = len([r for r in analysis_rows if float(r.get('waste_kg', 0) or 0) > 0])
+    servings_list = [int(r.get('servings', 0) or 0) for r in analysis_rows if int(r.get('servings', 0) or 0) > 0]
+    avg_servings = round(sum(servings_list) / len(servings_list)) if servings_list else 0
+
+    grade_counts = {}
+    for r in analysis_rows:
+        g = r.get('grade', '-')
+        grade_counts[g] = grade_counts.get(g, 0) + 1
+    main_grade = max(grade_counts, key=grade_counts.get) if grade_counts else '-'
+
+    sum_data = [
+        [P('배식인원', size=8, align=1, color=colors.white),
+         P('총 잔반량', size=8, align=1, color=colors.white),
+         P('1인당 평균', size=8, align=1, color=colors.white),
+         P('매칭 일수', size=8, align=1, color=colors.white),
+         P('주요 등급', size=8, align=1, color=colors.white)],
+        [P(f"{avg_servings:,}명", size=11, align=1),
+         P(f"{total_waste:.1f} kg", size=11, align=1),
+         P(f"{avg_pp:.1f} g", size=11, align=1),
+         P(f"{matched_cnt}/{len(analysis_rows)}일", size=11, align=1),
+         P(main_grade, size=14, align=1,
+           color=GREEN if main_grade == 'A' else (ORANGE if main_grade == 'B' else RED))],
+    ]
+    sum_tbl = Table(sum_data, colWidths=[36*mm]*5)
+    sum_tbl.setStyle(TableStyle([
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+        ('BACKGROUND', (0,1), (-1,1),  LGRAY),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 5),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(sum_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # AI 종합 코멘트 섹션 (스마트명세서에 없는 핵심 차별화)
+    # ══════════════════════════════════════════
+    if ai_comment:
+        story.append(P("■ AI 종합 분석 코멘트", size=11, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        # AI 코멘트를 줄 단위로 파싱하여 테이블로
+        comment_lines = [line.strip() for line in ai_comment.split('\n') if line.strip()]
+        comment_text = '\n'.join(comment_lines[:20])  # 최대 20줄
+
+        ai_box_data = [[P(comment_text, size=8, leading=12)]]
+        ai_box = Table(ai_box_data, colWidths=[170*mm])
+        ai_box.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f3e5f5')),
+            ('BOX',        (0,0), (-1,-1), 1.0, PURPLE),
+            ('PADDING',    (0,0), (-1,-1), 8),
+            ('VALIGN',     (0,0), (-1,-1), 'TOP'),
+        ]))
+        story.append(ai_box)
+        story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # 비용 절감 효과 섹션
+    # ══════════════════════════════════════════
+    if cost_savings:
+        story.append(P("■ 비용 절감 효과", size=11, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        unit_price = cost_savings.get('unit_price', 0)
+        current_cost = cost_savings.get('current_cost', 0)
+        target_cost = cost_savings.get('target_cost', 0)
+        save_amount = cost_savings.get('save_amount', 0)
+        save_pct = cost_savings.get('save_pct', 0)
+        prev_cost = cost_savings.get('prev_cost', 0)
+        mom_save = cost_savings.get('mom_save', 0)
+
+        cost_data = [
+            [P('항목', size=8, align=1, color=colors.white),
+             P('금액/수치', size=8, align=1, color=colors.white),
+             P('비고', size=8, align=1, color=colors.white)],
+            [P('음식물 처리 단가', size=8, align=1),
+             P(f"{unit_price:,.0f} 원/kg", size=8, align=2),
+             P('customer_info 기준', size=7)],
+            [P('이번 달 처리비용', size=8, align=1),
+             P(f"{current_cost:,.0f} 원", size=8, align=2),
+             P(f'총 잔반 {total_waste:.1f}kg 기준', size=7)],
+        ]
+
+        if prev_cost > 0:
+            cost_data.append([
+                P('전월 처리비용', size=8, align=1),
+                P(f"{prev_cost:,.0f} 원", size=8, align=2),
+                P('', size=7),
+            ])
+            mom_color = GREEN if mom_save > 0 else RED
+            cost_data.append([
+                P('전월 대비 절감', size=8, align=1, color=mom_color),
+                P(f"{mom_save:,.0f} 원", size=9, align=2, color=mom_color),
+                P(f"{'절감' if mom_save > 0 else '증가'}", size=7, color=mom_color),
+            ])
+
+        if target_cost > 0 and save_amount > 0:
+            cost_data.append([
+                P('10% 감소 시 절감액', size=8, align=1, color=GREEN),
+                P(f"{save_amount:,.0f} 원/월", size=9, align=2, color=GREEN),
+                P(f'연간 약 {save_amount * 12:,.0f}원 절감 가능', size=7, color=GREEN),
+            ])
+
+        cost_tbl = Table(cost_data, colWidths=[45*mm, 45*mm, 80*mm])
+        cost_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 4),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        for i in range(1, len(cost_data)):
+            bg = LGRAY if i % 2 == 0 else colors.white
+            cost_tbl.setStyle(TableStyle([('BACKGROUND', (0,i), (-1,i), bg)]))
+        story.append(cost_tbl)
+        story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # 요일별 잔반 패턴 섹션
+    # ══════════════════════════════════════════
+    if weekday_pattern and weekday_pattern.get('data'):
+        story.append(P("■ 요일별 잔반 패턴", size=11, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        wd_header = [P(h, size=8, align=1, color=colors.white)
+                     for h in ['요일', '평균 잔반(kg)', '평균 1인당(g)', '수거 일수', '주요 메뉴 키워드']]
+        wd_data = [wd_header]
+
+        for wd in weekday_pattern['data']:
+            wd_data.append([
+                P(wd.get('weekday_name', ''), size=8, align=1),
+                P(f"{wd.get('avg_kg', 0):.1f}", size=8, align=2),
+                P(f"{wd.get('avg_pp', 0):.1f}", size=8, align=2),
+                P(str(wd.get('count', 0)), size=8, align=2),
+                P(wd.get('top_menus', '-'), size=7),
+            ])
+
+        wd_tbl = Table(wd_data, colWidths=[18*mm, 28*mm, 28*mm, 22*mm, 74*mm])
+        wd_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        for i in range(1, len(wd_data)):
+            bg = LGRAY if i % 2 == 0 else colors.white
+            wd_tbl.setStyle(TableStyle([('BACKGROUND', (0,i), (-1,i), bg)]))
+        story.append(wd_tbl)
+
+        if weekday_pattern.get('insight'):
+            story.append(Spacer(1, 2*mm))
+            story.append(P(weekday_pattern['insight'], size=8, color=PURPLE))
+        story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # 이상치 탐지 섹션
+    # ══════════════════════════════════════════
+    if anomalies:
+        story.append(P("■ 이상치 탐지 (평소 대비 급증/급감)", size=11, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        an_header = [P(h, size=8, align=1, color=colors.white)
+                     for h in ['날짜', '잔반량(kg)', 'Z-Score', '유형', '해당일 메뉴']]
+        an_data = [an_header]
+
+        for a in anomalies[:8]:  # 최대 8건
+            z = a.get('z_score', 0)
+            atype = '급증' if z > 0 else '급감'
+            acolor = RED if z > 0 else GREEN
+            an_data.append([
+                P(str(a.get('date', '')), size=8, align=1),
+                P(f"{a.get('waste_kg', 0):.1f}", size=8, align=2),
+                P(f"{z:.2f}", size=8, align=2, color=acolor),
+                P(atype, size=8, align=1, color=acolor),
+                P(a.get('menus', '-'), size=7),
+            ])
+
+        an_tbl = Table(an_data, colWidths=[22*mm, 24*mm, 20*mm, 16*mm, 88*mm])
+        an_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  RED),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        for i in range(1, len(an_data)):
+            an_tbl.setStyle(TableStyle([('BACKGROUND', (0,i), (-1,i), colors.HexColor('#fff8e1'))]))
+        story.append(an_tbl)
+        story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # 메뉴 조합 분석 섹션
+    # ══════════════════════════════════════════
+    if combo_analysis:
+        story.append(P("■ 메뉴 조합 효과 분석", size=11, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        cb_header = [P(h, size=8, align=1, color=colors.white)
+                     for h in ['메뉴 조합', '평균 잔반(g/인)', '등장 횟수', '평가']]
+        cb_data = [cb_header]
+
+        for c in combo_analysis[:10]:
+            avg_w = c.get('avg_waste', 0)
+            rating = '우수' if avg_w < 150 else ('양호' if avg_w < 245 else ('주의' if avg_w < 300 else '경보'))
+            r_color = GREEN if avg_w < 150 else (BLUE if avg_w < 245 else (ORANGE if avg_w < 300 else RED))
+            cb_data.append([
+                P(c.get('combo', ''), size=7),
+                P(f"{avg_w:.1f}", size=8, align=2),
+                P(str(c.get('count', 0)), size=8, align=2),
+                P(rating, size=8, align=1, color=r_color),
+            ])
+
+        cb_tbl = Table(cb_data, colWidths=[90*mm, 30*mm, 22*mm, 28*mm])
+        cb_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        for i in range(1, len(cb_data)):
+            bg = LGRAY if i % 2 == 0 else colors.white
+            cb_tbl.setStyle(TableStyle([('BACKGROUND', (0,i), (-1,i), bg)]))
+        story.append(cb_tbl)
+        story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # 일별 상세 테이블 (기존과 동일)
+    # ══════════════════════════════════════════
+    story.append(P("■ 일별 식단 × 잔반량", size=11, color=PURPLE))
+    story.append(Spacer(1, 2*mm))
+
+    header = ['날짜', '메뉴', '인원', '잔반(kg)', '1인당(g)', '등급', '특이사항']
+    tdata = [[P(h, size=9, align=1, color=colors.white) for h in header]]
+
+    for r in analysis_rows:
+        try:
+            menus = json.loads(r.get('menu_items', '[]'))
+        except (json.JSONDecodeError, TypeError):
+            menus = []
+        menu_str = ", ".join(menus[:3])
+        if len(menus) > 3:
+            menu_str += f" 외 {len(menus)-3}"
+
+        srv = int(r.get('servings', 0) or 0)
+        wkg = float(r.get('waste_kg', 0) or 0)
+        wpp = float(r.get('waste_per_person', 0) or 0)
+        grade = r.get('grade', '-')
+        grade_color = GREEN if grade == 'A' else (ORANGE if grade == 'B' else (RED if grade == 'D' else colors.black))
+        remark = r.get('remark', '')
+
+        tdata.append([
+            P(r.get('meal_date', '')[-5:], size=9, align=1),
+            P(menu_str, size=8),
+            P(f"{srv:,}" if srv > 0 else '-', size=9, align=2),
+            P(f"{wkg:.1f}", size=9, align=2),
+            P(f"{wpp:.1f}", size=9, align=2),
+            P(grade, size=10, align=1, color=grade_color),
+            P(remark, size=7),
+        ])
+
+    detail_tbl = Table(tdata, colWidths=[16*mm, 48*mm, 14*mm, 14*mm, 14*mm, 10*mm, 49*mm])
+    detail_style = [
+        ('FONTNAME',   (0,0), (-1,-1), font),
+        ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+        ('BOX',        (0,0), (-1,-1), 0.8, colors.grey),
+        ('INNERGRID',  (0,0), (-1,-1), 0.3, DGRAY),
+        ('PADDING',    (0,0), (-1,-1), 3),
+        ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+    ]
+    for i in range(1, len(tdata)):
+        bg = LGRAY if i % 2 == 0 else colors.white
+        detail_style.append(('BACKGROUND', (0, i), (-1, i), bg))
+    detail_tbl.setStyle(TableStyle(detail_style))
+    story.append(detail_tbl)
+    story.append(Spacer(1, 5*mm))
+
+    # ── 메뉴별 순위 ──
+    if menu_ranking:
+        story.append(P("■ 메뉴별 잔반 순위", size=11, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        good = menu_ranking.get('good', [])[:5]
+        bad = menu_ranking.get('bad', [])[:5]
+
+        rank_header = [P('순위', size=7, align=1, color=colors.white),
+                       P('잔반 적은 메뉴', size=7, align=1, color=colors.white),
+                       P('평균(g)', size=7, align=1, color=colors.white),
+                       P('', size=7),
+                       P('잔반 많은 메뉴', size=7, align=1, color=colors.white),
+                       P('평균(g)', size=7, align=1, color=colors.white)]
+        rank_data = [rank_header]
+        for i in range(5):
+            g = good[i] if i < len(good) else {}
+            b = bad[i] if i < len(bad) else {}
+            rank_data.append([
+                P(str(i+1), size=7, align=1),
+                P(g.get('menu', '-'), size=7),
+                P(f"{g.get('avg_waste', 0):.1f}" if g else '-', size=7, align=2, color=GREEN),
+                P('', size=7),
+                P(b.get('menu', '-'), size=7),
+                P(f"{b.get('avg_waste', 0):.1f}" if b else '-', size=7, align=2, color=RED),
+            ])
+
+        rank_tbl = Table(rank_data, colWidths=[12*mm, 50*mm, 18*mm, 5*mm, 50*mm, 18*mm])
+        rank_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(rank_tbl)
+
+    story.append(Spacer(1, 5*mm))
+
+    # ── 분석 근거 출처 ──
+    story.append(P("■ 분석 근거", size=8, color=colors.grey))
+    story.append(Spacer(1, 1*mm))
+    for ref in WASTE_REFERENCES:
+        story.append(P(ref, size=5, color=colors.grey))
+    story.append(Spacer(1, 3*mm))
+    story.append(P(
+        "* 본 보고서는 ZERODA AI Analytics에서 Claude API 기반으로 자동 생성되었습니다.",
+        size=7, color=PURPLE))
+
+    # ══════════════════════════════════════════
+    # 추가 페이지: AI 추천식단 (선택)
+    # ══════════════════════════════════════════
+    if ai_recommendation:
+        story.append(PageBreak())
+        story.append(P("AI 추천식단", size=18, align=1, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+        story.append(P("잔반 데이터 기반 다음달 최적 메뉴 (ZERODA AI)", size=9, align=1, color=colors.grey))
+        story.append(HRFlowable(width="100%", thickness=1, color=PURPLE))
+        story.append(Spacer(1, 4*mm))
+
+        ai_header = ['날짜', '요일', '추천 메뉴', 'kcal', '선정 이유']
+        ai_data = [[P(h, size=7, align=1, color=colors.white) for h in ai_header]]
+
+        for m in ai_recommendation:
+            menu_items = m.get('menu_items', [])
+            menu_str = " / ".join(menu_items)
+            ai_data.append([
+                P(str(m.get('date', ''))[-5:], size=7, align=1),
+                P(m.get('weekday', ''), size=7, align=1),
+                P(menu_str, size=6),
+                P(str(int(m.get('calories', 0))), size=7, align=2),
+                P(m.get('reason', ''), size=5),
+            ])
+
+        ai_tbl = Table(ai_data, colWidths=[18*mm, 10*mm, 80*mm, 14*mm, 48*mm])
+        ai_style = [
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  PURPLE),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]
+        for i in range(1, len(ai_data)):
+            bg = LGRAY if i % 2 == 0 else colors.white
+            ai_style.append(('BACKGROUND', (0, i), (-1, i), bg))
+        ai_tbl.setStyle(TableStyle(ai_style))
+        story.append(ai_tbl)
+
+        story.append(Spacer(1, 5*mm))
+        story.append(P("* AI 추천식단은 과거 잔반 데이터와 영양균형을 기반으로 Claude AI가 생성하였습니다.",
+                       size=8, color=colors.grey))
+        story.append(P("* ZERODA AI Analytics Premium", size=8, color=PURPLE))
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ESG 보고서 PDF 생성 함수 (추가 - 기존 코드 유지)
 # ─────────────────────────────────────────────────────────────────────────────
 
