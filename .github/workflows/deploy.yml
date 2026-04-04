@@ -1,0 +1,23 @@
+name: Deploy to zeroda Server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 223.130.131.188
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/zeroda-platform
+            git pull
+            systemctl restart zeroda
+            echo "✅ 배포 완료"
