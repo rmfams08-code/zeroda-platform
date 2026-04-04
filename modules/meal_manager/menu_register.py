@@ -62,14 +62,23 @@ def render_menu_register(user: dict):
     for m in existing:
         existing_map[m['meal_date']] = m
 
-    # ── 달력 형태로 일별 식단 입력 ──
+    # ── 수거 데이터 로드 (해당 학교 + 해당 월) ──
+    _all_collections = db_get('real_collection', {'school_name': site_name}) or []
+    collection_map = {}
+    for r in _all_collections:
+        cd = str(r.get('collect_date', ''))[:10]
+        if cd.startswith(sel_month):
+            if cd not in collection_map:
+                collection_map[cd] = []
+            collection_map[cd].append(r)
+
+    # ── 달력 형태로 일별 식단 + 수거량 표시 ──
     st.subheader(f"{sel_month} 식단표")
 
     year, month = int(sel_month[:4]), int(sel_month[5:7])
     _, days_in_month = calendar.monthrange(year, month)
     weekday_names = ['월', '화', '수', '목', '금', '토', '일']
 
-    # 주차별 렌더링
     first_weekday = calendar.weekday(year, month, 1)
 
     # 요일 헤더
@@ -105,36 +114,107 @@ def render_menu_register(user: dict):
                 except (json.JSONDecodeError, TypeError):
                     ex_menus = []
 
+            # 수거 데이터 확인
+            day_collections = collection_map.get(date_str, [])
+            total_weight = sum(float(c.get('weight', 0)) for c in day_collections)
+            has_collection = len(day_collections) > 0
+
             with cols[wd_idx]:
-                # 날짜 표시 + 등록 상태
-                status_icon = "✅" if ex_menus else ""
+                # 날짜 + 상태 아이콘
+                status_icon = ""
+                if ex_menus and has_collection:
+                    status_icon = "✅🚛"
+                elif ex_menus:
+                    status_icon = "✅"
+                elif has_collection:
+                    status_icon = "🚛"
+
                 st.markdown(f"**{day}** {status_icon}")
 
                 if ex_menus:
-                    # 기존 메뉴 간략 표시
+                    # 메뉴 1줄 요약
                     short = ", ".join(ex_menus[:2])
                     if len(ex_menus) > 2:
                         short += f" 외 {len(ex_menus)-2}"
                     st.caption(short)
 
-                # 편집 버튼
-                if st.button("편집" if ex_menus else "등록",
-                             key=f"meal_btn_{date_str}",
-                             use_container_width=True):
-                    st.session_state[_edit_key] = {
-                        'date': date_str,
-                        'menus': ex_menus,
-                        'calories': float(ex.get('calories', 0) or 0),
-                        'nutrition': ex.get('nutrition_info', '{}'),
-                        'servings': int(ex.get('servings', 0) or 0),
-                    }
+                # 수거량 표시
+                if has_collection:
+                    _items_summary = []
+                    for c in day_collections:
+                        _it = str(c.get('item_type', ''))
+                        _w = float(c.get('weight', 0))
+                        _items_summary.append(f"{_it} {_w:.1f}kg")
+                    st.markdown(
+                        f"<div style='background:#e8f5e9;border-radius:6px;"
+                        f"padding:2px 6px;font-size:11px;color:#2e7d32;'>"
+                        f"{'  '.join(_items_summary)}</div>",
+                        unsafe_allow_html=True
+                    )
+                elif ex_menus:
+                    st.markdown(
+                        "<div style='background:#f5f5f5;border-radius:6px;"
+                        "padding:2px 6px;font-size:11px;color:#999;'>"
+                        "⏳ 수거 대기</div>",
+                        unsafe_allow_html=True
+                    )
+
+                # 토글: 상세보기 + 편집
+                if ex_menus or has_collection:
+                    with st.expander("상세", expanded=False):
+                        if ex_menus:
+                            st.markdown("**전체 메뉴**")
+                            for _mi, _menu in enumerate(ex_menus):
+                                st.markdown(f"&nbsp;&nbsp;{_mi+1}. {_menu}")
+                            _cal = float(ex.get('calories', 0) or 0)
+                            _srv = int(ex.get('servings', 0) or 0)
+                            if _cal > 0 or _srv > 0:
+                                _info_parts = []
+                                if _srv > 0:
+                                    _info_parts.append(f"배식 {_srv}명")
+                                if _cal > 0:
+                                    _info_parts.append(f"{_cal:.0f}kcal")
+                                st.caption(" | ".join(_info_parts))
+
+                        if has_collection:
+                            st.markdown("**수거 실적**")
+                            for c in day_collections:
+                                _it = str(c.get('item_type', ''))
+                                _w = float(c.get('weight', 0))
+                                _dr = c.get('driver', '')
+                                st.caption(f"  {_it} {_w:.1f}kg" + (f" ({_dr})" if _dr else ""))
+
+                        # 편집 버튼 (토글 안)
+                        if st.button("편집" if ex_menus else "등록",
+                                     key=f"meal_btn_{date_str}",
+                                     use_container_width=True):
+                            st.session_state[_edit_key] = {
+                                'date': date_str,
+                                'menus': ex_menus,
+                                'calories': float(ex.get('calories', 0) or 0),
+                                'nutrition': ex.get('nutrition_info', '{}'),
+                                'servings': int(ex.get('servings', 0) or 0),
+                            }
+                            st.rerun()
+                else:
+                    # 빈 날짜: 등록 버튼
+                    if st.button("등록", key=f"meal_btn_{date_str}",
+                                 use_container_width=True):
+                        st.session_state[_edit_key] = {
+                            'date': date_str,
+                            'menus': [],
+                            'calories': 0.0,
+                            'nutrition': '{}',
+                            'servings': 0,
+                        }
+                        st.rerun()
 
             day += 1
         week_start = False
 
     st.divider()
 
-    # ── 선택된 날짜 편집 패널 ──
+    # ── 선택된 날짜 편집 패널 (토글에서 편집 클릭 시 표시) ──
     edit_data = st.session_state.get(_edit_key, {})
     if edit_data and edit_data.get('date'):
         _render_edit_panel(edit_data, site_name, site_type, servings, _edit_key)
