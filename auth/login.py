@@ -555,8 +555,7 @@ def render_login_page():
                 st.session_state.user = user
                 st.session_state.login_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 save_login_cookie(user)
-                # 기사 역할: localStorage에 자동 로그인 토큰 저장
-                inject_auto_login_save_js(user)
+                # 기사 역할 토큰 저장은 main.py 대시보드 진입 시 실행
                 st.rerun()
             else:
                 st.error(err_msg if err_msg else "아이디 또는 비밀번호가 올바르지 않습니다.")
