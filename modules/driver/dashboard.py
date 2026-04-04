@@ -1011,8 +1011,12 @@ def render_dashboard(user: dict):
                     {_alert_html}
                 </div>
                 """, unsafe_allow_html=True)
-        except Exception:
-            pass  # API 키 미설정 시 무시
+            elif not _wa.get('available'):
+                # API 키 있지만 데이터 조회 실패 시 간단 안내
+                pass
+        except Exception as _weather_err:
+            # API 키 미설정 또는 모듈 오류 시 무시
+            pass
 
     # ══════════════════════════════════════════════
     # 섹션1: 안전점검
