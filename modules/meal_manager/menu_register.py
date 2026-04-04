@@ -177,7 +177,7 @@ def render_menu_register(user: dict):
                                 st.caption(" | ".join(_info_parts))
 
                         if has_collection:
-                            st.markdown("**수거 실적**")
+                            st.markdown("**잔반량**")
                             for c in day_collections:
                                 _it = str(c.get('item_type', ''))
                                 _w = float(c.get('weight', 0))

@@ -208,28 +208,24 @@ elif role == 'edu_office':
 
 elif role in ('meal_manager', 'school_nutrition'):
     menu = [
-        ("식단 등록",     "menu_register"),
-        ("잔반 분석",     "waste_analysis"),
-        ("AI 추천식단",   "ai_recommend"),
-        ("스마트월말명세서", "statement"),
-        ("수거 현황",     "collection"),
-        ("정산 확인",     "settlement"),
-        ("ESG 보고서",    "esg"),
+        ("식단 등록",       "menu_register"),
+        ("스마트잔반분석",   "smart_waste"),
+        ("AI잔반분석",      "ai_waste"),
+        ("수거 현황",       "collection"),
+        ("정산 확인",       "settlement"),
+        ("ESG 보고서",      "esg"),
     ]
     page = render_sidebar(menu)
 
     if page == "menu_register":
         from modules.meal_manager.menu_register import render_menu_register
         render_menu_register(user)
-    elif page == "waste_analysis":
-        from modules.meal_manager.waste_analysis import render_waste_analysis
-        render_waste_analysis(user)
-    elif page == "ai_recommend":
-        from modules.meal_manager.ai_recommend import render_ai_recommend
-        render_ai_recommend(user)
-    elif page == "statement":
-        from modules.meal_manager.statement_tab import render_statement_tab
-        render_statement_tab(user)
+    elif page == "smart_waste":
+        from modules.meal_manager.smart_waste_tab import render_smart_waste_tab
+        render_smart_waste_tab(user)
+    elif page == "ai_waste":
+        from modules.meal_manager.ai_waste_tab import render_ai_waste_tab
+        render_ai_waste_tab(user)
     elif page == "collection":
         from modules.meal_manager.school_view import render_school_collection
         render_school_collection(user)
