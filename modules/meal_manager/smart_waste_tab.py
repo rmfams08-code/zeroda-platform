@@ -9,7 +9,10 @@ from database.db_manager import (
     analyze_meal_waste, get_meal_menus, db_get,
 )
 from services.pdf_generator import generate_meal_statement_pdf
-from config.settings import COMMON_CSS
+from config.settings import (
+    COMMON_CSS, get_school_standard, detect_school_level,
+    OFFICIAL_REFERENCES,
+)
 
 
 def render_smart_waste_tab(user: dict):
@@ -63,10 +66,10 @@ def render_smart_waste_tab(user: dict):
             months_with_data.append(ym)
 
     with tab1:
-        _render_summary_tab(analysis, menus, sel_month)
+        _render_summary_tab(analysis, menus, sel_month, site_name)
 
     with tab2:
-        _render_detail_tab(analysis)
+        _render_detail_tab(analysis, site_name)
 
     with tab3:
         _render_trend_tab(all_analysis, months_with_data, site_name)
@@ -78,16 +81,23 @@ def render_smart_waste_tab(user: dict):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 1: 잔반요약
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def _render_summary_tab(results, menus, sel_month):
+def _render_summary_tab(results, menus, sel_month, site_name=''):
     if not menus:
         st.info(f"{sel_month} 등록된 식단이 없습니다. '식단 등록' 메뉴에서 먼저 식단을 등록하세요.")
         return
 
     st.success(f"{sel_month}: {len(menus)}일 식단 등록됨")
 
-    # 등급 기준 안내
-    with st.expander("📏 잔반 등급 기준 (학교급식법 시행규칙 [별표 3])", expanded=False):
-        st.markdown("""
+    # ── 공식기준 안내 (학교급 자동 판별) ──
+    std = get_school_standard(site_name)
+    level = std['level']
+    nut = std['nutrition']
+    comp = std['composition']
+
+    with st.expander(f"📏 공식기준: {nut['label']} (학교급식법 시행규칙 [별표 3])", expanded=False):
+        st.markdown(f"""
+**학교급:** {nut['label']} | **1끼 에너지 기준:** {nut['energy_kcal']} kcal (±10%)
+
 | 등급 | 1인당 잔반량 | 판정 | 설명 |
 |:---:|:---:|:---:|:---|
 | **A** | 150g 미만 | 우수 | 잔반 최소화 달성 |
@@ -95,7 +105,21 @@ def _render_summary_tab(results, menus, sel_month):
 | **C** | 245~300g | 주의 | 표준 초과, 메뉴 조정 권장 |
 | **D** | 300g 이상 | 경보 | 고잔반, 메뉴 구성 재검토 필요 |
 
-*출처: 학교급식법 시행규칙 [별표 3] (교육부, 2021.01.29 개정)*
+**1끼 구성별 제공량 기준:**
+
+| 구성 | 제공량(g) | 칼로리(kcal) |
+|:---|:---:|:---:|
+| 밥 | {comp.get('밥', {}).get('supply_g', '-')}g | {comp.get('밥', {}).get('kcal', '-')} |
+| 국 | {comp.get('국', {}).get('supply_g', '-')}g | {comp.get('국', {}).get('kcal', '-')} |
+| 주반찬 | {comp.get('주반찬', {}).get('supply_g', '-')}g | {comp.get('주반찬', {}).get('kcal', '-')} |
+| 부반찬 | {comp.get('부반찬', {}).get('supply_g', '-')}g | {comp.get('부반찬', {}).get('kcal', '-')} |
+| 김치 | {comp.get('김치', {}).get('supply_g', '-')}g | {comp.get('김치', {}).get('kcal', '-')} |
+| **합계** | **{comp.get('total_g', '-')}g** | **{comp.get('total_kcal', '-')} kcal** |
+
+*조리 시 폐기율(10~35%) + 조리손실(~10%) 감안 → 제공량 대비 약 20% 추가 조리 필요*
+
+**분석 근거:**
+{"".join(chr(10) + '- ' + r for r in OFFICIAL_REFERENCES[:4])}
         """)
 
     if not results:
@@ -129,6 +153,32 @@ def _render_summary_tab(results, menus, sel_month):
     with c5:
         best_grade = max(grade_counts, key=grade_counts.get) if grade_counts else '-'
         st.metric("주요 등급", best_grade)
+
+    # ── 공식기준 대비 실적 비교 ──
+    std_supply_g = comp.get('total_g', 670)
+    std_kcal = nut['energy_kcal']
+    waste_ratio = (avg_pp / std_supply_g * 100) if std_supply_g > 0 and avg_pp > 0 else 0
+
+    st.divider()
+    st.subheader(f"📏 공식기준 대비 실적 ({nut['label']})")
+    sc1, sc2, sc3 = st.columns(3)
+    with sc1:
+        st.metric("1끼 제공량 기준", f"{std_supply_g}g",
+                  help=f"밥+국+반찬+김치 합계 ({level})")
+    with sc2:
+        st.metric("1인당 잔반 비율", f"{waste_ratio:.1f}%",
+                  help=f"1인당 잔반 {avg_pp:.0f}g ÷ 제공량 {std_supply_g}g")
+    with sc3:
+        overhead = std_supply_g * 1.2  # 약 20% 추가 조리
+        st.metric("예상 조리량/인", f"{overhead:.0f}g",
+                  help="폐기율+조리손실 약 20% 감안")
+
+    if waste_ratio > 40:
+        st.warning(f"⚠️ 잔반율 {waste_ratio:.1f}%: 제공량의 40%를 초과합니다. 메뉴 구성 재검토를 권장합니다.")
+    elif waste_ratio > 30:
+        st.info(f"📌 잔반율 {waste_ratio:.1f}%: 제공량의 30% 이상입니다. 개선 여지가 있습니다.")
+    elif waste_ratio < 20 and avg_pp > 0:
+        st.success(f"✅ 잔반율 {waste_ratio:.1f}%: 양호한 수준입니다.")
 
     # 등급 분포 차트
     if grade_counts:
@@ -183,12 +233,27 @@ def _render_summary_tab(results, menus, sel_month):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TAB 2: 메뉴별 상세
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def _render_detail_tab(results):
+def _render_detail_tab(results, site_name=''):
     if not results:
         st.info("분석 데이터가 없습니다.")
         return
 
     st.subheader("📋 메뉴별 잔반 분석")
+
+    # 공식기준 메뉴 유형별 잔반 순위 안내
+    std = get_school_standard(site_name)
+    menu_rank = std['menu_rank']
+    with st.expander("📏 메뉴 유형별 잔반 발생 순위 (논문 근거)", expanded=False):
+        rank_rows = []
+        for name, info in sorted(menu_rank.items(), key=lambda x: x[1]['rank']):
+            rank_rows.append({
+                '순위': info['rank'],
+                '메뉴 유형': name,
+                '잔반 비율': f"{info['waste_pct']}%",
+                '비고': info['note'],
+            })
+        st.dataframe(pd.DataFrame(rank_rows), use_container_width=True, hide_index=True)
+        st.caption("출처: 한국식품영양과학회(2019), 한국식품영양학회지 KCI, RISS 학위논문 종합")
 
     menu_stats = _build_menu_stats(results)
 
@@ -449,6 +514,9 @@ def _render_statement_tab(user, site_name, sel_month, analysis, menus):
 
     st.divider()
 
+    # 공식기준 데이터 로드 (PDF에 전달)
+    school_std = get_school_standard(site_name)
+
     if st.button("📄 스마트월말명세서 생성", type="primary",
                  key="swt_stmt_gen", use_container_width=True):
         with st.spinner("PDF 생성 중..."):
@@ -458,6 +526,7 @@ def _render_statement_tab(user, site_name, sel_month, analysis, menus):
                 analysis_rows=analysis,
                 menu_ranking=menu_ranking,
                 ai_recommendation=None,
+                school_standard=school_std,
             )
             st.session_state['_swt_stmt_pdf'] = pdf_bytes
             st.session_state['_swt_stmt_filename'] = f"스마트월말명세서_{site_name}_{sel_month}.pdf"

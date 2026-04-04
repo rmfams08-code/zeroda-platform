@@ -18,7 +18,10 @@ from services.pdf_generator import (
     generate_meal_statement_pdf,
     generate_ai_meal_statement_pdf,
 )
-from config.settings import COMMON_CSS
+from config.settings import (
+    COMMON_CSS, get_school_standard, detect_school_level,
+    OFFICIAL_REFERENCES,
+)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,6 +108,65 @@ def _render_summary_tab(all_analysis, months_with_data, site_name, user):
     with c4:
         data_score = "충분" if len(months_with_data) >= 3 else ("보통" if len(months_with_data) >= 2 else "부족")
         st.metric("데이터 충분도", data_score)
+
+    # ── 공식기준 안내 (학교급 자동 판별) ──
+    std = get_school_standard(site_name)
+    level = std['level']
+    nut = std['nutrition']
+    comp = std['composition']
+
+    with st.expander(f"📏 공식기준: {nut['label']} (학교급식법 시행규칙 [별표 3])", expanded=False):
+        st.markdown(f"""
+**학교급:** {nut['label']} | **1끼 에너지 기준:** {nut['energy_kcal']} kcal (±10%)
+
+| 등급 | 1인당 잔반량 | 판정 |
+|:---:|:---:|:---:|
+| **A** | 150g 미만 | 우수 |
+| **B** | 150~245g | 양호 |
+| **C** | 245~300g | 주의 |
+| **D** | 300g 이상 | 경보 |
+
+**1끼 구성별 제공량:**
+
+| 구성 | 제공량(g) | 칼로리(kcal) |
+|:---|:---:|:---:|
+| 밥 | {comp.get('밥', {}).get('supply_g', '-')}g | {comp.get('밥', {}).get('kcal', '-')} |
+| 국 | {comp.get('국', {}).get('supply_g', '-')}g | {comp.get('국', {}).get('kcal', '-')} |
+| 주반찬 | {comp.get('주반찬', {}).get('supply_g', '-')}g | {comp.get('주반찬', {}).get('kcal', '-')} |
+| 부반찬 | {comp.get('부반찬', {}).get('supply_g', '-')}g | {comp.get('부반찬', {}).get('kcal', '-')} |
+| 김치 | {comp.get('김치', {}).get('supply_g', '-')}g | {comp.get('김치', {}).get('kcal', '-')} |
+| **합계** | **{comp.get('total_g', '-')}g** | **{comp.get('total_kcal', '-')} kcal** |
+
+*조리 시 폐기율+조리손실 감안 → 제공량 대비 약 20% 추가 조리 필요*
+
+**분석 근거:**
+{"".join(chr(10) + '- ' + r for r in OFFICIAL_REFERENCES[:4])}
+        """)
+
+    # 공식기준 대비 실적
+    std_supply_g = comp.get('total_g', 670)
+    waste_ratio = (avg_pp / std_supply_g * 100) if std_supply_g > 0 and avg_pp > 0 else 0
+    if waste_ratio > 0:
+        st.divider()
+        st.subheader(f"📏 공식기준 대비 실적 ({nut['label']})")
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            st.metric("1끼 제공량 기준", f"{std_supply_g}g",
+                      help=f"밥+국+반찬+김치 합계 ({level})")
+        with sc2:
+            st.metric("1인당 잔반 비율", f"{waste_ratio:.1f}%",
+                      help=f"1인당 잔반 {avg_pp:.0f}g / 제공량 {std_supply_g}g")
+        with sc3:
+            overhead = std_supply_g * 1.2
+            st.metric("예상 조리량/인", f"{overhead:.0f}g",
+                      help="폐기율+조리손실 약 20% 감안")
+
+        if waste_ratio > 40:
+            st.warning(f"⚠️ 잔반율 {waste_ratio:.1f}%: 제공량의 40% 초과. 메뉴 구성 재검토 권장.")
+        elif waste_ratio > 30:
+            st.info(f"📌 잔반율 {waste_ratio:.1f}%: 제공량의 30% 이상. 개선 여지 있음.")
+        elif avg_pp > 0:
+            st.success(f"✅ 잔반율 {waste_ratio:.1f}%: 양호한 수준입니다.")
 
     # ── 비용 절감 효과 (신규) ──
     cost_info = _calc_cost_savings(site_name, user, all_analysis, months_with_data)
@@ -513,12 +575,27 @@ def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data,
             if parts:
                 combo_text = "\n## 메뉴 조합 분석\n" + "\n".join(parts)
 
+        # ── 공식기준 데이터 (AI 프롬프트용) ──
+        _std = get_school_standard(site_name)
+        _nut = _std['nutrition']
+        _comp = _std['composition']
+        std_text = f"""
+## 공식기준 (학교급식법 시행규칙 [별표 3])
+- 학교급: {_nut['label']}
+- 1끼 에너지 기준: {_nut['energy_kcal']} kcal (±10%)
+- 1끼 제공량 합계: {_comp.get('total_g', '-')}g (밥 {_comp.get('밥', {}).get('supply_g', '-')}g + 국 {_comp.get('국', {}).get('supply_g', '-')}g + 주반찬 {_comp.get('주반찬', {}).get('supply_g', '-')}g + 부반찬 {_comp.get('부반찬', {}).get('supply_g', '-')}g + 김치 {_comp.get('김치', {}).get('supply_g', '-')}g)
+- 조리량: 제공량 대비 약 20% 추가 (폐기율+조리손실)
+- 잔반 등급: A(<150g 우수), B(150~245g 양호), C(245~300g 주의), D(300g+ 경보)
+- 메뉴 유형별 잔반 순위: 채소·나물(57.4%) > 국·찌개(22.7%) > 생선(13.5%) > 밥(10.3%) > 육류(5%) > 과일(2%)"""
+
         prompt = f"""당신은 단체급식 잔반 분석 전문가입니다.
 아래 데이터를 기반으로 종합 분석 리포트를 작성하세요.
+공식기준(학교급식법)을 참조하여 실적을 비교 평가하세요.
 
 ## 기관: {site_name}
 ## 분석 기간: {months_with_data[0]} ~ {months_with_data[-1]}
 ## 전체 평균 1인당 잔반: {menu_stats.get('overall_avg', 0):.1f}g
+{std_text}
 
 ## 월별 추이
 {monthly_summary}
@@ -535,15 +612,16 @@ def _render_ai_comprehensive(api_key, site_name, all_analysis, months_with_data,
 {combo_text}
 
 ## 작성 항목 (반드시 모두 포함)
-1. **종합 평가**: 전체적인 잔반 관리 수준 평가 (A~D 등급 기준)
-2. **월별 트렌드 분석**: 증감 패턴 및 원인 추정
-3. **요일별 패턴 분석**: 요일별 잔반 차이의 원인 추정과 대응 방안
-4. **메뉴 분석**: 잔반 많은 메뉴의 원인 추정과 개선 방안 (조합 효과 포함)
-5. **배식인원 대비 효율**: 인원수와 잔반의 관계, 조리량 조절 권고
-6. **비용 절감 방안**: 구체적인 비용 절감 목표와 실행 방안
-7. **이상치 분석**: 급증/급감일 원인 추정
-8. **개선 권고사항**: 5가지 구체적이고 즉시 실행 가능한 방안
-9. **목표 설정**: 다음 분기 잔반 감소 목표 (kg, g/인, 원 단위 모두)
+1. **종합 평가**: 전체적인 잔반 관리 수준 평가 (A~D 등급 기준) + 공식기준 대비 실적
+2. **공식기준 대비 분석**: 1인당 잔반량과 제공량 기준 대비 잔반율 분석, 영양기준 충족 여부 평가
+3. **월별 트렌드 분석**: 증감 패턴 및 원인 추정
+4. **요일별 패턴 분석**: 요일별 잔반 차이의 원인 추정과 대응 방안
+5. **메뉴 분석**: 잔반 많은 메뉴의 원인 추정과 개선 방안 (조합 효과 포함, 메뉴 유형별 논문 근거 참조)
+6. **배식인원 대비 효율**: 인원수와 잔반의 관계, 조리량 조절 권고 (발주량 공식 참조)
+7. **비용 절감 방안**: 구체적인 비용 절감 목표와 실행 방안
+8. **이상치 분석**: 급증/급감일 원인 추정
+9. **개선 권고사항**: 5가지 구체적이고 즉시 실행 가능한 방안 (공식기준 근거 포함)
+10. **목표 설정**: 다음 분기 잔반 감소 목표 (kg, g/인, 원 단위 모두)
 
 마크다운 형식으로 간결하게 작성하세요."""
 
@@ -800,6 +878,7 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
     weekday_pattern = _build_weekday_pattern(analysis)
     anomalies_raw = _detect_anomalies(analysis)
     combo_data = _build_combo_analysis(analysis)
+    school_std = get_school_standard(site_name)
 
     bc1, bc2 = st.columns(2)
 
@@ -818,6 +897,7 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
                     weekday_pattern=weekday_pattern,
                     anomalies=anomalies_raw,
                     combo_analysis=combo_data,
+                    school_standard=school_std,
                 )
                 st.session_state['_aiwt_stmt_pdf'] = pdf_bytes
                 st.session_state['_aiwt_stmt_filename'] = f"AI월말명세서_{site_name}_{sel_month}.pdf"
@@ -839,6 +919,7 @@ def _render_ai_statement_tab(user, site_name, all_analysis, months_with_data):
                         weekday_pattern=weekday_pattern,
                         anomalies=anomalies_raw,
                         combo_analysis=combo_data,
+                        school_standard=school_std,
                     )
                     st.session_state['_aiwt_stmt_pdf'] = pdf_bytes
                     st.session_state['_aiwt_stmt_filename'] = f"AI월말명세서_{site_name}_{sel_month}_AI추천포함.pdf"

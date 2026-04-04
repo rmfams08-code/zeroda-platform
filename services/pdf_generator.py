@@ -473,7 +473,8 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
 
 def generate_meal_statement_pdf(site_name: str, year: int, month: int,
                                  analysis_rows: list, menu_ranking: dict = None,
-                                 ai_recommendation: list = None) -> bytes:
+                                 ai_recommendation: list = None,
+                                 school_standard: dict = None) -> bytes:
     """
     스마트월말명세서 PDF 생성
     - 1페이지: 기관정보 + 일별 식단↔잔반량 테이블 + 월간 요약
@@ -609,6 +610,95 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
     story.append(grade_tbl)
     story.append(Spacer(1, 4*mm))
 
+    # ── 공식기준: 영양·구성·조리량 (school_standard 전달 시) ──
+    if school_standard:
+        _nut = school_standard.get('nutrition', {})
+        _comp = school_standard.get('composition', {})
+        _proc = school_standard.get('procurement', {})
+        _level = school_standard.get('level', '혼합평균')
+        _label = _nut.get('label', _level)
+
+        story.append(P(f"■ 공식기준: {_label} (학교급식법 시행규칙 [별표 3])", size=10, color=BLUE))
+        story.append(Spacer(1, 2*mm))
+
+        # 영양기준 요약
+        nutr_data = [
+            [P('항목', size=7, align=1, color=colors.white),
+             P('1끼 에너지', size=7, align=1, color=colors.white),
+             P('단백질', size=7, align=1, color=colors.white),
+             P('칼슘', size=7, align=1, color=colors.white),
+             P('철분', size=7, align=1, color=colors.white),
+             P('비타민C', size=7, align=1, color=colors.white)],
+            [P(_label, size=7, align=1),
+             P(f"{_nut.get('energy_kcal', '-')} kcal", size=7, align=1),
+             P(f"{_nut.get('protein_g', '-')} g", size=7, align=1),
+             P(f"{_nut.get('calcium_mg', '-')} mg", size=7, align=1),
+             P(f"{_nut.get('iron_mg', '-')} mg", size=7, align=1),
+             P(f"{_nut.get('vitC_mg', '-')} mg", size=7, align=1)],
+        ]
+        nutr_tbl = Table(nutr_data, colWidths=[30*mm, 30*mm, 22*mm, 22*mm, 22*mm, 22*mm])
+        nutr_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  colors.HexColor('#607d8b')),
+            ('BACKGROUND', (0,1), (-1,1),  LGRAY),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(nutr_tbl)
+        story.append(Spacer(1, 2*mm))
+
+        # 구성별 제공량 테이블
+        comp_header = [P(h, size=7, align=1, color=colors.white)
+                       for h in ['구성', '제공량(g)', '칼로리(kcal)', '조리량(g)', '비고']]
+        comp_data = [comp_header]
+        _overhead_pct = _proc.get('total_overhead_pct', 20)
+        for _cname in ['밥', '국', '주반찬', '부반찬', '김치']:
+            _ci = _comp.get(_cname, {})
+            _sg = _ci.get('supply_g', 0)
+            _ck = _ci.get('kcal', 0)
+            _cook = round(_sg * (1 + _overhead_pct / 100))
+            comp_data.append([
+                P(_cname, size=7, align=1),
+                P(f"{_sg}g", size=7, align=2),
+                P(f"{_ck}", size=7, align=2),
+                P(f"{_cook}g", size=7, align=2),
+                P(f"+{_overhead_pct}% 조리손실 포함", size=6, color=colors.grey),
+            ])
+        # 합계
+        _tot_g = _comp.get('total_g', 0)
+        _tot_k = _comp.get('total_kcal', 0)
+        _tot_cook = round(_tot_g * (1 + _overhead_pct / 100))
+        comp_data.append([
+            P('합계', size=7, align=1),
+            P(f"{_tot_g}g", size=7, align=2),
+            P(f"{_tot_k}", size=7, align=2),
+            P(f"{_tot_cook}g", size=7, align=2),
+            P('', size=6),
+        ])
+        comp_tbl = Table(comp_data, colWidths=[22*mm, 24*mm, 24*mm, 24*mm, 54*mm])
+        comp_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  colors.HexColor('#607d8b')),
+            ('BACKGROUND', (0,-1),(-1,-1), LGRAY),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(comp_tbl)
+        story.append(Spacer(1, 2*mm))
+
+        # 공식기준 대비 잔반율 요약
+        _std_supply = _tot_g if _tot_g > 0 else 670
+        _waste_ratio = (avg_pp / _std_supply * 100) if _std_supply > 0 and avg_pp > 0 else 0
+        _wr_color = GREEN if _waste_ratio < 20 else (ORANGE if _waste_ratio < 30 else RED)
+        story.append(P(
+            f"공식기준 대비 잔반율: {avg_pp:.0f}g / {_std_supply}g = {_waste_ratio:.1f}%",
+            size=8, color=_wr_color))
+        story.append(Spacer(1, 4*mm))
+
     # ── 일별 상세 ──
     story.append(P("■ 일별 식단 × 잔반량", size=11, color=BLUE))
     story.append(Spacer(1, 2*mm))
@@ -701,7 +791,9 @@ def generate_meal_statement_pdf(site_name: str, year: int, month: int,
     # ── 분석 근거 출처 ──
     story.append(P("■ 분석 근거", size=8, color=colors.grey))
     story.append(Spacer(1, 1*mm))
-    for ref in WASTE_REFERENCES:
+    # school_standard가 전달되면 OFFICIAL_REFERENCES 사용 (더 포괄적)
+    _refs_to_use = (school_standard or {}).get('references', WASTE_REFERENCES)
+    for ref in _refs_to_use:
         story.append(P(ref, size=5, color=colors.grey))
     story.append(Spacer(1, 3*mm))
     story.append(P(
@@ -768,6 +860,7 @@ def generate_ai_meal_statement_pdf(
     weekday_pattern: dict = None,
     anomalies: list = None,
     combo_analysis: list = None,
+    school_standard: dict = None,
 ) -> bytes:
     """
     AI 월말명세서 PDF — 스마트월말명세서와 차별화된 AI 전용 보고서
@@ -887,6 +980,69 @@ def generate_ai_meal_statement_pdf(
     ]))
     story.append(sum_tbl)
     story.append(Spacer(1, 5*mm))
+
+    # ══════════════════════════════════════════
+    # 공식기준 섹션 (school_standard 전달 시)
+    # ══════════════════════════════════════════
+    if school_standard:
+        _nut = school_standard.get('nutrition', {})
+        _comp = school_standard.get('composition', {})
+        _proc = school_standard.get('procurement', {})
+        _level = school_standard.get('level', '혼합평균')
+        _label = _nut.get('label', _level)
+
+        story.append(P(f"■ 공식기준: {_label} (학교급식법 시행규칙 [별표 3])", size=10, color=PURPLE))
+        story.append(Spacer(1, 2*mm))
+
+        # 영양기준 + 구성별 제공량 (1개 테이블)
+        std_header = [P(h, size=7, align=1, color=colors.white)
+                      for h in ['구성', '제공량(g)', '칼로리', '조리량(g)', '비고']]
+        std_data = [std_header]
+        _overhead_pct = _proc.get('total_overhead_pct', 20)
+        for _cname in ['밥', '국', '주반찬', '부반찬', '김치']:
+            _ci = _comp.get(_cname, {})
+            _sg = _ci.get('supply_g', 0)
+            _ck = _ci.get('kcal', 0)
+            _cook = round(_sg * (1 + _overhead_pct / 100))
+            std_data.append([
+                P(_cname, size=7, align=1),
+                P(f"{_sg}g", size=7, align=2),
+                P(f"{_ck}kcal", size=7, align=2),
+                P(f"{_cook}g", size=7, align=2),
+                P(f"+{_overhead_pct}%", size=6, color=colors.grey),
+            ])
+        _tot_g = _comp.get('total_g', 0)
+        _tot_k = _comp.get('total_kcal', 0)
+        _tot_cook = round(_tot_g * (1 + _overhead_pct / 100))
+        std_data.append([
+            P('합계', size=7, align=1),
+            P(f"{_tot_g}g", size=7, align=2),
+            P(f"{_tot_k}kcal", size=7, align=2),
+            P(f"{_tot_cook}g", size=7, align=2),
+            P(f"에너지 {_nut.get('energy_kcal', '-')}kcal", size=6, color=PURPLE),
+        ])
+        std_tbl = Table(std_data, colWidths=[22*mm, 24*mm, 24*mm, 24*mm, 54*mm])
+        std_tbl.setStyle(TableStyle([
+            ('FONTNAME',   (0,0), (-1,-1), font),
+            ('BACKGROUND', (0,0), (-1,0),  colors.HexColor('#607d8b')),
+            ('BACKGROUND', (0,-1),(-1,-1), LGRAY),
+            ('BOX',        (0,0), (-1,-1), 0.5, colors.grey),
+            ('INNERGRID',  (0,0), (-1,-1), 0.2, DGRAY),
+            ('PADDING',    (0,0), (-1,-1), 3),
+            ('VALIGN',     (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        story.append(std_tbl)
+        story.append(Spacer(1, 2*mm))
+
+        # 공식기준 대비 잔반율
+        _std_supply = _tot_g if _tot_g > 0 else 670
+        _waste_ratio = (avg_pp / _std_supply * 100) if _std_supply > 0 and avg_pp > 0 else 0
+        _wr_color = GREEN if _waste_ratio < 20 else (ORANGE if _waste_ratio < 30 else RED)
+        story.append(P(
+            f"공식기준 대비 잔반율: {avg_pp:.0f}g / {_std_supply}g = {_waste_ratio:.1f}% "
+            f"| AI 분석과 공식기준을 결합하여 개선점을 도출합니다.",
+            size=8, color=_wr_color))
+        story.append(Spacer(1, 4*mm))
 
     # ══════════════════════════════════════════
     # AI 종합 코멘트 섹션 (스마트명세서에 없는 핵심 차별화)
@@ -1178,13 +1334,15 @@ def generate_ai_meal_statement_pdf(
     story.append(Spacer(1, 5*mm))
 
     # ── 분석 근거 출처 ──
-    story.append(P("■ 분석 근거", size=8, color=colors.grey))
+    story.append(P("■ 분석 근거 (공식기준 + AI 분석)", size=8, color=colors.grey))
     story.append(Spacer(1, 1*mm))
-    for ref in WASTE_REFERENCES:
+    _ai_refs = (school_standard or {}).get('references', WASTE_REFERENCES)
+    for ref in _ai_refs:
         story.append(P(ref, size=5, color=colors.grey))
+    story.append(P("+ ZERODA AI Analytics (Claude API 기반 잔반 패턴 분석, 비용절감 시뮬레이션, 이상치 탐지)", size=5, color=PURPLE))
     story.append(Spacer(1, 3*mm))
     story.append(P(
-        "* 본 보고서는 ZERODA AI Analytics에서 Claude API 기반으로 자동 생성되었습니다.",
+        "* 본 보고서는 공식기준(학교급식법) + AI 분석을 결합하여 ZERODA에서 자동 생성되었습니다.",
         size=7, color=PURPLE))
 
     # ══════════════════════════════════════════
