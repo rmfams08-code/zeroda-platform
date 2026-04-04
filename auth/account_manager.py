@@ -13,6 +13,7 @@ from database.db_manager import (
     db_get, db_upsert, db_delete,
     get_all_vendors, get_vendor_options, get_vendor_name, get_all_schools,
 )
+from auth.login import hash_password_bcrypt, validate_password
 
 
 # ──────────────────────────────────────────
@@ -20,7 +21,8 @@ from database.db_manager import (
 # ──────────────────────────────────────────
 
 def hash_password(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+    """bcrypt 해싱 (신규/변경 시 사용)"""
+    return hash_password_bcrypt(pw)
 
 
 def _now():
@@ -205,8 +207,8 @@ def render_account_management():
     """본사 관리자 - 계정관리 탭 전체 UI"""
     st.markdown("## 👥 계정 관리")
 
-    tab_list, tab_create, tab_edit, tab_delete = st.tabs([
-        "📋 계정 목록", "➕ 계정 생성", "✏️ 계정 수정", "🗑️ 비활성화/삭제"
+    tab_list, tab_create, tab_edit, tab_delete, tab_approve = st.tabs([
+        "📋 계정 목록", "➕ 계정 생성", "✏️ 계정 수정", "🗑️ 비활성화/삭제", "✅ 가입승인"
     ])
 
     # ══════════════════════════════════════
@@ -228,12 +230,16 @@ def render_account_management():
             import pandas as pd
             rows_display = []
             for a in accounts:
+                approval = a.get('approval_status', 'approved')
+                approval_display = {'pending': '⏳ 승인대기', 'approved': '✅ 승인',
+                                    'rejected': '❌ 거부'}.get(approval, '✅ 승인')
                 rows_display.append({
                     '아이디':    a.get('user_id', ''),
                     '이름':      a.get('name', ''),
                     '역할':      f"{ROLE_ICONS.get(a.get('role',''),'')} "
                                  f"{ROLES.get(a.get('role',''), a.get('role',''))}",
                     '소속/담당':  _get_affiliation_display(a),
+                    '승인':      approval_display,
                     '상태':      '✅ 활성' if int(a.get('is_active', 1)) == 1
                                  else '❌ 비활성',
                     '생성일':    a.get('created_at', '')[:10],
@@ -272,16 +278,21 @@ def render_account_management():
             elif new_pw != new_pw2:
                 st.error("비밀번호가 일치하지 않습니다.")
             else:
-                ok, msg = create_account(
-                    new_id, new_pw, role, new_name,
-                    vendor=new_vendor,
-                    schools=new_schools,
-                    edu_office=new_edu,
-                )
-                if ok:
-                    st.success(msg)
+                # 비밀번호 정책 검증
+                pw_ok, pw_msg = validate_password(new_pw)
+                if not pw_ok:
+                    st.error(pw_msg)
                 else:
-                    st.error(msg)
+                    ok, msg = create_account(
+                        new_id, new_pw, role, new_name,
+                        vendor=new_vendor,
+                        schools=new_schools,
+                        edu_office=new_edu,
+                    )
+                    if ok:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
 
     # ══════════════════════════════════════
     # 탭3: 계정 수정
@@ -432,3 +443,71 @@ def render_account_management():
                     if st.button("❌ 취소", key="btn_cancel_del"):
                         st.session_state.pop('confirm_delete', None)
                         st.rerun()
+
+    # ══════════════════════════════════════
+    # 탭5: 가입 승인 관리
+    # ══════════════════════════════════════
+    with tab_approve:
+        st.markdown("### ✅ 회원가입 승인 관리")
+        st.caption("자가 회원가입한 사용자의 승인/거부를 처리합니다.")
+
+        # 승인대기 목록
+        all_users = get_all_accounts()
+        pending_users = [u for u in all_users if u.get('approval_status') == 'pending']
+
+        if not pending_users:
+            st.info("승인 대기 중인 가입 신청이 없습니다.")
+        else:
+            st.warning(f"**{len(pending_users)}건**의 승인 대기 신청이 있습니다.")
+            import pandas as pd
+            for idx, pu in enumerate(pending_users):
+                with st.container():
+                    st.divider()
+                    c1, c2, c3 = st.columns([3, 1, 1])
+                    with c1:
+                        pu_role = pu.get('role', '')
+                        st.markdown(
+                            f"**{pu.get('name', '')}** (`{pu.get('user_id', '')}`) — "
+                            f"{ROLE_ICONS.get(pu_role, '')} {ROLES.get(pu_role, pu_role)}"
+                        )
+                        st.caption(
+                            f"소속: {_get_affiliation_display(pu)} | "
+                            f"신청일: {pu.get('created_at', '')[:10]}"
+                        )
+                    with c2:
+                        if st.button("✅ 승인", key=f"btn_approve_{idx}",
+                                     use_container_width=True):
+                            ok = db_upsert('users', {
+                                'user_id': pu['user_id'],
+                                'approval_status': 'approved',
+                                'updated_at': _now(),
+                            })
+                            if ok:
+                                st.success(f"'{pu['user_id']}' 승인 완료")
+                                st.rerun()
+                            else:
+                                st.error("승인 처리 실패")
+                    with c3:
+                        if st.button("❌ 거부", key=f"btn_reject_{idx}",
+                                     use_container_width=True):
+                            ok = db_upsert('users', {
+                                'user_id': pu['user_id'],
+                                'approval_status': 'rejected',
+                                'updated_at': _now(),
+                            })
+                            if ok:
+                                st.warning(f"'{pu['user_id']}' 거부 처리 완료")
+                                st.rerun()
+                            else:
+                                st.error("거부 처리 실패")
+
+        # 최근 처리 내역 (거부된 계정)
+        rejected_users = [u for u in all_users if u.get('approval_status') == 'rejected']
+        if rejected_users:
+            with st.expander(f"🚫 거부된 신청 ({len(rejected_users)}건)", expanded=False):
+                for ru in rejected_users:
+                    ru_role = ru.get('role', '')
+                    st.markdown(
+                        f"- **{ru.get('name', '')}** (`{ru.get('user_id', '')}`) — "
+                        f"{ROLES.get(ru_role, ru_role)} | {ru.get('updated_at', '')[:10]}"
+                    )

@@ -15,7 +15,8 @@ from database.db_init import (init_db, migrate_csv_to_db, migrate_vendor_names,
                                migrate_meal_analysis_remark,
                                migrate_customer_fixed_fee,
                                migrate_neis_school_code,
-                               migrate_meal_schedules_table)
+                               migrate_meal_schedules_table,
+                               migrate_user_approval_status)
 from auth.login import render_login_page, is_logged_in, logout, get_current_user
 
 st.set_page_config(
@@ -45,6 +46,7 @@ def startup():
     migrate_customer_fixed_fee()         # customer_info 월 고정비용 컬럼 추가 (기타 구분)
     migrate_neis_school_code()           # customer_info NEIS 학교코드 컬럼 추가
     migrate_meal_schedules_table()       # 식단기반 수거일정 테이블 자동 생성
+    migrate_user_approval_status()       # users 테이블 승인상태 컬럼 추가
     return True
 
 startup()

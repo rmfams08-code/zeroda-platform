@@ -691,25 +691,6 @@ def migrate_neis_school_code():
         print(f"[migrate_neis_school_code] {e}")
 
 
-def migrate_user_approval_status():
-    """
-    users 테이블에 approval_status 컬럼 추가 (회원가입 승인 워크플로우)
-    - pending: 승인대기, approved: 승인완료, rejected: 거부
-    - 기존 계정은 자동으로 'approved' (DEFAULT)
-    """
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        cols = [row[1] for row in c.execute("PRAGMA table_info(users)").fetchall()]
-        if 'approval_status' not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN approval_status TEXT DEFAULT 'approved'")
-            conn.commit()
-            print("[migrate_user_approval_status] approval_status 컬럼 추가 완료")
-        conn.close()
-    except Exception as e:
-        print(f"[migrate_user_approval_status] {e}")
-
-
 def migrate_meal_schedules_table():
     """
     식단기반 수거일정 테이블 생성 (없는 경우에만)
