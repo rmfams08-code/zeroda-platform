@@ -1,0 +1,51 @@
+# /etc/systemd/system/zeroda-reflex.service
+# ZERODA Reflex 앱 — systemd 서비스 설정
+# 설치: cp zeroda-reflex.service /etc/systemd/system/
+#        systemctl daemon-reload && systemctl enable zeroda-reflex
+
+[Unit]
+Description=ZERODA Reflex Web Application
+Documentation=https://github.com/rmfams08-code/zeroda-platform
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# 작업 디렉토리 (zeroda_reflex/ 안에서 실행)
+WorkingDirectory=/opt/zeroda-reflex/zeroda_reflex
+
+# 환경변수 파일
+EnvironmentFile=/opt/zeroda-reflex/.env
+
+# Reflex 프로덕션 실행 (백엔드 전용 — 프론트는 nginx가 정적 파일 서빙)
+ExecStart=/opt/zeroda-reflex/venv/bin/reflex run \
+    --env prod \
+    --backend-only \
+    --backend-host 0.0.0.0 \
+    --backend-port 8000
+
+# 자동 재시작 (오류 발생 시 5초 후 재시작)
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# 로그
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zeroda-reflex
+
+# 보안 (선택적)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/zeroda-reflex /opt/zeroda-platform/zeroda.db /tmp
+
+# 타임아웃
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
