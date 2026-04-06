@@ -11,6 +11,7 @@ from zeroda_reflex.components.shared import (
     logo_box as _logo_box,
     table_box as _table_box,
     table_header_row as _table_header,
+    card_box as _card_box,                     # 차트용 카드 박스
 )
 
 # ── 연/월 선택 옵션 (Phase 0-B: 동적 생성으로 교체) ──
