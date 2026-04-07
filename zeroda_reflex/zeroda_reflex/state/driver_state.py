@@ -139,15 +139,10 @@ class DriverState(AuthState):
     today_processing: list[dict] = []
 
     # ── 거래처별 수거 입력 (일정 카드 통합) ──
-    school_weights: dict[str, str] = {}       # {school_name: "25.5"}
-    school_item_types: dict[str, str] = {}    # {school_name: "음식물"}
-    school_memos: dict[str, str] = {}         # {school_name: "메모"}
-    school_save_msgs: dict[str, str] = {}     # {school_name: "✅ 완료"}
+    # 입력값은 schedule_schools 각 아이템에 직접 포함:
+    # {school_name, icon, address, items, weight, item_type, memo, save_msg, photo_msg}
     active_save_school: str = ""              # GPS/음성/사진 콜백용 현재 대상 거래처
-
-    # ── 거래처별 사진 (카드 통합) ──
     show_photo_for: str = ""                  # 사진 업로드 패널 열린 거래처 (한 번에 하나)
-    school_photo_msgs: dict[str, str] = {}    # {school_name: "📸 업로드 완료"}
 
     # ── 퇴근 ──
     is_checked_out: bool = False
@@ -233,29 +228,26 @@ class DriverState(AuthState):
 
     def _load_schedule(self):
         """선택 날짜의 수거일정 로드"""
-        self.schedule_schools = get_driver_schedule_schools(
+        schools = get_driver_schedule_schools(
             vendor=self.user_vendor,
             driver=self.user_name,
             sel_date=self.schedule_date,
         )
-        # 거래처별 입력 딕셔너리 초기화 (기존 입력값 보존, 신규만 빈값으로)
-        sw = {}
-        si = {}
-        sm = {}
-        ssm = {}
-        spm = {}
-        for s in self.schedule_schools:
+        # 기존 입력값 보존 (날짜 변경 시 이미 입력한 값 유지)
+        existing = {s.get("school_name", ""): s for s in self.schedule_schools}
+        result = []
+        for s in schools:
             name = s.get("school_name", "")
-            sw[name] = self.school_weights.get(name, "")
-            si[name] = self.school_item_types.get(name, "음식물")
-            sm[name] = self.school_memos.get(name, "")
-            ssm[name] = self.school_save_msgs.get(name, "")
-            spm[name] = self.school_photo_msgs.get(name, "")
-        self.school_weights = sw
-        self.school_item_types = si
-        self.school_memos = sm
-        self.school_save_msgs = ssm
-        self.school_photo_msgs = spm
+            ex = existing.get(name, {})
+            result.append({
+                **s,
+                "weight":    ex.get("weight", ""),
+                "item_type": ex.get("item_type", "음식물"),
+                "memo":      ex.get("memo", ""),
+                "save_msg":  ex.get("save_msg", ""),
+                "photo_msg": ex.get("photo_msg", ""),
+            })
+        self.schedule_schools = result
 
     def set_schedule_date(self, value: str):
         """일정 날짜 변경"""
@@ -623,26 +615,36 @@ class DriverState(AuthState):
                 pass
         self._do_save_collection("draft")
 
-    # ── 거래처별 수거 입력 핸들러 (일정 카드 통합) ──
+    # ── 거래처별 수거 입력 핸들러 (일정 카드 통합 — idx 기반) ──
 
     def set_school_weight(self, pair: list):
-        """특정 거래처 수거량 변경 [school, value]"""
-        school, val = str(pair[0]), str(pair[1])
-        self.school_weights = {**self.school_weights, school: val}
+        """특정 거래처 수거량 변경 [idx, value]"""
+        idx, val = int(pair[0]), str(pair[1])
+        schools = list(self.schedule_schools)
+        if 0 <= idx < len(schools):
+            schools[idx] = {**schools[idx], "weight": val}
+            self.schedule_schools = schools
 
     def set_school_item_type(self, pair: list):
-        """특정 거래처 품목 변경 [school, value]"""
-        school, val = str(pair[0]), str(pair[1])
-        self.school_item_types = {**self.school_item_types, school: val}
+        """특정 거래처 품목 변경 [idx, value]"""
+        idx, val = int(pair[0]), str(pair[1])
+        schools = list(self.schedule_schools)
+        if 0 <= idx < len(schools):
+            schools[idx] = {**schools[idx], "item_type": val}
+            self.schedule_schools = schools
 
     def set_school_memo(self, pair: list):
-        """특정 거래처 메모 변경 [school, value]"""
-        school, val = str(pair[0]), str(pair[1])
-        self.school_memos = {**self.school_memos, school: val}
+        """특정 거래처 메모 변경 [idx, value]"""
+        idx, val = int(pair[0]), str(pair[1])
+        schools = list(self.schedule_schools)
+        if 0 <= idx < len(schools):
+            schools[idx] = {**schools[idx], "memo": val}
+            self.schedule_schools = schools
 
-    def initiate_save_for_school(self, school: str):
+    def initiate_save_for_school(self, idx: int):
         """카드 수거완료 버튼 — GPS 취득 후 저장 (submitted)"""
-        self.active_save_school = school
+        if 0 <= idx < len(self.schedule_schools):
+            self.active_save_school = self.schedule_schools[idx].get("school_name", "")
         yield rx.call_script(
             "new Promise((resolve) => {"
             "  if (!navigator.geolocation) { resolve(''); return; }"
@@ -655,9 +657,10 @@ class DriverState(AuthState):
             callback=DriverState.save_collection_for_school_with_gps,
         )
 
-    def initiate_draft_for_school(self, school: str):
+    def initiate_draft_for_school(self, idx: int):
         """카드 임시저장 버튼 — GPS 취득 후 저장 (draft)"""
-        self.active_save_school = school
+        if 0 <= idx < len(self.schedule_schools):
+            self.active_save_school = self.schedule_schools[idx].get("school_name", "")
         yield rx.call_script(
             "new Promise((resolve) => {"
             "  if (!navigator.geolocation) { resolve(''); return; }"
@@ -670,9 +673,10 @@ class DriverState(AuthState):
             callback=DriverState.save_collection_for_school_draft_with_gps,
         )
 
-    def initiate_voice_for_school(self, school: str):
+    def initiate_voice_for_school(self, idx: int):
         """카드 음성입력 버튼 — 음성 인식 후 해당 거래처 weight 채우기"""
-        self.active_save_school = school
+        if 0 <= idx < len(self.schedule_schools):
+            self.active_save_school = self.schedule_schools[idx].get("school_name", "")
         yield rx.call_script(
             "new Promise((resolve) => {"
             "  try {"
@@ -699,7 +703,12 @@ class DriverState(AuthState):
         matched_kg = nums[0] if nums else ""
         school = self.active_save_school
         if matched_kg and school:
-            self.school_weights = {**self.school_weights, school: matched_kg}
+            schools = list(self.schedule_schools)
+            for i, s in enumerate(schools):
+                if s.get("school_name") == school:
+                    schools[i] = {**schools[i], "weight": matched_kg}
+                    break
+            self.schedule_schools = schools
             self.voice_result = f"🎤 {school}: {matched_kg}kg"
         else:
             self.voice_result = f"🎤 인식: {text}"
@@ -713,22 +722,33 @@ class DriverState(AuthState):
         self._do_save_for_school(coords, "draft")
 
     def _do_save_for_school(self, coords: str, status: str):
-        """거래처별 수거 저장 공통 로직"""
+        """거래처별 수거 저장 공통 로직 (schedule_schools 리스트에서 데이터 조회)"""
         school = self.active_save_school
         if not school:
             return
 
-        weight_str = self.school_weights.get(school, "")
+        school_data = None
+        school_idx = -1
+        for i, s in enumerate(self.schedule_schools):
+            if s.get("school_name") == school:
+                school_data = s
+                school_idx = i
+                break
+
+        if school_data is None:
+            return
+
+        weight_str = school_data.get("weight", "")
         try:
             w = float(weight_str)
         except (ValueError, TypeError):
-            self.school_save_msgs = {**self.school_save_msgs, school: "수거량을 입력하세요."}
+            self._set_school_save_msg(school_idx, "수거량을 입력하세요.")
             return
         if w <= 0:
-            self.school_save_msgs = {**self.school_save_msgs, school: "수거량은 0보다 커야 합니다."}
+            self._set_school_save_msg(school_idx, "수거량은 0보다 커야 합니다.")
             return
         if w > 9999:
-            self.school_save_msgs = {**self.school_save_msgs, school: "수거량이 너무 큽니다. (최대 9,999kg)"}
+            self._set_school_save_msg(school_idx, "수거량이 너무 큽니다. (최대 9,999kg)")
             return
 
         # GPS 파싱
@@ -741,8 +761,8 @@ class DriverState(AuthState):
             except (ValueError, IndexError):
                 pass
 
-        item_type = self.school_item_types.get(school, "음식물")
-        memo = self.school_memos.get(school, "")
+        item_type = school_data.get("item_type", "음식물")
+        memo = school_data.get("memo", "")
         collect_time = datetime.now().strftime("%H:%M")
 
         # 토요일 → 금요일 자동 변환 (학교만)
@@ -776,11 +796,20 @@ class DriverState(AuthState):
 
         label = "임시저장" if status == "draft" else "전송 완료"
         if ok:
-            self.school_save_msgs = {**self.school_save_msgs, school: f"✅ {w}kg {label}"}
-            self.school_weights = {**self.school_weights, school: ""}
+            self._set_school_save_msg(school_idx, f"✅ {w}kg {label}", clear_weight=True)
             self._load_today_collections()
         else:
-            self.school_save_msgs = {**self.school_save_msgs, school: "저장 실패"}
+            self._set_school_save_msg(school_idx, "저장 실패")
+
+    def _set_school_save_msg(self, idx: int, msg: str, clear_weight: bool = False):
+        """schedule_schools[idx]의 save_msg 업데이트 헬퍼"""
+        if 0 <= idx < len(self.schedule_schools):
+            schools = list(self.schedule_schools)
+            update = {"save_msg": msg}
+            if clear_weight:
+                update["weight"] = ""
+            schools[idx] = {**schools[idx], **update}
+            self.schedule_schools = schools
 
     # ── 수거 완료/미완료 거래처 추적 ──
 
@@ -994,21 +1023,20 @@ class DriverState(AuthState):
 
     # ── 사진 핸들러 ──
 
-    def toggle_photo_panel(self, school: str):
-        """카드 사진 업로드 패널 토글 — 한 번에 하나의 카드만 열림"""
-        if self.show_photo_for == school:
-            self.show_photo_for = ""
-        else:
-            self.show_photo_for = school
-            self.active_save_school = school  # 업로드 핸들러가 참조
+    def toggle_photo_panel(self, idx: int):
+        """카드 사진 업로드 패널 토글 — 한 번에 하나의 카드만 열림 (idx 기반)"""
+        if 0 <= idx < len(self.schedule_schools):
+            school = self.schedule_schools[idx].get("school_name", "")
+            if self.show_photo_for == school:
+                self.show_photo_for = ""
+            else:
+                self.show_photo_for = school
+                self.active_save_school = school
 
     async def handle_card_photo_upload(self, files: list[rx.UploadFile]):
         """카드 내 사진 업로드 (거래처당 1장) — active_save_school 사용"""
         school = self.active_save_school
-        if not school:
-            return
-        if not files:
-            self.school_photo_msgs = {**self.school_photo_msgs, school: "파일을 선택하세요."}
+        if not school or not files:
             return
 
         upload_dir = os.path.join("uploaded_files", "photos", self.today_str)
@@ -1028,8 +1056,14 @@ class DriverState(AuthState):
             photo_url=fpath,
             collect_date=self.today_str,
         )
-        self.school_photo_msgs = {**self.school_photo_msgs, school: "📸 사진 저장 완료"}
-        self.show_photo_for = ""  # 업로드 후 패널 닫기
+        # schedule_schools에서 photo_msg 업데이트
+        schools = list(self.schedule_schools)
+        for i, s in enumerate(schools):
+            if s.get("school_name") == school:
+                schools[i] = {**schools[i], "photo_msg": "📸 저장 완료"}
+                break
+        self.schedule_schools = schools
+        self.show_photo_for = ""
         self._load_today_photos()
 
     def _load_today_photos(self):

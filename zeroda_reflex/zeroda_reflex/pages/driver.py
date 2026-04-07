@@ -365,8 +365,11 @@ def _safety_section() -> rx.Component:
     )       # ← 외부 rx.cond(safety_panel_collapsed, ...) 닫기
 
 
-def _schedule_school_card(s: dict) -> rx.Component:
-    """일정 학교 카드 — 수거입력 통합 (완료 시 녹색, 미완료 시 입력폼 표시)"""
+def _schedule_school_card(s: dict, idx) -> rx.Component:
+    """일정 학교 카드 — 수거입력 통합 (완료 시 녹색, 미완료 시 입력폼 표시)
+    idx: foreach 인덱스 (Var) — dict state var 인덱싱 대신 schedule_schools[idx] 업데이트
+    입력값은 s["weight"], s["item_type"], s["memo"], s["save_msg"], s["photo_msg"] 로 직접 접근
+    """
     school_name = s["school_name"]
     items_text = s["items"]
     address = s["address"]
@@ -449,18 +452,19 @@ def _schedule_school_card(s: dict) -> rx.Component:
                 rx.divider(color="#e5e7eb", margin_y="4px"),
 
                 # 품목 선택 + 수거량 입력 + 음성버튼
+                # s["weight"], s["item_type"], s["memo"] — foreach 원소 직접 접근 (Var 인덱싱 없음)
                 rx.hstack(
                     rx.select(
                         ["음식물", "재활용", "일반"],
-                        value=DriverState.school_item_types[school_name],
-                        on_change=lambda v: DriverState.set_school_item_type([school_name, v]),
+                        value=s["item_type"],
+                        on_change=lambda v: DriverState.set_school_item_type([idx, v]),
                         size="2",
                         width="96px",
                     ),
                     rx.input(
                         placeholder="수거량 (kg)",
-                        value=DriverState.school_weights[school_name],
-                        on_change=lambda v: DriverState.set_school_weight([school_name, v]),
+                        value=s["weight"],
+                        on_change=lambda v: DriverState.set_school_weight([idx, v]),
                         type="number",
                         input_mode="decimal",
                         size="2",
@@ -471,7 +475,7 @@ def _schedule_school_card(s: dict) -> rx.Component:
                         size="2",
                         variant="outline",
                         color_scheme="purple",
-                        on_click=DriverState.initiate_voice_for_school(school_name),
+                        on_click=DriverState.initiate_voice_for_school(idx),
                         title="음성으로 수거량 입력",
                     ),
                     width="100%",
@@ -482,32 +486,28 @@ def _schedule_school_card(s: dict) -> rx.Component:
                 # 메모 입력 (선택)
                 rx.input(
                     placeholder="메모 (선택 — 특이사항)",
-                    value=DriverState.school_memos[school_name],
-                    on_change=lambda v: DriverState.set_school_memo([school_name, v]),
+                    value=s["memo"],
+                    on_change=lambda v: DriverState.set_school_memo([idx, v]),
                     size="2",
                     width="100%",
                 ),
 
-                # 사진 첨부 (토글 패널)
+                # 사진 첨부 (토글 패널 — show_photo_for == school_name 비교)
                 rx.hstack(
                     rx.button(
                         rx.cond(
-                            DriverState.show_photo_for == school_name,
+                            DriverState.show_photo_for == s["school_name"],
                             "📷 사진 닫기",
                             "📷 사진 첨부",
                         ),
-                        on_click=DriverState.toggle_photo_panel(school_name),
+                        on_click=DriverState.toggle_photo_panel(idx),
                         size="1",
                         variant="outline",
                         color_scheme="orange",
                     ),
                     rx.cond(
-                        DriverState.school_photo_msgs[school_name] != "",
-                        rx.text(
-                            DriverState.school_photo_msgs[school_name],
-                            font_size="11px",
-                            color="#16a34a",
-                        ),
+                        s["photo_msg"] != "",
+                        rx.text(s["photo_msg"], font_size="11px", color="#16a34a"),
                     ),
                     spacing="2",
                     align="center",
@@ -515,7 +515,7 @@ def _schedule_school_card(s: dict) -> rx.Component:
                 ),
                 # 사진 업로드 패널 (열린 카드만 DOM에 render됨 → ID 충돌 없음)
                 rx.cond(
-                    DriverState.show_photo_for == school_name,
+                    DriverState.show_photo_for == s["school_name"],
                     rx.vstack(
                         rx.upload(
                             rx.button(
@@ -547,11 +547,11 @@ def _schedule_school_card(s: dict) -> rx.Component:
                     ),
                 ),
 
-                # 저장 버튼 2개
+                # 저장 버튼 2개 (idx로 핸들러 호출)
                 rx.hstack(
                     rx.button(
                         "📋 임시저장",
-                        on_click=DriverState.initiate_draft_for_school(school_name),
+                        on_click=DriverState.initiate_draft_for_school(idx),
                         size="2",
                         variant="outline",
                         color_scheme="gray",
@@ -559,7 +559,7 @@ def _schedule_school_card(s: dict) -> rx.Component:
                     ),
                     rx.button(
                         "✅ 수거완료",
-                        on_click=DriverState.initiate_save_for_school(school_name),
+                        on_click=DriverState.initiate_save_for_school(idx),
                         size="2",
                         color_scheme="blue",
                         flex="1",
@@ -568,19 +568,10 @@ def _schedule_school_card(s: dict) -> rx.Component:
                     spacing="2",
                 ),
 
-                # 저장 결과 메시지
+                # 저장 결과 메시지 (s["save_msg"] 직접 접근)
                 rx.cond(
-                    DriverState.school_save_msgs[school_name] != "",
-                    rx.text(
-                        DriverState.school_save_msgs[school_name],
-                        font_size="12px",
-                        color=rx.cond(
-                            DriverState.school_save_msgs[school_name].contains("완료")
-                            | DriverState.school_save_msgs[school_name].contains("저장"),
-                            "#16a34a",
-                            "#dc2626",
-                        ),
-                    ),
+                    s["save_msg"] != "",
+                    rx.text(s["save_msg"], font_size="12px", color="#374151"),
                 ),
 
                 spacing="2",
@@ -661,10 +652,10 @@ def _schedule_section() -> rx.Component:
                 ),
                 # 수거 진행률 바
                 rx.progress(value=DriverState.collection_progress_pct, width="100%"),
-                # 학교 카드 목록 (각 카드에 수거입력 통합)
+                # 학교 카드 목록 (각 카드에 수거입력 통합 — idx로 schedule_schools 업데이트)
                 rx.foreach(
                     DriverState.schedule_schools,
-                    _schedule_school_card,
+                    lambda s, idx: _schedule_school_card(s, idx),
                 ),
                 spacing="2",
                 width="100%",
