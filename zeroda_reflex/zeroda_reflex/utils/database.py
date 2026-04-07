@@ -144,7 +144,7 @@ def get_daily_safety_checks(vendor: str, driver: str, check_date: str) -> list[d
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT * FROM daily_safety_checks WHERE vendor=? AND driver=? AND check_date=?",
+            "SELECT * FROM daily_safety_check WHERE vendor=? AND driver=? AND check_date=?",
             (vendor, driver, check_date),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -160,7 +160,7 @@ def save_daily_safety_check(
     category: str, check_items: dict, fail_memo: str = ""
 ) -> bool:
     """일일 안전점검 저장"""
-    return db_insert("daily_safety_checks", {
+    return db_insert("daily_safety_check", {
         "vendor": vendor,
         "driver": driver,
         "check_date": check_date,
@@ -210,7 +210,7 @@ def save_daily_safety_checks_transaction(
             )
 
             conn.execute(
-                f"INSERT INTO daily_safety_checks ({cols}) VALUES ({placeholders})",
+                f"INSERT OR REPLACE INTO daily_safety_check ({cols}) VALUES ({placeholders})",
                 values,
             )
 
@@ -815,7 +815,7 @@ def get_daily_checks_by_month(vendor: str, year_month: str) -> list[dict]:
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT * FROM daily_safety_checks "
+            "SELECT * FROM daily_safety_check "
             "WHERE vendor=? AND check_date LIKE ? "
             "ORDER BY check_date DESC",
             (vendor, f"{year_month}%"),
@@ -1595,14 +1595,14 @@ def get_daily_check_summary(vendor: str, year_month: str, category: str = None) 
     try:
         if category and category != "전체":
             rows = conn.execute(
-                "SELECT * FROM daily_safety_checks "
+                "SELECT * FROM daily_safety_check "
                 "WHERE vendor=? AND check_date LIKE ? AND category=? "
                 "ORDER BY check_date DESC",
                 (vendor, f"{year_month}%", category),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM daily_safety_checks "
+                "SELECT * FROM daily_safety_check "
                 "WHERE vendor=? AND check_date LIKE ? "
                 "ORDER BY check_date DESC",
                 (vendor, f"{year_month}%"),
@@ -2147,7 +2147,7 @@ def hq_calculate_safety_score(vendor: str, year_month: str) -> dict:
         # 3. 일일안전점검 점수 (15점)
         try:
             daily = conn.execute(
-                "SELECT total_ok, total_fail FROM daily_safety_checks "
+                "SELECT total_ok, total_fail FROM daily_safety_check "
                 "WHERE vendor=? AND check_date LIKE ?",
                 (vendor, f"{year_month}%"),
             ).fetchall()
@@ -2699,7 +2699,7 @@ def get_hq_daily_checks(vendor: str = "", year_month: str = "") -> list[dict]:
             params.append(f"{year_month}%")
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         rows = conn.execute(
-            f"SELECT * FROM daily_safety_checks{where} ORDER BY check_date DESC LIMIT 500",
+            f"SELECT * FROM daily_safety_check{where} ORDER BY check_date DESC LIMIT 500",
             params,
         ).fetchall()
         result = []
