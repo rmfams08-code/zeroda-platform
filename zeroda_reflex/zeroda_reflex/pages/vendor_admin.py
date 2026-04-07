@@ -3252,7 +3252,7 @@ def _safety_daily_panel() -> rx.Component:
                 # ── 일괄승인 + 안전등급 ──
                 rx.hstack(
                     rx.button(
-                        rx.icon("check_circle", size=14),
+                        rx.icon("circle_check", size=14),
                         rx.text("전체 승인", font_size="13px"),
                         on_click=VendorState.approve_all_daily_checks,
                         size="2", color_scheme="green", variant="soft",
