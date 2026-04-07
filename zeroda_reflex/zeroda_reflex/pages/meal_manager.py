@@ -27,7 +27,7 @@ _WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
 # ══════════════════════════════════════════
 
 def _calendar_cell(cell: dict) -> rx.Component:
-    """달력 한 칸 렌더링"""
+    """달력 한 칸 렌더링 (flat list용)"""
     return rx.box(
         rx.vstack(
             rx.text(
@@ -56,21 +56,13 @@ def _calendar_cell(cell: dict) -> rx.Component:
             spacing="0",
             align="center",
         ),
-        min_width="44px",
+        width="calc(100% / 7)",
         min_height="58px",
         border="1px solid #e2e8f0",
         border_radius="6px",
         bg=rx.cond(cell["has_menu"] == "1", "#f0fdf4", "#ffffff"),
         padding="3px",
-        flex="1",
-    )
-
-
-def _calendar_week(week: list) -> rx.Component:
-    return rx.hstack(
-        rx.foreach(week, _calendar_cell),
-        spacing="1",
-        width="100%",
+        box_sizing="border-box",
     )
 
 
@@ -90,17 +82,23 @@ def _calendar_view() -> rx.Component:
                 "✅ 식단등록  ❌ 미등록  🟢 수거완료  ⚪ 수거없음",
                 font_size="11px", color="#64748b",
             ),
-            # 요일 헤더
+            # 요일 헤더 (7칸 고정)
             rx.hstack(
                 *[rx.text(h, font_size="11px", font_weight="700", color="#64748b",
                            flex="1", text_align="center")
                   for h in _WEEKDAY_LABELS],
-                spacing="1", width="100%",
+                spacing="0", width="100%",
             ),
-            # 주별 rows
+            # 달력 셀 — flex-wrap으로 7열 그리드 구성
             rx.cond(
                 MealState.has_calendar,
-                rx.foreach(MealState.calendar_grid, _calendar_week),
+                rx.box(
+                    rx.foreach(MealState.calendar_cells, _calendar_cell),
+                    display="flex",
+                    flex_wrap="wrap",
+                    width="100%",
+                    gap="2px",
+                ),
                 rx.text("달력 데이터 없음", font_size="12px", color="#94a3b8"),
             ),
             spacing="2", width="100%",
