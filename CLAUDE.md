@@ -227,3 +227,5 @@ systemctl restart nginx
 | SOLAPI (CoolSMS) | 거래명세서 SMS 발송 | COOLSMS_API_KEY, COOLSMS_API_SECRET, COOLSMS_SENDER |
 | 네이버웍스 SMTP | 이메일 발송 | NAVER_SMTP_USER, NAVER_SMTP_PASS |
 | Anthropic | AI 잔반분석 | ANTHROPIC_API_KEY |
+
+> 2026-04-07 webhook 정상화 재검증 완료
