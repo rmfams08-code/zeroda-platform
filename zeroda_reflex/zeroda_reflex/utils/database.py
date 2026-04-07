@@ -292,6 +292,53 @@ except Exception as _gps_col_err:
     print(f"[DB ERROR] GPS 컨럼 초기화 실패: {_gps_col_err}")
 
 
+def ensure_missing_tables() -> None:
+    """photo_records / driver_checkout 테이블이 없으면 생성 (idempotent).
+
+    사례 5(2026-04-07) GitHub 폴더 업로드 사고 수습 과정에서 마이그레이션이
+    누락되어 운영 DB에 두 테이블이 없는 상태로 운영되고 있었음.
+    컬럼 구조는 save_photo_record / save_driver_checkout 의 INSERT payload 기준.
+    """
+    conn = get_db()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS driver_checkout (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor        TEXT,
+                driver        TEXT,
+                checkout_date TEXT,
+                checkout_time TEXT,
+                created_at    TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS photo_records (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor       TEXT,
+                driver       TEXT,
+                school_name  TEXT,
+                photo_type   TEXT,
+                photo_url    TEXT,
+                collect_date TEXT,
+                memo         TEXT,
+                created_at   TEXT
+            )
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"[DB ERROR] ensure_missing_tables: {e}")
+        logger.warning(f"ensure_missing_tables 실패 (idempotent): {e}")
+    finally:
+        conn.close()
+
+
+# 누락 테이블 자동 생성 (모듈 임포트 시 1회 실행)
+try:
+    ensure_missing_tables()
+except Exception as _tbl_init_err:
+    print(f"[DB ERROR] 누락 테이블 초기화 실패: {_tbl_init_err}")
+
+
 def save_collection(
     vendor: str, driver: str, school_name: str,
     collect_date: str, item_type: str, weight: float,
@@ -732,8 +779,8 @@ def get_customers_by_vendor(vendor: str, cust_type: str = None) -> list[dict]:
     try:
         if cust_type:
             rows = conn.execute(
-                "SELECT * FROM customer_info WHERE vendor=? AND (구분=? OR cust_type=?) ORDER BY name",
-                (vendor, cust_type, cust_type),
+                "SELECT * FROM customer_info WHERE vendor=? AND cust_type=? ORDER BY name",
+                (vendor, cust_type),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -749,17 +796,18 @@ def get_customers_by_vendor(vendor: str, cust_type: str = None) -> list[dict]:
             pr = d.get("price_recycle", 0) or 0
             pg = d.get("price_general", 0) or 0
             ff = d.get("fixed_monthly_fee", 0) or 0
+            # ── 운영 DB는 영문 컬럼만 존재 (사례 5 후속 정정) ──
             result.append({
                 "name":          str(d.get("name", "")),
-                "cust_type":     str(d.get("구분", d.get("cust_type", "학교")) or "학교"),
-                "biz_no":        str(d.get("사업자번호", "") or ""),
-                "ceo":           str(d.get("대표자", "") or ""),
-                "address":       str(d.get("주소", d.get("address", "")) or ""),
-                "biz_type":      str(d.get("업태", "") or ""),
-                "biz_item":      str(d.get("종목", "") or ""),
-                "email":         str(d.get("이메일", d.get("email", "")) or ""),
-                "phone":         str(d.get("전화번호", d.get("phone", "")) or ""),
-                "recycler":      str(d.get("재활용자", "") or ""),
+                "cust_type":     str(d.get("cust_type", "학교") or "학교"),
+                "biz_no":        str(d.get("biz_no", "") or ""),
+                "ceo":           str(d.get("rep", "") or ""),       # UI: ceo ← DB: rep
+                "address":       str(d.get("addr", "") or ""),      # UI: address ← DB: addr
+                "biz_type":      str(d.get("biz_type", "") or ""),
+                "biz_item":      str(d.get("biz_item", "") or ""),
+                "email":         str(d.get("email", "") or ""),
+                "phone":         str(d.get("phone", "") or ""),
+                "recycler":      str(d.get("recycler", "") or ""),
                 "price_food":    str(int(float(pf))),
                 "price_recycle": str(int(float(pr))),
                 "price_general": str(int(float(pg))),
@@ -785,18 +833,20 @@ def save_customer(data: dict) -> bool:
         if not name or not vendor:
             return False
 
+        # ── 실제 customer_info 스키마와 일치하는 영문 컬럼 사용 ──
+        # (사례 5 후속 정정: 운영 DB는 영문 컬럼만 존재)
         cols = {
             "name":              name,
             "vendor":            vendor,
-            "구분":              str(data.get("cust_type", "학교")),
-            "사업자번호":        str(data.get("biz_no", "") or ""),
-            "대표자":            str(data.get("ceo", "") or ""),
-            "주소":              str(data.get("address", "") or ""),
-            "업태":              str(data.get("biz_type", "") or ""),
-            "종목":              str(data.get("biz_item", "") or ""),
-            "이메일":            str(data.get("email", "") or ""),
-            "전화번호":          str(data.get("phone", "") or ""),
-            "재활용자":          str(data.get("recycler", "") or ""),
+            "cust_type":         str(data.get("cust_type", "학교")),
+            "biz_no":            str(data.get("biz_no", "") or ""),
+            "rep":               str(data.get("ceo", "") or ""),       # UI: ceo → DB: rep
+            "addr":              str(data.get("address", "") or ""),   # UI: address → DB: addr
+            "biz_type":          str(data.get("biz_type", "") or ""),
+            "biz_item":          str(data.get("biz_item", "") or ""),
+            "email":             str(data.get("email", "") or ""),
+            "phone":             str(data.get("phone", "") or ""),
+            "recycler":          str(data.get("recycler", "") or ""),
             "price_food":        float(data.get("price_food", 0) or 0),
             "price_recycle":     float(data.get("price_recycle", 0) or 0),
             "price_general":     float(data.get("price_general", 0) or 0),
@@ -811,7 +861,8 @@ def save_customer(data: dict) -> bool:
         ).fetchone()
 
         if exists:
-            set_clause = ", ".join(f"{k}=?" for k in cols if k not in ("name", "vendor"))
+            # UPDATE 도 INSERT 와 동일하게 컬럼명 quoting 통일 (안전)
+            set_clause = ", ".join(f'"{k}"=?' for k in cols if k not in ("name", "vendor"))
             vals = [v for k, v in cols.items() if k not in ("name", "vendor")]
             vals += [vendor, name]
             conn.execute(
@@ -854,7 +905,12 @@ def delete_customer(vendor: str, name: str) -> bool:
 
 
 def get_customer_details(vendor: str) -> list[dict]:
-    """거래처 상세 정보 — customer_info 전 컬럼, 키 정규화"""
+    """거래처 상세 정보 — customer_info 전 컬럼, 키 정규화
+
+    호출자(거래명세서 PDF/이메일 발송 등)가 기대하는 키:
+        biz_no, representative, address, cust_type, fixed_fee
+    실제 DB 컬럼은 영문(rep, addr, fixed_monthly_fee 등)만 존재.
+    """
     rows = db_get("customer_info", {"vendor": vendor})
     result = []
     for r in rows:
@@ -863,15 +919,25 @@ def get_customer_details(vendor: str) -> list[dict]:
         pf = r.get("price_food", 0) or 0
         pr = r.get("price_recycle", 0) or 0
         pg = r.get("price_general", 0) or 0
+        ff = r.get("fixed_monthly_fee", 0) or 0
         result.append({
-            "name":         str(r.get("name", "")),
-            "cust_type":    str(r.get("cust_type", r.get("type", "학교")) or "학교"),
-            "phone":        str(r.get("phone", r.get("전화번호", "")) or ""),
-            "address":      str(r.get("address", r.get("주소", "")) or ""),
-            "email":        str(r.get("email", r.get("이메일", "")) or ""),
-            "price_food":   str(int(float(pf))),
-            "price_recycle": str(int(float(pr))),
-            "price_general": str(int(float(pg))),
+            "name":           str(r.get("name", "")),
+            "cust_type":      str(r.get("cust_type", "학교") or "학교"),
+            "biz_no":         str(r.get("biz_no", "") or ""),
+            "representative": str(r.get("rep", "") or ""),    # 거래명세서 PDF용
+            "ceo":            str(r.get("rep", "") or ""),    # 일반 호출용 별칭
+            "address":        str(r.get("addr", "") or ""),   # DB: addr → 키: address
+            "biz_type":       str(r.get("biz_type", "") or ""),
+            "biz_item":       str(r.get("biz_item", "") or ""),
+            "phone":          str(r.get("phone", "") or ""),
+            "email":          str(r.get("email", "") or ""),
+            "recycler":       str(r.get("recycler", "") or ""),
+            "price_food":     str(int(float(pf))),
+            "price_recycle":  str(int(float(pr))),
+            "price_general":  str(int(float(pg))),
+            "fixed_fee":      str(int(float(ff))),
+            "neis_edu":       str(r.get("neis_edu_code", "") or ""),
+            "neis_school":    str(r.get("neis_school_code", "") or ""),
         })
     return result
 

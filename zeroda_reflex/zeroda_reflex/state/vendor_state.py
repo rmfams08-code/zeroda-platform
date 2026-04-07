@@ -47,6 +47,7 @@ class VendorState(AuthState):
 
     # ── [거래처관리] 탭 ──
     customers_list: list[dict] = []
+    customer_names: list[str] = []   # 별칭관리 select 용 — load_customers 시 갱신
     filter_cust_type: str = "전체"
     cust_active_subtab: str = "목록"
     # 거래처 폼 상태
@@ -331,10 +332,9 @@ class VendorState(AuthState):
     def vendor_school_count(self) -> int:
         return len(self.vendor_schools)
 
-    @rx.var
-    def customer_names(self) -> list:
-        """거래처 이름 목록 — 별칭관리 select용"""
-        return [s.get("name", "") for s in self.customers_list if s.get("name")]
+    # customer_names 는 별도 state var 로 관리 (load_customers 호출 시 갱신).
+    # 과거에 @rx.var computed 로 정의했으나, 일부 Reflex 버전에서 frontend
+    # iteration 시 VarTypeError 가 발생하여 일반 list state 로 전환함.
 
     @rx.var
     def avg_weight_per_school(self) -> float:
@@ -1595,6 +1595,10 @@ class VendorState(AuthState):
         """거래처관리 탭 데이터 로드"""
         from zeroda_reflex.utils.database import get_customers_by_vendor
         self.customers_list = get_customers_by_vendor(self.user_vendor)
+        # 별칭관리 select 용 이름 목록 동기화 (Reflex Var iteration 회피)
+        self.customer_names = [
+            s.get("name", "") for s in self.customers_list if s.get("name")
+        ]
 
     def clear_cust_form(self):
         """거래처 폼 초기화"""
