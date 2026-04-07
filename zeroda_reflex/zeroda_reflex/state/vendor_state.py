@@ -1171,17 +1171,8 @@ class VendorState(AuthState):
     def load_neis_schools(self):
         """NEIS 코드 등록된 거래처(학교) 로드"""
         try:
-            from zeroda_reflex.utils.database import get_customers_by_vendor
-            customers = get_customers_by_vendor(self.user_vendor) or []
-            self.neis_school_list = [
-                {
-                    "name": c.get("name", ""),
-                    "neis_edu_code": str(c.get("neis_edu_code", "") or ""),
-                    "neis_school_code": str(c.get("neis_school_code", "") or ""),
-                }
-                for c in customers
-                if c.get("neis_edu_code") and c.get("neis_school_code")
-            ]
+            from zeroda_reflex.utils.database import get_neis_schools_by_vendor
+            self.neis_school_list = get_neis_schools_by_vendor(self.user_vendor) or []
             if not self.neis_month:
                 self.neis_month = datetime.now().strftime("%Y-%m")
         except Exception as e:
