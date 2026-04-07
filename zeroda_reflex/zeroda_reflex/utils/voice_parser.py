@@ -3,6 +3,8 @@
 
 - normalize_korean_number : STT 원문의 숫자 표현을 아라비아 숫자로 정규화
 - jamo_decompose          : 한글 음절을 초성+중성+종성 자모로 분해
+- generate_auto_aliases   : 거래처명에서 자동 약칭 후보 생성 (접미사 제거 등)
+- build_match_pool        : 자동약칭+수동별칭 통합 매칭풀 구축 ({alias → canonical})
 - match_school_by_jamo    : 자모+원문 유사도 기반 거래처명 매칭
 """
 
@@ -187,31 +189,148 @@ def jamo_decompose(text: str) -> str:
     return "".join(result)
 
 
-# ── 접미사 목록 (짧은 이름 매칭 시 핵심부 비교에 사용) ──
+# ── 자동 약칭 생성 규칙: (제거할_접미사, [단축형_추가]) ──
+# 학교류: "고등학교" 제거 후 코어 + "고" 단축형도 후보로 포함
+#   예) 송호고등학교 → ["송호고", "송호"]
+# 일반류: 접미사 제거만
+#   예) 정가네식당 → ["정가네"]
+_AUTO_SUFFIX_RULES: list[tuple[str, list[str]]] = [
+    ("고등학교", ["고"]),
+    ("중학교",   ["중"]),
+    ("초등학교", ["초"]),
+    ("유치원",   []),
+    ("어린이집", []),
+    ("복지관",   []),
+    ("병원",     []),
+    ("교회",     []),
+    ("식당",     []),
+    ("회사",     []),
+]
+
+# (주) / 주식회사 제거용 정규식
+_CORP_RE = re.compile(r"^\(주\)\s*|\s*\(주\)$|^주식회사\s*|\s*주식회사$")
+
+# ── 접미사 목록 (핵심어 추출 시 사용) ──
 _MATCH_SUFFIXES: tuple = (
     "고등학교", "초등학교", "중학교", "식당", "고", "초", "중",
 )
+
+
+def generate_auto_aliases(name: str) -> list[str]:
+    """거래처명에서 자동 약칭 후보를 생성 (원본 제외).
+
+    규칙:
+      1) (주)/주식회사 접두·접미 제거
+      2) 접미사 제거 + 학교류 단축형 추가
+         예) 정가네식당    → ["정가네"]
+             송호고등학교  → ["송호고", "송호"]
+             서초초등학교  → ["서초초", "서초"]
+             서초중학교    → ["서초중", "서초"]
+             (주)삼성      → ["삼성"]
+
+    반환: 약칭 문자열 리스트 (원본은 포함하지 않음)
+    """
+    name = name.strip()
+    if not name:
+        return []
+
+    aliases: list[str] = []
+    seen: set[str] = {name}
+
+    def _add(s: str) -> None:
+        s = s.strip()
+        if s and s not in seen:
+            aliases.append(s)
+            seen.add(s)
+
+    # 1) (주)/주식회사 제거
+    clean = _CORP_RE.sub("", name).strip()
+    if clean != name:
+        _add(clean)
+    else:
+        clean = name
+
+    # 2) 접미사 규칙 (첫 번째 매칭만 적용)
+    for suffix, short_alts in _AUTO_SUFFIX_RULES:
+        if clean.endswith(suffix):
+            core = clean[: -len(suffix)]
+            if core:
+                for alt in short_alts:
+                    _add(core + alt)        # 단축형 먼저  (예: 송호고)
+                _add(core)                  # 코어         (예: 송호, 정가네)
+            break
+
+    return aliases
+
+
+def build_match_pool(
+    canonical_names: list[str],
+    manual_aliases_map: "dict[str, list[str]] | None" = None,
+) -> "dict[str, str]":
+    """매칭 풀 구축: {alias/약칭 → canonical_name}.
+
+    - 각 거래처명에서 자동 약칭 생성 (generate_auto_aliases)
+    - 수동 별칭 추가 (manual_aliases_map: {canonical → [alias, ...]})
+    - 중복 약칭 (여러 거래처가 동일 약칭 생성) 은 모호하므로 제외
+
+    반환: alias → 원본 거래처명 dict
+    """
+    pool: dict[str, str] = {}
+    ambiguous: set[str] = set()
+
+    def _register(alias: str, canonical: str) -> None:
+        """alias를 pool에 등록. 충돌 시 ambiguous 처리."""
+        if not alias or not canonical:
+            return
+        if alias in ambiguous:
+            return
+        if alias in pool:
+            if pool[alias] != canonical:
+                # 두 거래처에서 동일 약칭 → 모호, 제외
+                del pool[alias]
+                ambiguous.add(alias)
+        else:
+            pool[alias] = canonical
+
+    # 1) 자동 약칭
+    for name in canonical_names:
+        if not name:
+            continue
+        for alias in generate_auto_aliases(name):
+            _register(alias, name)
+
+    # 2) 수동 별칭 (manual_aliases_map: {canonical → [alias, ...]})
+    if manual_aliases_map:
+        for name, aliases in manual_aliases_map.items():
+            for a in (aliases or []):
+                if a:
+                    _register(a, name)
+
+    return pool
 
 
 def match_school_by_jamo(
     spoken: str,
     candidates: list,
     min_score: float = 0.50,
+    alias_to_canonical: "dict[str, str] | None" = None,
 ) -> tuple:
     """발화된 거래처명과 후보 목록을 자모+원문 유사도로 매칭.
 
-    개선 사항 (정가네식당 등 STT 변형 대응):
+    개선 사항:
     1) 공백 정규화: 발화·후보 모두 공백 제거 후 비교
     2) 포함 보너스: 한쪽이 다른 쪽에 완전 포함되면 +0.15
     3) 짧은 이름 임계값: 후보가 5자 이하이면 min_score → 0.42
     4) 핵심어 매칭: 접미사(식당/고등학교 등) 제거 후 코어 유사도 산출,
        원 점수보다 높으면 0.95 배율로 반영
+    5) 자동/수동 약칭 풀: alias_to_canonical 제공 시 alias 후보도 함께 검색,
+       alias 매칭 시 canonical 이름 반환
 
     - 자모 유사도: jamo_decompose 후 SequenceMatcher
     - 원문 유사도: 직접 SequenceMatcher
     - 두 값 중 max 가 effective_threshold 이상이면 매칭 성공
 
-    반환: (matched_name: str, score: float)
+    반환: (matched_canonical_name: str, score: float)
     매칭 실패 시: ("", 0.0)
     """
     if not spoken or not candidates:
@@ -221,15 +340,23 @@ def match_school_by_jamo(
     spoken_stripped = spoken.replace(" ", "")
     spoken_jamo     = jamo_decompose(spoken_stripped)
 
+    # 5) 후보 목록 확장: 원본 candidates + alias_to_canonical 키 (중복 제외)
+    all_candidates: list[str] = list(candidates)
+    if alias_to_canonical:
+        existing = {str(c) for c in candidates}
+        for alias in alias_to_canonical:
+            if alias and alias not in existing:
+                all_candidates.append(alias)
+
     best_name  = ""
     best_score = 0.0
 
-    for cand in candidates:
+    for cand in all_candidates:
         if not cand:
             continue
-        cand_str     = str(cand)
+        cand_str      = str(cand)
         cand_stripped = cand_str.replace(" ", "")
-        cand_jamo    = jamo_decompose(cand_stripped)
+        cand_jamo     = jamo_decompose(cand_stripped)
 
         jamo_score = SequenceMatcher(None, spoken_jamo,     cand_jamo    ).ratio()
         raw_score  = SequenceMatcher(None, spoken_stripped, cand_stripped).ratio()
@@ -252,10 +379,10 @@ def match_school_by_jamo(
                 break
         # 접미사가 실제로 제거된 경우에만 보너스 적용
         if spoken_core and cand_core and spoken_core != spoken_stripped:
-            core_jamo = SequenceMatcher(
+            core_jamo  = SequenceMatcher(
                 None, jamo_decompose(spoken_core), jamo_decompose(cand_core)
             ).ratio()
-            core_raw  = SequenceMatcher(None, spoken_core, cand_core).ratio()
+            core_raw   = SequenceMatcher(None, spoken_core, cand_core).ratio()
             core_score = max(core_jamo, core_raw) * 0.95  # 약간 패널티
             if core_score > score:
                 score = core_score
@@ -269,6 +396,11 @@ def match_school_by_jamo(
     if best_name and len(best_name.replace(" ", "")) <= 5:
         effective_threshold = min(min_score, 0.42)
 
-    if best_score >= effective_threshold:
-        return (best_name, best_score)
-    return ("", 0.0)
+    if best_score < effective_threshold:
+        return ("", 0.0)
+
+    # 5) alias 매칭이면 canonical 이름으로 교체
+    if alias_to_canonical and best_name in alias_to_canonical:
+        best_name = alias_to_canonical[best_name]
+
+    return (best_name, best_score)

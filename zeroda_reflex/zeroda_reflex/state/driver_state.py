@@ -25,6 +25,7 @@ from zeroda_reflex.utils.voice_parser import (
     normalize_korean_number,
     match_school_by_jamo,
     jamo_decompose,
+    build_match_pool,
 )
 import os
 
@@ -98,6 +99,13 @@ def _parse_voice_entries(
         for name, aliases in aliases_map.items():
             for a in aliases:
                 alias_to_name[a] = name
+
+    # 자동약칭 + 수동별칭 통합 매칭풀 (루프 전 한 번만 빌드)
+    match_pool: dict = build_match_pool(school_names, aliases_map)
+    all_customer_pool: dict = {}
+    if all_customers:
+        all_cust_names = [c.get("name", "") for c in all_customers if c.get("name")]
+        all_customer_pool = build_match_pool(all_cust_names, None)
 
     # 청크 분리: 쉼표/마침표/한국어 접속사
     chunks = re.split(
@@ -209,14 +217,6 @@ def _parse_voice_entries(
                 })
                 continue
 
-        # 후보 목록 구성: 정식명 + 별칭 (섹션 3)
-        candidates: list = list(school_names)
-        if aliases_map:
-            for name, aliases in aliases_map.items():
-                for a in aliases:
-                    if a not in candidates:
-                        candidates.append(a)
-
         # 직접 포함 여부 (최우선)
         matched = None
         best_score = 0.0
@@ -229,33 +229,22 @@ def _parse_voice_entries(
                 best_score = 1.0
                 break
 
-        # 자모 유사도 매칭 (섹션 2)
+        # 자모+약칭 통합 매칭 (섹션 2+3: 자동약칭·수동별칭 포함 단일 탐색)
         if not matched or best_score < 1.0:
             jamo_matched, jamo_score = match_school_by_jamo(
-                norm_text, school_names, min_score=0.50
+                norm_text, school_names, min_score=0.50,
+                alias_to_canonical=match_pool,
             )
-            # 별칭 포함 후보로도 재탐색
-            alias_matched, alias_score = match_school_by_jamo(
-                norm_text,
-                list(alias_to_name.keys()),
-                min_score=0.55,
-            ) if alias_to_name else ("", 0.0)
-
-            # 별칭 매칭이면 정식명으로 변환
-            if alias_score > jamo_score and alias_matched:
-                real_name = alias_to_name.get(alias_matched, "")
-                if real_name and alias_score > best_score:
-                    matched = real_name
-                    best_score = alias_score
-            elif jamo_matched and jamo_score > best_score:
+            if jamo_matched and jamo_score > best_score:
                 matched = jamo_matched
                 best_score = jamo_score
 
-        # fallback: 전체 customer_info에서 탐색 (threshold 0.65)
+        # fallback: 전체 customer_info에서 탐색 (threshold 0.65, 자동약칭 포함)
         if (not matched or best_score < 0.50) and all_customers:
             all_names = [c.get("name", "") for c in all_customers if c.get("name")]
             fb_matched, fb_score = match_school_by_jamo(
-                norm_text, all_names, min_score=0.65
+                norm_text, all_names, min_score=0.65,
+                alias_to_canonical=all_customer_pool,
             )
             if fb_matched and fb_score > best_score:
                 matched = fb_matched
