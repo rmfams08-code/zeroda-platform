@@ -131,6 +131,10 @@ class DriverState(AuthState):
     photo_upload_msg: str = ""
     today_photos: list[dict] = []
 
+    # ── 계근표 사진 (수거기록 첨부용) ──
+    collection_photo_path: str = ""
+    collection_photo_preview: str = ""   # base64 data URL for preview
+
     # ── 계근표(처리확인) ──
     proc_weight: str = ""
     proc_location: str = ""
@@ -592,6 +596,7 @@ class DriverState(AuthState):
                 unit_price=up,
                 memo=self.collection_memo,
                 collect_time=ct,
+                photo_path=self.collection_photo_path,
             )
             if ok:
                 saved += 1
@@ -604,6 +609,8 @@ class DriverState(AuthState):
             self.collection_weight = ""
             self.collection_unit_price = ""
             self.collection_memo = ""
+            self.collection_photo_path = ""
+            self.collection_photo_preview = ""
             self.collection_rows = [
                 {"date": self.today_str, "item": self.collection_item_type, "weight": ""}
             ]
@@ -771,6 +778,43 @@ class DriverState(AuthState):
             self._load_today_photos()
         else:
             self.photo_upload_msg = "사진 업로드 실패"
+
+    # ── 계근표 사진 핸들러 ──
+
+    async def handle_collection_weighticket_upload(self, files: list[rx.UploadFile]):
+        """계근표 사진 업로드 (단일 파일, 최대 5MB) — base64 미리보기 포함"""
+        self.collection_save_msg = ""
+        if not files:
+            return
+        file = files[0]
+        upload_data = await file.read()
+        if len(upload_data) > 5 * 1024 * 1024:
+            self.collection_save_msg = "파일 크기가 5MB를 초과합니다."
+            return
+        # 파일 저장
+        upload_dir = os.path.join(
+            "uploaded_files", "collections", self.user_vendor, self.user_name
+        )
+        os.makedirs(upload_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fname = f"{ts}_{file.name}"
+        fpath = os.path.join(upload_dir, fname)
+        with open(fpath, "wb") as f:
+            f.write(upload_data)
+        self.collection_photo_path = fpath
+        # 미리보기용 base64 data URL
+        import base64 as _b64
+        ext = file.name.rsplit(".", 1)[-1].lower() if "." in file.name else "jpg"
+        mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
+        b64 = _b64.b64encode(upload_data).decode()
+        self.collection_photo_preview = f"data:{mime};base64,{b64}"
+        self.collection_save_msg = "📎 계근표 사진 첨부 완료"
+
+    def clear_collection_photo(self):
+        """계근표 사진 첨부 해제"""
+        self.collection_photo_path = ""
+        self.collection_photo_preview = ""
+        self.collection_save_msg = ""
 
     # ── 계근표(처리확인) 핸들러 ──
 

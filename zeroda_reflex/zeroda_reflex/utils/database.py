@@ -251,11 +251,31 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
         conn.close()
 
 
+def ensure_real_collection_photo_col() -> None:
+    """real_collection 테이블에 photo_path 컬럼 추가 (idempotent)"""
+    conn = get_db()
+    try:
+        conn.execute(
+            "ALTER TABLE real_collection ADD COLUMN photo_path TEXT DEFAULT ''"
+        )
+        conn.commit()
+        logger.info("real_collection.photo_path 컬럼 추가 완료")
+    except Exception as e:
+        if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
+            pass  # 이미 존재 — 정상
+        else:
+            print(f"[DB ERROR] ensure_real_collection_photo_col: {e}")
+            logger.warning(f"ensure_real_collection_photo_col: {e}")
+    finally:
+        conn.close()
+
+
 def save_collection(
     vendor: str, driver: str, school_name: str,
     collect_date: str, item_type: str, weight: float,
     status: str = "submitted",
     unit_price: float = 0, memo: str = "", collect_time: str = "",
+    photo_path: str = "",
 ) -> bool:
     """수거 데이터 저장 (status: draft / submitted)"""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -273,6 +293,7 @@ def save_collection(
         "status": status,
         "submitted_at": now if status == "submitted" else "",
         "created_at": now,
+        "photo_path": photo_path,
     }
     return db_insert("real_collection", data)
 
@@ -3976,3 +3997,10 @@ def meal_get_settlement(site_name: str, year: int, month: int) -> dict:
 def meal_get_esg(site_name: str, year: int, month: int = 0) -> dict:
     """급식담당자 ESG 보고서 (school_get_esg 래퍼)"""
     return school_get_esg(site_name, year, month)
+
+
+# ── 앱 시작 시 real_collection.photo_path 컬럼 보장 ──
+try:
+    ensure_real_collection_photo_col()
+except Exception:
+    pass

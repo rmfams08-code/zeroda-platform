@@ -867,6 +867,60 @@ def _collection_section() -> rx.Component:
             ),
         ),
 
+        # ── 계근표 사진 첨부 (선택, 단일 파일, 최대 5MB) ──
+        rx.text("계근표 사진 (선택)", font_size="13px", font_weight="600", color="#374151"),
+        rx.cond(
+            DriverState.collection_photo_preview != "",
+            # 미리보기 + 삭제
+            rx.vstack(
+                rx.image(
+                    src=DriverState.collection_photo_preview,
+                    width="100%",
+                    max_height="180px",
+                    object_fit="contain",
+                    border_radius="8px",
+                    border="1px solid #e5e7eb",
+                ),
+                rx.button(
+                    "🗑️ 사진 삭제",
+                    on_click=DriverState.clear_collection_photo,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="red",
+                ),
+                spacing="2",
+                width="100%",
+                align="start",
+            ),
+            # 업로드 버튼
+            rx.vstack(
+                rx.upload(
+                    rx.button(
+                        "📷 계근표 사진 선택",
+                        size="2",
+                        variant="outline",
+                        width="100%",
+                    ),
+                    id="weighticket_photo",
+                    accept={"image/*": [".jpg", ".jpeg", ".png"]},
+                    max_files=1,
+                    multiple=False,
+                ),
+                rx.button(
+                    "📤 업로드",
+                    on_click=DriverState.handle_collection_weighticket_upload(
+                        rx.upload_files(upload_id="weighticket_photo")
+                    ),
+                    size="2",
+                    variant="soft",
+                    color_scheme="green",
+                    width="100%",
+                ),
+                spacing="2",
+                width="100%",
+            ),
+        ),
+
         # ── 저장 버튼 2개: 임시저장 / 수거완료 ──
         rx.hstack(
             rx.button(
