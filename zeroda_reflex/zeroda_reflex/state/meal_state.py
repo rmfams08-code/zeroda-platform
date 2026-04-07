@@ -93,7 +93,8 @@ class MealState(AuthState):
     #  수정1: 달력형 식단 보기
     # ══════════════════════════════
     calendar_month: str = ""
-    calendar_grid: list[list] = []
+    # 평탄화 달력: 각 셀 dict에 row_end="1" 이면 주(週) 마지막 셀
+    calendar_cells: list[dict] = []
 
     # ══════════════════════════════
     #  수정3: 잔반 트렌드
@@ -192,7 +193,7 @@ class MealState(AuthState):
 
     @rx.var
     def has_calendar(self) -> bool:
-        return len(self.calendar_grid) > 0
+        return len(self.calendar_cells) > 0
 
     @rx.var
     def has_monthly_trend(self) -> bool:
@@ -706,30 +707,35 @@ class MealState(AuthState):
         menu_map = {item["date"]: item["summary"] for item in menu_list}
         # 수거 날짜 집합
         collected = set(meal_get_collected_dates(self.site_name, ym))
-        # 달력 그리드 생성 (6주×7일)
+        # 달력 셀 평탄화 (각 셀에 col 0~6, row_end="1"이면 행 마지막)
         first_wd, num_days = _cal.monthrange(y, m)
-        grid: list = []
-        week: list = []
+        cells: list = []
+        col = 0
         # 앞쪽 빈 셀
         for _ in range(first_wd):
-            week.append({"day": "", "date": "", "has_menu": "0", "has_collect": "0", "menu_summary": ""})
+            cells.append({"day": "", "date": "", "has_menu": "0",
+                          "has_collect": "0", "menu_summary": "",
+                          "row_end": "1" if col == 6 else "0"})
+            col += 1
         for day in range(1, num_days + 1):
             date_str = f"{y}-{str(m).zfill(2)}-{str(day).zfill(2)}"
-            week.append({
+            is_row_end = "1" if col == 6 else "0"
+            cells.append({
                 "day": str(day),
                 "date": date_str,
                 "has_menu": "1" if date_str in menu_map else "0",
                 "has_collect": "1" if date_str in collected else "0",
                 "menu_summary": menu_map.get(date_str, ""),
+                "row_end": is_row_end,
             })
-            if len(week) == 7:
-                grid.append(list(week))
-                week = []
-        if week:
-            while len(week) < 7:
-                week.append({"day": "", "date": "", "has_menu": "0", "has_collect": "0", "menu_summary": ""})
-            grid.append(list(week))
-        self.calendar_grid = grid
+            col = (col + 1) % 7
+        # 뒤쪽 빈 셀 패딩
+        while col != 0:
+            is_row_end = "1" if col == 6 else "0"
+            cells.append({"day": "", "date": "", "has_menu": "0",
+                          "has_collect": "0", "menu_summary": "", "row_end": is_row_end})
+            col = (col + 1) % 7
+        self.calendar_cells = cells
 
     # ══════════════════════════════
     #  수정3: 잔반 트렌드 로드
