@@ -518,8 +518,8 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     spacing="1",
                 ),
 
-                # ── 행 목록 (다일자 입력) ──
-                rx.foreach(s["rows"], lambda r, ridx: _row_input(idx, ridx, r)),
+                # ── 행 목록 (다일자 입력) — .to(list[dict])로 타입 명시 필수 ──
+                rx.foreach(s["rows"].to(list[dict]), lambda r, ridx: _row_input(idx, ridx, r)),
 
                 # ── + 행 추가 / 음성 ──
                 rx.hstack(
