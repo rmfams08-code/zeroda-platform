@@ -3,6 +3,55 @@
 
 ---
 
+## 0. 작업 분담 (2026-04-08 신규)
+
+### 역할 분리: 기획 세션 ↔ 디스패치 세션
+
+| 구분 | 기획 세션 (현재 Claude) | 코워크 디스패치 세션 |
+|---|---|---|
+| **역할** | 작업지시서 작성, 플랜 수립, 코드 설계 | 코드 수정, 문법 검증, git push, 서버 배포 |
+| **권한** | 파일 읽기, 분석, 문서 작성 | 파일 수정, git, SSH, systemctl |
+| **산출물** | 작업지시서(프롬프트) | 실제 커밋, 배포 결과 |
+
+### 작업 흐름 (표준)
+
+1. **사장님이 요구사항 전달** → 기획 세션
+2. **기획 세션이 작업지시서 작성**
+   - CLAUDE.md 원칙 자동 반영
+   - 파일/줄번호/함수명 명시
+   - DB 스키마 변경 여부 명시
+   - 검증 절차 포함
+   - 사장님 확인 필요사항 정리
+3. **사장님이 작업지시서 승인** → 디스패치에 전달
+4. **디스패치 세션이 실행**
+   - 코드 수정
+   - ast.parse 문법 검증
+   - git add/commit/push
+   - 서버 update.sh 또는 webhook 자동배포
+   - 결과(로그/스크린샷) 보고
+5. **사장님이 결과 검증** → 다음 항목
+
+### 기획 세션이 작업지시서 작성 시 필수 포함사항
+
+- [ ] 작업 우선순위 (P0/P1/P2)
+- [ ] 대상 파일 절대경로 + 줄번호
+- [ ] 수정 전/후 차이 (의사코드 또는 명세)
+- [ ] DB 스키마 변경 시 ALTER TABLE 문장
+- [ ] 검증 명령 (ast.parse, grep 검증 등)
+- [ ] CLAUDE.md 사고 사례 체크리스트 (Var + 결합, 폴더 구조 등)
+- [ ] 배포 명령 (git push 후 webhook or update.sh)
+- [ ] 한 항목씩 순차 진행 지시 (한꺼번에 X)
+- [ ] 사장님 사전 확인 필요사항 분리 표기
+
+### 기획 세션의 한계 (사장님께 미리 안내)
+
+- 기획 세션은 격리된 리눅스 샌드박스에서 동작
+- git push, SSH 접속, systemctl 등 직접 실행 불가
+- 따라서 실제 변경/배포는 반드시 디스패치 세션 또는 사장님 직접 수행
+- 서버 진단(이메일/SMTP 등 환경 의존 작업)은 디스패치 세션에 위임
+
+---
+
 ## 1. 프로젝트 기본 정보
 
 | 항목 | 내용 |
@@ -10,12 +59,12 @@
 | 플랫폼명 | zeroda (제로다 폐기물데이터플랫폼) |
 | GitHub 저장소 | github.com/rmfams08-code/zeroda-platform |
 | 배포 URL (구) | ~~zeroda2026.streamlit.app~~ (폐기) |
-| **배포 URL** | **https://zeroda.co.kr** (네이버클라우드 Reflex) |
+| **배포 URL** | **https://zeroda.co.kr** (네이버클라우드 Reflex, ✅ 운영 중) |
 | 로컬 작업 폴더 | C:\Users\admin\Desktop\신규제로다코워크전용\zeroda_platform |
 | **개발 프레임워크** | **Reflex** (Streamlit 전환 완료, 2026-04-06) |
-| 개발 도구 | Claude Chat + Cowork |
+| 개발 도구 | Claude Chat (기획) + Cowork 디스패치 (실행) |
 | **메인 코드 폴더** | **zeroda_reflex/** |
-| Streamlit 코드 | 루트 (main.py 등) — 레거시, 수정 불필요 |
+| Streamlit 코드 | `legacy-streamlit` 브랜치 (main에서 삭제됨, 2026-04-07) |
 
 ---
 
@@ -47,7 +96,7 @@ zeroda_reflex/
     ├── pages/
     │   ├── login.py                   ← 로그인 페이지
     │   ├── driver.py                  ← 기사 대시보드 (날씨+진행률+삭제)
-    │   ├── vendor_admin.py            ← 업체관리자 (7탭+차트+SMS)
+    │   ├── vendor_admin.py            ← 업체관리자 (9탭+차트+SMS)
     │   ├── hq_admin.py                ← 본사관리자 (9탭+차트+SMS)
     │   ├── school.py                  ← 학교 (5탭)
     │   ├── edu_office.py              ← 교육청 (6탭)
@@ -55,22 +104,17 @@ zeroda_reflex/
     └── utils/
         ├── database.py                ← DB 유틸 (기존 zeroda.db 공유)
         ├── weather_service.py         ← 기상청 API (ASOS+초단기실황)
-        └── sms_service.py             ← SOLAPI SMS 발송
+        ├── sms_service.py             ← SOLAPI SMS 발송
+        ├── email_service.py           ← 네이버웍스 SMTP 이메일+PDF 첨부
+        ├── neis_api.py                ← NEIS 급식일정 API
+        └── pdf_export.py              ← 거래명세서 PDF 생성
 ```
 
-### 2-2. Streamlit 코드 (레거시 — 루트)
+### 2-2. Streamlit 코드 (레거시 — `legacy-streamlit` 브랜치)
 
-```
-zeroda-platform/
-├── main.py                        ← (레거시) Streamlit 메인 라우터
-├── database/                      ← (레거시) DB 관련
-├── config/                        ← (레거시) 설정
-├── services/                      ← (레거시) 외부 서비스
-└── modules/                       ← (레거시) 역할별 화면
-```
-
-> ⚠️ Streamlit 코드는 레거시입니다. Reflex 전환 완료 후 수정 불필요.
-> 롤백이 필요한 경우에만 사용합니다.
+> ⚠️ 2026-04-07 사고 대응 시 main 브랜치에서 Streamlit 파일 112개(30,199줄) 삭제됨
+> 롤백 필요 시 `legacy-streamlit` 브랜치 체크아웃
+> 새 작업은 절대 이 브랜치에 하지 말 것
 
 ---
 
@@ -91,48 +135,42 @@ zeroda-platform/
 
 | 테이블 | 핵심 컬럼 | 비고 |
 |---|---|---|
-| `users` | role, vendor, schools, edu_office | 역할별 접근 제어 |
+| `users` | role, vendor, schools, edu_office, status | 역할별 접근 제어 (driver role 포함) |
 | `school_master` | school_name, alias | 별칭 매칭용 |
-| `customer_info` | price_food, price_recycle, price_general | 품목별 단가 3종 |
-| `real_collection` | school_name, collect_date, item_type, weight | ⚠️ 한글/영문 컬럼 혼재 |
+| `customer_info` | price_food, price_recycle, price_general, neis_edu_code, neis_school_code | 품목별 단가 3종 + NEIS 코드 |
+| `real_collection` | school_name, collect_date, item_type, weight, driver, status | ⚠️ 한글/영문 컬럼 혼재 |
 | `schedules` | vendor, month(YYYY-MM 또는 YYYY-MM-DD) | 월별+일별 구분 |
+| `processing_confirm` | vendor, confirm_date, driver, total_weight, status | 계근표 (제출/승인/반려) |
 | `school_zone_violations` | vendor, driver, violation_date, fine_amount | 수정3 신규 |
 | `safety_scores` | vendor, year_month, total_score, grade | 수정3 신규 |
+| `safety_checklist` | vendor, driver, check_date, vehicle_no, check_items | 차량안전점검 (기사 제출형) |
+| `daily_safety_check` | vendor, driver, check_date, category, total_ok, total_fail | 일일안전점검 |
+| `safety_education` | vendor, edu_date, title, attendees | 안전교육 이력 |
 
 ---
 
 ## 5. 작업 이력
 
-### Streamlit 시대 (수정1~5, 레거시)
+### ✅ Reflex 전환 완료 (Phase 0~10, 2026-04-06)
 
-| 버전 | 주요 내용 |
+| Phase | 내용 |
 |---|---|
-| 수정1 | 중복 제거, 이메일 key 변수화, 거래처 단가 UI, 학교 별칭 매칭 구조 개선 |
-| 수정2 | ESG 보고서 PDF, school/dashboard 신규, edu_office 탭 추가 |
-| 수정3 | 교육청 관할학교 연동 수정, 수거일정 일별 등록, 안전관리 평가 |
-| 수정4 | 보안강화(bcrypt), 자가회원가입+관리자승인, 네이버클라우드 배포 |
-| 수정5 | 안전점검 일1회, PWA, 자동로그인, 전역 세션유지 |
+| 0 | 프로젝트 구조 + rxconfig + database.py |
+| 1 | 인증(auth_state) + 로그인 페이지 |
+| 2 | 기사모드 (안전점검+수거입력+퇴근) |
+| 3 | 업체관리자 (9메뉴) |
+| 4 | 본사관리자 (9메뉴) |
+| 5 | 학교 (5탭) + 교육청 (6탭) |
+| 6 | 급식담당자 (6메뉴+AI잔반분석) |
+| 7 | 기사 수거 삭제 + 진행률 표시 + 미완료 학교 배지 |
+| 8 | 날씨 API + SMS 발송 + 외부서비스 연동 |
+| 9 | recharts 차트 (관리자+급식담당자) |
+| 10 | 서버 배포 파일 (nginx+systemd+setup.sh) |
 
-### ✅ Reflex 전환 완료 (Phase 0~10)
+### ✅ 서버 배포 완료 (2026-04-07)
 
-| Phase | 내용 | 상태 |
-|---|---|---|
-| 0 | 프로젝트 구조 + rxconfig + database.py | ✅ |
-| 1 | 인증(auth_state) + 로그인 페이지 | ✅ |
-| 2 | 기사모드 (안전점검+수거입력+퇴근) | ✅ |
-| 3 | 업체관리자 (7메뉴) | ✅ |
-| 4 | 본사관리자 (9메뉴) | ✅ |
-| 5 | 학교 (5탭) + 교육청 (6탭) | ✅ |
-| 6 | 급식담당자 (6메뉴+AI잔반분석) | ✅ |
-| 7 | 기사 수거 삭제 + 진행률 표시 + 미완료 학교 배지 | ✅ |
-| 8 | 날씨 API + SMS 발송 + 외부서비스 연동 | ✅ |
-| 9 | recharts 차트 (관리자+급식담당자) | ✅ |
-| 10 | 서버 배포 파일 (nginx+systemd+setup.sh) | ✅ |
-
-### ⏳ 서버 배포 (미실행)
-
-> 코드는 모두 완성. 서버에서 setup.sh 실행만 남음.
-> 배포 절차: `zeroda_reflex/deploy/DEPLOY_GUIDE.md` 참고
+> https://zeroda.co.kr 운영 중. webhook 자동 배포 검증 완료.
+> Streamlit 시대 이력은 `legacy-streamlit` 브랜치 git log 참조.
 
 ---
 
@@ -189,19 +227,29 @@ nginx -t && systemctl restart nginx
 ss -tlnp | grep -E '3000|8000'
 ```
 
-### 6-5. 롤백 (문제 발생 시 Streamlit 복원)
+### 6-5. 롤백 (문제 발생 시)
 ```bash
-systemctl stop zeroda-reflex
-cp /etc/nginx/sites-available/zeroda.bak.streamlit /etc/nginx/sites-available/zeroda
-systemctl start zeroda
-systemctl restart nginx
+# 1) 최근 정상 커밋으로 되돌리기 (권장)
+cd /opt/zeroda-platform
+git log --oneline -20                  # 정상 커밋 SHA 확인
+git reset --hard <정상SHA>
+systemctl restart zeroda-reflex
+
+# 2) Streamlit 시절로 완전 복원 (비상시)
+git checkout legacy-streamlit
+# → nginx/systemd 설정도 별도 복원 필요
 ```
 
-### 6-6. GitHub 업로드
-```
-1. 로컬에서 파일 수정
-2. GitHub → 해당 폴더 이동 → 파일 편집 → Commit
-3. 서버에서 update.sh 실행
+### 6-6. GitHub 업로드 (디스패치 표준 절차)
+```bash
+# ⚠️ GitHub 웹 "Upload files" 영구 금지 (사례5 참고)
+# 디스패치 세션이 로컬에서 표준 git push 수행
+cd C:\Users\admin\Desktop\신규제로다코워크전용\zeroda_platform
+git status
+git add <수정파일>                      # git add . 금지 (DB/캐시 포함 위험)
+git commit -m "수정 내용"
+git push origin main
+# → webhook 자동 배포 또는 서버에서 update.sh 실행
 ```
 
 ---
@@ -210,25 +258,33 @@ systemctl restart nginx
 
 | ❌ 금지 | 이유 |
 |---|---|
-| Streamlit 코드(루트) 수정 | 레거시 — 롤백용으로만 보존 |
-| DB 스키마(테이블/컬럼) 변경 | zeroda.db 기존 구조 유지 필수 |
+| `legacy-streamlit` 브랜치에 새 작업 | main에서 삭제됨, 롤백 전용 |
+| DB 컬럼 DROP / RENAME | 기존 데이터 손실 위험 (ADD COLUMN은 사장님 승인 시 가능) |
 | 기존 함수 삭제·이름 변경 | 다른 파일에서 참조 중 |
 | .env 파일을 GitHub에 업로드 | API 키 노출 위험 |
+| zeroda.db 를 GitHub에 commit | 사례5 보안사고 재발 방지 |
+| GitHub 웹 "Upload files" 사용 | 사례5 폴더구조 손상 사고 |
+| `git add .` / `git add -A` | DB/캐시 동반 commit 위험 → 파일 명시 |
+| Reflex Var 와 Python 문자열 `+` 결합 | 사례5 컴파일 실패 → `.to(str)` 또는 f-string |
 | 한 번에 너무 많은 작업 요청 | 오류 추적 어려움, 하나씩 진행 |
+| API 키를 CLAUDE.md / 코드에 하드코딩 | 반드시 서버 `.env`에만 등록 |
 
 ---
 
 ## 8. 외부 서비스 API
 
-| 서비스 | 용도 | 환경변수 |
+| 서비스 | 용도 | 환경변수 (서버 `.env`) |
 |---|---|---|
-| 기상청 ASOS | 일별 기상데이터 | KMA_API_KEY |
-| 기상청 초단기실황 | 실시간 날씨 알림 | KMA_API_KEY |
-| SOLAPI (CoolSMS) | 거래명세서 SMS 발송 | COOLSMS_API_KEY, COOLSMS_API_SECRET, COOLSMS_SENDER |
-| 네이버웍스 SMTP | 이메일 발송 | NAVER_SMTP_USER, NAVER_SMTP_PASS |
-| Anthropic | AI 잔반분석 | ANTHROPIC_API_KEY |
+| 기상청 ASOS | 일별 기상데이터 | `KMA_API_KEY` |
+| 기상청 초단기실황 | 실시간 날씨 알림 | `KMA_API_KEY` |
+| SOLAPI (CoolSMS) | 거래명세서 SMS 발송 | `COOLSMS_API_KEY`, `COOLSMS_API_SECRET`, `COOLSMS_SENDER_PHONE` |
+| 네이버웍스 SMTP | 거래명세서 이메일+PDF 발송 | `WORKS_SMTP_USER`, `WORKS_SMTP_APP_PW` |
+| NEIS Open API | 학교 급식일정 조회 | `NEIS_API_KEY` |
+| Anthropic | AI 잔반분석 | `ANTHROPIC_API_KEY` |
 
+> ⚠️ **모든 키는 서버 `/opt/zeroda-platform/.env`에만 등록**. CLAUDE.md/코드/GitHub에 절대 노출 금지.
 > 2026-04-07 webhook 정상화 재검증 완료
+> 2026-04-08 환경변수명 정정 (NAVER_SMTP_* → WORKS_SMTP_*, COOLSMS_SENDER → COOLSMS_SENDER_PHONE), NEIS_API_KEY 추가
 
 ---
 
