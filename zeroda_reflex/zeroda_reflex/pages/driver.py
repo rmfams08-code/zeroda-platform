@@ -648,17 +648,32 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
 
 
 def _voice_confirm_dialog() -> rx.Component:
-    """음성 인식 결과 확인 다이얼로그 — 적용 전 사용자 검토"""
+    """음성 인식 결과 확인 다이얼로그 — 적용 전 사용자 검토
+    섹션 1: 정규화된 텍스트도 표시 (디버깅용)
+    섹션 4: '다시 말하기' 버튼
+    섹션 6: GPS 기반 매칭 배지
+    """
     return rx.dialog.root(
         rx.dialog.content(
             rx.dialog.title("🎤 음성 인식 결과 확인"),
             rx.dialog.description(
                 rx.vstack(
+                    # ── 원본 + 정규화 텍스트 (섹션 1) ──
                     rx.text(
                         "원본: ",
                         rx.text.strong(DriverState.voice_pending_raw),
                         size="2",
                         color="#64748b",
+                    ),
+                    rx.cond(
+                        DriverState.voice_normalized_text != DriverState.voice_pending_raw,
+                        rx.text(
+                            "정규화: ",
+                            rx.text.strong(DriverState.voice_normalized_text),
+                            size="2",
+                            color="#7c3aed",
+                        ),
+                        rx.fragment(),
                     ),
                     rx.divider(),
                     rx.heading("입력될 항목", size="3"),
@@ -669,6 +684,17 @@ def _voice_confirm_dialog() -> rx.Component:
                             rx.text(e["school"], weight="bold", size="2"),
                             rx.text(e["date"], size="2", color="#64748b"),
                             rx.text(e["weight"], "kg", size="2", color_scheme="grass"),
+                            # 섹션 6: GPS 매칭 배지
+                            rx.cond(
+                                e.get("gps_matched", False),
+                                rx.badge(
+                                    "📍 GPS 기반",
+                                    color_scheme="violet",
+                                    size="1",
+                                    variant="soft",
+                                ),
+                                rx.fragment(),
+                            ),
                             spacing="3",
                             align="center",
                         ),
@@ -700,6 +726,13 @@ def _voice_confirm_dialog() -> rx.Component:
                         on_click=DriverState.cancel_voice_apply,
                     ),
                 ),
+                # ── 섹션 4: 다시 말하기 버튼 ──
+                rx.button(
+                    "🎤 다시 말하기",
+                    variant="soft",
+                    color_scheme="blue",
+                    on_click=DriverState.retry_voice_recognition,
+                ),
                 rx.dialog.close(
                     rx.button(
                         "✅ 확인하고 입력",
@@ -710,6 +743,7 @@ def _voice_confirm_dialog() -> rx.Component:
                 spacing="3",
                 justify="end",
                 margin_top="1em",
+                flex_wrap="wrap",
             ),
             max_width="500px",
         ),
@@ -783,6 +817,19 @@ def _schedule_section() -> rx.Component:
             font_size="11px",
             color="#94a3b8",
             text_align="center",
+        ),
+        # ── 섹션 5: 실시간 interim 텍스트 (JS DOM 직접 업데이트) ──
+        rx.cond(
+            DriverState.voice_active,
+            rx.box(
+                rx.html(
+                    "<span id='voice-interim-text' style='color:#7c3aed;font-size:13px;"
+                    "font-style:italic;'></span>"
+                ),
+                width="100%",
+                text_align="center",
+                min_height="20px",
+            ),
         ),
 
         # 일정이 있을 때

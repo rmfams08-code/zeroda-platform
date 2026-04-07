@@ -18,6 +18,13 @@ from zeroda_reflex.utils.database import (
     get_today_processing, save_processing_confirm,
     save_photo_record, get_photo_records_today,
     save_customer_gps,
+    get_all_customer_aliases,
+    get_nearest_customer,
+)
+from zeroda_reflex.utils.voice_parser import (
+    normalize_korean_number,
+    match_school_by_jamo,
+    jamo_decompose,
 )
 import os
 
@@ -61,24 +68,42 @@ def _normalize_school(name: str) -> str:
     return name
 
 
-def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
+def _parse_voice_entries(
+    text: str,
+    today,
+    schedule_schools: list,
+    aliases_map: dict = None,
+    all_customers: list = None,
+) -> tuple:
     """발화 텍스트 파싱 → (entries, failed_chunks).
 
-    entries: [{"date": "YYYY-MM-DD", "school": str, "weight": str}, ...]
+    entries: [{"date":"YYYY-MM-DD","school":str,"weight":str,"gps_needed":bool}, ...]
     failed_chunks: 파싱 실패 청크 목록
 
-    예: '6일 서초고 204, 17일 서초고 200'
-     → [{"date":"2026-04-06","school":"서초고등학교","weight":"204"},
-        {"date":"2026-04-17","school":"서초고등학교","weight":"200"}]
+    섹션 1: normalize_korean_number로 전처리 (혼동맵 + 혼용숫자 변환)
+    섹션 2: match_school_by_jamo로 자모 유사도 매칭 + 별칭 포함 탐색
+    섹션 6: 거래처명이 없는 청크에 gps_needed=True 플래그
     """
     import re
-    import difflib
     from datetime import timedelta
+
+    # ── 섹션 1: 숫자 정규화 전처리 ──
+    normalized_text = normalize_korean_number(text)
 
     school_names = [s.get("school_name", "") for s in schedule_schools]
 
+    # 별칭 → 정식명 역방향 맵 구성 (섹션 3)
+    alias_to_name: dict = {}
+    if aliases_map:
+        for name, aliases in aliases_map.items():
+            for a in aliases:
+                alias_to_name[a] = name
+
     # 청크 분리: 쉼표/마침표/한국어 접속사
-    chunks = re.split(r"[,，、.。]|그리고|그다음|그 다음|그담|그 담|또한|그리고서", text)
+    chunks = re.split(
+        r"[,，、.。]|그리고|그다음|그 다음|그담|그 담|또한|그리고서",
+        normalized_text,
+    )
 
     entries = []
     failed = []
@@ -99,7 +124,6 @@ def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
                 break
 
         if d is None:
-            # "N월 N일"
             m = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", remaining)
             if m:
                 try:
@@ -110,7 +134,6 @@ def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
                 remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
 
         if d is None:
-            # "N/N"
             m = re.search(r"(\d{1,2})/(\d{1,2})", remaining)
             if m:
                 try:
@@ -121,7 +144,6 @@ def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
                 remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
 
         if d is None:
-            # "N일" (현재 월 사용)
             m = re.search(r"(\d{1,2})\s*일", remaining)
             if m:
                 try:
@@ -138,20 +160,17 @@ def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
         # ── 2. 수거량(kg) 추출 ──
         weight = None
 
-        # 명시적 단위 우선
         m = re.search(r"(\d+(?:\.\d+)?)\s*(kg|킬로그램|킬로|키로|k)\b", remaining, re.IGNORECASE)
         if m:
             weight = m.group(1)
             remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
         else:
-            # 단위 없는 아라비아 숫자 (마지막 등장 기준)
             nums = list(re.finditer(r"\d+(?:\.\d+)?", remaining))
             if nums:
                 last = nums[-1]
                 weight = last.group(0)
                 remaining = (remaining[:last.start()] + remaining[last.end():]).strip()
             else:
-                # 한글 숫자 시도 (2자 이상)
                 m_kor = re.search(r"([일이삼사오육칠팔구십백천]{2,})", remaining)
                 if m_kor:
                     w = _korean_to_int(m_kor.group(1))
@@ -163,29 +182,86 @@ def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
             failed.append(chunk)
             continue
 
-        # ── 3. 거래처명 매칭 ──
+        # ── 3. 거래처명 매칭 (섹션 2+3) ──
         name_text = remaining.strip()
+
+        # 섹션 6: 거래처명이 비어있으면 GPS fallback 플래그
+        if not name_text:
+            entries.append({
+                "date": d.strftime("%Y-%m-%d"),
+                "school": "",
+                "weight": weight,
+                "gps_needed": True,
+            })
+            continue
+
         norm_text = _normalize_school(name_text)
 
+        # 별칭 역방향 직접 매칭 (섹션 3)
+        if name_text in alias_to_name:
+            matched_sn = alias_to_name[name_text]
+            if matched_sn in school_names or not school_names:
+                entries.append({
+                    "date": d.strftime("%Y-%m-%d"),
+                    "school": matched_sn,
+                    "weight": weight,
+                    "gps_needed": False,
+                })
+                continue
+
+        # 후보 목록 구성: 정식명 + 별칭 (섹션 3)
+        candidates: list = list(school_names)
+        if aliases_map:
+            for name, aliases in aliases_map.items():
+                for a in aliases:
+                    if a not in candidates:
+                        candidates.append(a)
+
+        # 직접 포함 여부 (최우선)
         matched = None
         best_score = 0.0
-
         for sn in school_names:
             norm_sn = _normalize_school(sn)
-            # 직접 포함 (최우선)
             if (sn in name_text or norm_sn in norm_text
                     or (name_text and name_text in sn)
                     or (norm_text and norm_text in norm_sn)):
                 matched = sn
                 best_score = 1.0
                 break
-            # difflib 유사도
-            score = difflib.SequenceMatcher(None, norm_text, norm_sn).ratio()
-            if score > best_score:
-                best_score = score
-                matched = sn
 
-        if not matched or best_score < 0.55:
+        # 자모 유사도 매칭 (섹션 2)
+        if not matched or best_score < 1.0:
+            jamo_matched, jamo_score = match_school_by_jamo(
+                norm_text, school_names, min_score=0.50
+            )
+            # 별칭 포함 후보로도 재탐색
+            alias_matched, alias_score = match_school_by_jamo(
+                norm_text,
+                list(alias_to_name.keys()),
+                min_score=0.55,
+            ) if alias_to_name else ("", 0.0)
+
+            # 별칭 매칭이면 정식명으로 변환
+            if alias_score > jamo_score and alias_matched:
+                real_name = alias_to_name.get(alias_matched, "")
+                if real_name and alias_score > best_score:
+                    matched = real_name
+                    best_score = alias_score
+            elif jamo_matched and jamo_score > best_score:
+                matched = jamo_matched
+                best_score = jamo_score
+
+        # fallback: 전체 customer_info에서 탐색 (threshold 0.65)
+        if (not matched or best_score < 0.50) and all_customers:
+            all_names = [c.get("name", "") for c in all_customers if c.get("name")]
+            fb_matched, fb_score = match_school_by_jamo(
+                norm_text, all_names, min_score=0.65
+            )
+            if fb_matched and fb_score > best_score:
+                matched = fb_matched
+                best_score = fb_score
+
+        if not matched or best_score < 0.50:
             failed.append(chunk)
             continue
 
@@ -193,6 +269,7 @@ def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
             "date": d.strftime("%Y-%m-%d"),
             "school": matched,
             "weight": weight,
+            "gps_needed": False,
         })
 
     return entries, failed
@@ -286,6 +363,9 @@ class DriverState(AuthState):
     voice_pending_entries: list[dict] = []
     voice_pending_failed: list[str] = []
     voice_pending_raw: str = ""
+    voice_normalized_text: str = ""   # 섹션 1: 정규화된 텍스트 (디버깅용)
+    voice_interim: str = ""           # 섹션 5: 실시간 중간 인식 텍스트
+    voice_gps_coords: str = ""        # 섹션 6: GPS 좌표 (lat,lng)
 
     # ── 스쿨존 ──
     schoolzone_enabled: bool = False
@@ -713,28 +793,65 @@ class DriverState(AuthState):
         )
 
     def start_global_voice(self):
-        """전역 음성 입력 시작 — 날짜+거래처+수거량 동시 인식"""
+        """전역 음성 입력 시작 — 날짜+거래처+수거량 동시 인식.
+        섹션 5: interimResults=true → DOM id='voice-interim-text'에 실시간 표시.
+        섹션 6: GPS 좌표를 동시에 취득 → 결과를 'lat,lng|transcript' 형태로 반환.
+        """
         self.voice_active = True
         self.voice_result = ""
+        self.voice_interim = ""
         yield rx.call_script(
             "new Promise((resolve) => {"
+            "  let gps = '';"
+            "  if (navigator.geolocation) {"
+            "    navigator.geolocation.getCurrentPosition("
+            "      (p) => { gps = p.coords.latitude + ',' + p.coords.longitude; },"
+            "      () => {},"
+            "      {timeout: 3000, maximumAge: 60000}"
+            "    );"
+            "  }"
             "  try {"
             "    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
-            "    if (!SR) { resolve('지원안됨'); return; }"
+            "    if (!SR) { resolve('|지원안됨'); return; }"
             "    const r = new SR();"
-            "    r.lang = 'ko-KR'; r.maxAlternatives = 1;"
-            "    r.onresult = (e) => resolve(e.results[0][0].transcript);"
-            "    r.onerror = () => resolve('');"
-            "    r.onend = () => {};"
+            "    r.lang = 'ko-KR';"
+            "    r.maxAlternatives = 1;"
+            "    r.interimResults = true;"
+            "    r.onresult = (e) => {"
+            "      for (let i = e.resultIndex; i < e.results.length; i++) {"
+            "        if (e.results[i].isFinal) {"
+            "          resolve(gps + '|' + e.results[i][0].transcript);"
+            "          return;"
+            "        }"
+            "        const el = document.getElementById('voice-interim-text');"
+            "        if (el) el.textContent = '🎤 ' + e.results[i][0].transcript;"
+            "      }"
+            "    };"
+            "    r.onerror = () => resolve(gps + '|');"
+            "    r.onend = () => {"
+            "      const el = document.getElementById('voice-interim-text');"
+            "      if (el) el.textContent = '';"
+            "    };"
             "    r.start();"
-            "  } catch(e) { resolve('지원안됨'); }"
+            "  } catch(ex) { resolve('|지원안됨'); }"
             "})",
             callback=DriverState.handle_global_voice_result,
         )
 
-    def handle_global_voice_result(self, text: str):
-        """전역 음성 인식 결과 → 파싱 → 확인 다이얼로그 표시 (적용은 confirm_voice_apply에서)"""
+    def handle_global_voice_result(self, combined: str):
+        """전역 음성 인식 결과 → 파싱 → 확인 다이얼로그 표시.
+        combined 형식: 'lat,lng|transcript' (섹션 6)
+        """
         self.voice_active = False
+        self.voice_interim = ""
+
+        # GPS + 텍스트 분리
+        if "|" in combined:
+            gps_part, text = combined.split("|", 1)
+        else:
+            gps_part, text = "", combined
+
+        self.voice_gps_coords = gps_part.strip()
 
         if not text or text in ("지원안됨", ""):
             self.voice_result = "음성 인식 실패"
@@ -742,14 +859,69 @@ class DriverState(AuthState):
             return
 
         today = date.today()
-        entries, failed_chunks = _parse_voice_entries(text, today, self.schedule_schools)
+
+        # 섹션 3: 별칭 맵 로드
+        aliases_map = {}
+        try:
+            aliases_map = get_all_customer_aliases(self.user_vendor)
+        except Exception:
+            pass
+
+        # 전체 거래처 목록 (fallback용, 섹션 2)
+        all_customers = []
+        try:
+            all_customers = db_get("customer_info", {"vendor": self.user_vendor})
+        except Exception:
+            pass
+
+        entries, failed_chunks = _parse_voice_entries(
+            text, today, self.schedule_schools,
+            aliases_map=aliases_map,
+            all_customers=all_customers,
+        )
+
+        # 섹션 6: GPS fallback — school이 비어있는 엔트리 처리
+        if self.voice_gps_coords:
+            try:
+                lat_s, lng_s = self.voice_gps_coords.split(",", 1)
+                lat_f, lng_f = float(lat_s), float(lng_s)
+                sched_names = [s.get("school_name", "") for s in self.schedule_schools]
+                new_entries = []
+                for e in entries:
+                    if e.get("gps_needed") or not e.get("school"):
+                        nearest = get_nearest_customer(
+                            self.user_vendor, lat_f, lng_f,
+                            max_distance_m=200,
+                            schedule_names=sched_names,
+                        )
+                        if nearest:
+                            e = {**e, "school": nearest["name"], "gps_needed": False,
+                                 "gps_matched": True, "gps_dist": nearest["distance_m"]}
+                        else:
+                            failed_chunks.append(e.get("weight", ""))
+                            continue
+                    new_entries.append(e)
+                entries = new_entries
+            except Exception:
+                pass
+
+        # GPS 불필요 플래그 제거 후 failed 처리
+        clean_entries = []
+        for e in entries:
+            if e.get("gps_needed"):
+                failed_chunks.append(e.get("weight", ""))
+            else:
+                clean_entries.append(e)
+        entries = clean_entries
+
+        # 섹션 1: 정규화 텍스트 저장 (다이얼로그에 표시)
+        self.voice_normalized_text = normalize_korean_number(text)
 
         if not entries:
             self.voice_result = f"🎤 인식: {text}"
             yield rx.toast.warning("음성에서 입력 항목을 찾지 못했습니다.")
             return
 
-        # 파싱 결과 대기열에 저장 → 다이얼로그 오픈
         self.voice_pending_raw = text
         self.voice_pending_entries = entries
         self.voice_pending_failed = failed_chunks
@@ -818,6 +990,54 @@ class DriverState(AuthState):
         self.voice_pending_entries = []
         self.voice_pending_failed = []
         self.voice_pending_raw = ""
+        self.voice_normalized_text = ""
+
+    def retry_voice_recognition(self):
+        """섹션 4: 확인 다이얼로그에서 '다시 말하기' — pending 초기화 후 즉시 재청취"""
+        self.voice_pending_entries = []
+        self.voice_pending_failed = []
+        self.voice_pending_raw = ""
+        self.voice_normalized_text = ""
+        self.voice_confirm_open = False
+        self.voice_active = True
+        self.voice_interim = ""
+        yield rx.call_script(
+            "new Promise((resolve) => {"
+            "  let gps = '';"
+            "  if (navigator.geolocation) {"
+            "    navigator.geolocation.getCurrentPosition("
+            "      (p) => { gps = p.coords.latitude + ',' + p.coords.longitude; },"
+            "      () => {},"
+            "      {timeout: 3000, maximumAge: 60000}"
+            "    );"
+            "  }"
+            "  try {"
+            "    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
+            "    if (!SR) { resolve('|지원안됨'); return; }"
+            "    const r = new SR();"
+            "    r.lang = 'ko-KR';"
+            "    r.maxAlternatives = 1;"
+            "    r.interimResults = true;"
+            "    r.onresult = (e) => {"
+            "      for (let i = e.resultIndex; i < e.results.length; i++) {"
+            "        if (e.results[i].isFinal) {"
+            "          resolve(gps + '|' + e.results[i][0].transcript);"
+            "          return;"
+            "        }"
+            "        const el = document.getElementById('voice-interim-text');"
+            "        if (el) el.textContent = '🎤 ' + e.results[i][0].transcript;"
+            "      }"
+            "    };"
+            "    r.onerror = () => resolve(gps + '|');"
+            "    r.onend = () => {"
+            "      const el = document.getElementById('voice-interim-text');"
+            "      if (el) el.textContent = '';"
+            "    };"
+            "    r.start();"
+            "  } catch(ex) { resolve('|지원안됨'); }"
+            "})",
+            callback=DriverState.handle_global_voice_result,
+        )
 
     def save_collection_for_school_with_gps(self, coords: str):
         """GPS 콜백 — active_save_school 수거량 submitted로 저장"""

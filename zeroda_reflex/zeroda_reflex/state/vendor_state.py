@@ -72,6 +72,12 @@ class VendorState(AuthState):
     cust_save_ok: bool = False
     cust_delete_msg: str = ""
 
+    # ── [거래처관리 - 음성별칭] 섹션 3 ──
+    alias_customer_sel: str = ""   # 별칭 관리 대상 거래처
+    alias_input: str = ""          # 신규 별칭 입력값
+    alias_list: list[str] = []     # 현재 거래처의 별칭 목록
+    alias_msg: str = ""            # 저장/삭제 결과 메시지
+
     # ── [일정관리] 탭 ──
     all_schedules: list[dict] = []
     sched_day_filter: str = "전체"
@@ -677,6 +683,55 @@ class VendorState(AuthState):
         self.cust_active_subtab = subtab
         self.cust_save_msg = ""
         self.cust_delete_msg = ""
+        if subtab == "별칭관리":
+            self.alias_customer_sel = ""
+            self.alias_list = []
+            self.alias_input = ""
+            self.alias_msg = ""
+
+    # ── 음성 별칭 관리 핸들러 (섹션 3) ──
+
+    def set_alias_customer(self, name: str):
+        """별칭 관리 대상 거래처 선택"""
+        from zeroda_reflex.utils.database import get_customer_aliases
+        self.alias_customer_sel = name
+        self.alias_input = ""
+        self.alias_msg = ""
+        if name:
+            self.alias_list = get_customer_aliases(self.user_vendor, name)
+        else:
+            self.alias_list = []
+
+    def set_alias_input(self, val: str):
+        self.alias_input = val
+
+    def add_alias(self):
+        """별칭 추가"""
+        from zeroda_reflex.utils.database import add_customer_alias, get_customer_aliases
+        alias = self.alias_input.strip()
+        if not alias:
+            self.alias_msg = "별칭을 입력하세요."
+            return
+        if not self.alias_customer_sel:
+            self.alias_msg = "거래처를 먼저 선택하세요."
+            return
+        ok = add_customer_alias(self.user_vendor, self.alias_customer_sel, alias)
+        if ok:
+            self.alias_list = get_customer_aliases(self.user_vendor, self.alias_customer_sel)
+            self.alias_input = ""
+            self.alias_msg = f"✅ '{alias}' 추가됨"
+        else:
+            self.alias_msg = "추가 실패 (거래처가 등록되지 않은 상태일 수 있습니다)"
+
+    def remove_alias(self, alias: str):
+        """별칭 삭제"""
+        from zeroda_reflex.utils.database import remove_customer_alias, get_customer_aliases
+        if not self.alias_customer_sel:
+            return
+        ok = remove_customer_alias(self.user_vendor, self.alias_customer_sel, alias)
+        if ok:
+            self.alias_list = get_customer_aliases(self.user_vendor, self.alias_customer_sel)
+            self.alias_msg = f"🗑️ '{alias}' 삭제됨"
 
     def set_filter_cust_type(self, t: str):
         self.filter_cust_type = t
