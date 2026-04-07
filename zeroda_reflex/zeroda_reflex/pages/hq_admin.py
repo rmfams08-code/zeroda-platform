@@ -1226,7 +1226,7 @@ def _safety_eval_sub() -> rx.Component:
         # 위반 기록 입력
         _card_box(
             rx.vstack(
-                _section_header("alert_triangle", "스쿨존 위반 기록 등록"),
+                _section_header("triangle_alert", "스쿨존 위반 기록 등록"),
                 rx.hstack(
                     rx.vstack(
                         rx.text("업체", font_size="12px", color="#64748b"),
@@ -2132,7 +2132,7 @@ def _settlement_tab() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("alert_circle", size=14, color="#f59e0b"),
+                    rx.icon("circle_alert", size=14, color="#f59e0b"),
                     rx.text("미수금 관리", font_size="12px", font_weight="700", color="#475569"),
                     spacing="2", align="center",
                 ),
@@ -2574,8 +2574,8 @@ def _driver_monitor_sub() -> rx.Component:
     return rx.vstack(
         rx.hstack(
             _kpi_card("🟢 정상", AdminState.monitor_normal_count, "명", "circle_check", "#22c55e"),
-            _kpi_card("🟡 주의", AdminState.monitor_caution_count, "명", "alert_triangle", "#facc15"),
-            _kpi_card("🟠 경고", AdminState.monitor_warning_count, "명", "alert_octagon", "#f59e0b"),
+            _kpi_card("🟡 주의", AdminState.monitor_caution_count, "명", "triangle_alert", "#facc15"),
+            _kpi_card("🟠 경고", AdminState.monitor_warning_count, "명", "octagon_alert", "#f59e0b"),
             _kpi_card("🔴 긴급", AdminState.monitor_emergency_count, "명", "siren", "#ef4444"),
             spacing="3", width="100%", flex_wrap="wrap",
         ),
@@ -3026,7 +3026,7 @@ def _anomaly_sub() -> rx.Component:
     return rx.vstack(
         _card_box(
             rx.vstack(
-                _section_header("alert_triangle", "Z-Score 기반 이상치 탐지"),
+                _section_header("triangle_alert", "Z-Score 기반 이상치 탐지"),
                 rx.text(
                     "선택한 연/월의 일별 수거량을 기준으로 평균에서 임계값 σ 이상 벗어난 날을 탐지합니다.",
                     font_size="11px", color="#94a3b8",
@@ -3059,7 +3059,7 @@ def _anomaly_sub() -> rx.Component:
         rx.hstack(
             _kpi_card("일평균 수거량", AdminState.anomaly_mean, "kg", "scale", "#3b82f6"),
             _kpi_card("표준편차 σ", AdminState.anomaly_std, "kg", "activity", "#f59e0b"),
-            _kpi_card("이상치 건수", AdminState.anomaly_count, "건", "alert_triangle", "#ef4444"),
+            _kpi_card("이상치 건수", AdminState.anomaly_count, "건", "triangle_alert", "#ef4444"),
             spacing="3", width="100%", flex_wrap="wrap",
         ),
         _card_box(

@@ -768,7 +768,7 @@ def _col_confirm_panel() -> rx.Component:
             _kpi_card("오늘 수거량", VendorState.proc_today_coll_weight,
                       "kg", "truck", "#38bd94", "rgba(56,189,148,0.12)"),
             _kpi_card("오늘 처리량", VendorState.proc_today_proc_weight,
-                      "kg", "check_circle", "#3b82f6", "rgba(59,130,246,0.10)"),
+                      "kg", "circle_check", "#3b82f6", "rgba(59,130,246,0.10)"),
             _kpi_card("차이",        VendorState.proc_today_diff,
                       "kg", "arrow_right_left", "#f59e0b", "rgba(245,158,11,0.10)"),
             gap="12px", flex_wrap="wrap", width="100%",
@@ -2097,7 +2097,7 @@ def _stmt_send_panel() -> rx.Component:
         ),
 
         # ── 미수금 ──
-        _section_header("alert_circle", "미수금 (선택사항)"),
+        _section_header("circle_alert", "미수금 (선택사항)"),
         rx.hstack(
             rx.vstack(
                 rx.text("미납금액(원)", **field_label),
@@ -3588,7 +3588,7 @@ def _an_summary_panel() -> rx.Component:
             _empty_state("데이터 없음"),
         ),
         # 이상치 탐지
-        _section_header("alert_triangle", "이상치 탐지", VendorState.an_anomaly_count),
+        _section_header("triangle_alert", "이상치 탐지", VendorState.an_anomaly_count),
         rx.cond(
             VendorState.an_anomaly_count > 0,
             _table_box(

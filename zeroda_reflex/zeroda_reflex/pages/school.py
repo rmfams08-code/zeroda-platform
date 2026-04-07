@@ -543,8 +543,8 @@ def _safety_tab() -> rx.Component:
                         rx.hstack(
                             _kpi_card("점검 건수", SchoolState.daily_check_count, "건", "clipboard_check", "#3b82f6"),
                             _kpi_card("점검일 수", SchoolState.daily_check_days, "일", "calendar", "#8b5cf6"),
-                            _kpi_card("양호율", SchoolState.daily_check_ok_rate, "%", "check_circle", "#22c55e"),
-                            _kpi_card("불량 항목", SchoolState.daily_check_fail_count, "건", "x_circle", "#ef4444"),
+                            _kpi_card("양호율", SchoolState.daily_check_ok_rate, "%", "circle_check", "#22c55e"),
+                            _kpi_card("불량 항목", SchoolState.daily_check_fail_count, "건", "circle_x", "#ef4444"),
                             spacing="3", width="100%", flex_wrap="wrap",
                         ),
                         rx.table.root(
@@ -594,7 +594,7 @@ def _safety_tab() -> rx.Component:
         # ── 수정4: 안전보건 점검 체크리스트 7항목 ──
         _card_box(
             rx.vstack(
-                _section_header("check_square", "안전보건 점검 체크리스트"),
+                _section_header("square_check", "안전보건 점검 체크리스트"),
                 rx.text(
                     "도급·용역 업체 안전관리 점검 항목을 확인하고 예/아니오를 선택하세요.",
                     font_size="12px", color="#64748b",

@@ -243,8 +243,8 @@ def _smart_tab() -> rx.Component:
                 rx.hstack(
                     _kpi("A등급(우수)", MealState.analysis_summary.get("grade_a", "0"), "일", "circle_check", "#22c55e"),
                     _kpi("B등급(양호)", MealState.analysis_summary.get("grade_b", "0"), "일", "circle", "#3b82f6"),
-                    _kpi("C등급(주의)", MealState.analysis_summary.get("grade_c", "0"), "일", "alert_triangle", "#f59e0b"),
-                    _kpi("D등급(경보)", MealState.analysis_summary.get("grade_d", "0"), "일", "alert_circle", "#ef4444"),
+                    _kpi("C등급(주의)", MealState.analysis_summary.get("grade_c", "0"), "일", "triangle_alert", "#f59e0b"),
+                    _kpi("D등급(경보)", MealState.analysis_summary.get("grade_d", "0"), "일", "circle_alert", "#ef4444"),
                     spacing="3", width="100%", flex_wrap="wrap"),
                 spacing="3", width="100%"),
         ),
