@@ -2184,44 +2184,35 @@ class VendorState(AuthState):
     # ════════════════════════════════════════════
 
     def download_statement_pdf(self):
-        """정산 거래명세서 PDF 다운로드 (전체 거래처 합산)"""
+        """선택 거래처 거래명세서 PDF 다운로드 (명세서발송 탭에서 조회한 거래처 기준)"""
+        if not self.stmt_cust_sel or not self.stmt_rows:
+            return None
         from zeroda_reflex.utils.pdf_export import build_statement_pdf
-        from zeroda_reflex.utils.database import (
-            get_vendor_info, get_settlement_data, get_customer_details,
-        )
+        from zeroda_reflex.utils.database import get_vendor_info
         try:
             y = int(self.selected_year)
             m = int(self.selected_month)
         except (ValueError, TypeError):
             return None
-        vendor = self.user_vendor
-        if not self.settlement_data:
-            return None
-        vendor_info = get_vendor_info(vendor)
-        rows = get_settlement_data(y, m, vendor)
-        if not rows:
-            return None
-        # 첫 번째 거래처 정보로 거래명세서 생성
-        first_school = self.settlement_data[0]["name"] if self.settlement_data else ""
-        cust_list = get_customer_details(vendor)
-        cust_info = next((c for c in cust_list if c["name"] == first_school), {})
-        biz_info = {
-            "biz_no": str(cust_info.get("biz_no", "")),
-            "representative": str(cust_info.get("representative", "")),
-            "address": str(cust_info.get("address", "")),
-        }
-        cust_type = str(cust_info.get("cust_type", ""))
-        fixed_fee = float(cust_info.get("fixed_fee", 0) or 0)
-        pdf_bytes = build_statement_pdf(
-            vendor, first_school, y, m,
-            rows, biz_info, vendor_info,
-            cust_type, fixed_fee,
-        )
-        if pdf_bytes:
-            return rx.download(
-                data=pdf_bytes,
-                filename=f"거래명세서_{vendor}_{y}-{str(m).zfill(2)}.pdf",
+        try:
+            vinfo = get_vendor_info(self.user_vendor) or {}
+            biz_info = {
+                "biz_no": self.rcv_biz_no,
+                "representative": self.rcv_rep,
+                "address": self.rcv_address,
+            }
+            pdf_bytes = build_statement_pdf(
+                self.user_vendor, self.stmt_cust_sel, y, m,
+                self.stmt_rows, biz_info, vinfo,
+                self.stmt_cust_type, self.stmt_fixed_fee,
             )
+            if pdf_bytes:
+                return rx.download(
+                    data=pdf_bytes,
+                    filename=f"거래명세서_{self.stmt_cust_sel}_{y}-{str(m).zfill(2)}.pdf",
+                )
+        except Exception:
+            pass
         return None
 
     # ════════════════════════════════════════════
@@ -2233,14 +2224,16 @@ class VendorState(AuthState):
         self.email_msg = ""
 
     async def send_statement_email(self):
-        """거래명세서 PDF를 이메일로 발송"""
+        """거래명세서 PDF를 이메일로 발송 (명세서발송 탭에서 조회한 거래처 기준)"""
         from zeroda_reflex.utils.pdf_export import build_statement_pdf
         from zeroda_reflex.utils.email_service import send_email_with_pdf
-        from zeroda_reflex.utils.database import (
-            get_vendor_info, get_settlement_data, get_customer_details,
-        )
+        from zeroda_reflex.utils.database import get_vendor_info
         if not self.email_to or "@" not in self.email_to:
             self.email_msg = "유효한 이메일 주소를 입력하세요."
+            self.email_ok = False
+            return
+        if not self.stmt_cust_sel or not self.stmt_rows:
+            self.email_msg = "명세서발송 탭에서 거래처를 선택하고 [조회]를 먼저 누르세요."
             self.email_ok = False
             return
 
@@ -2257,48 +2250,42 @@ class VendorState(AuthState):
             self.email_sending = False
             return
 
-        vendor = self.user_vendor
-        if not self.settlement_data:
-            self.email_msg = "정산 데이터가 없습니다."
-            self.email_ok = False
-            self.email_sending = False
-            return
+        try:
+            vendor = self.user_vendor
+            vendor_info = get_vendor_info(vendor) or {}
+            biz_info = {
+                "biz_no": self.rcv_biz_no,
+                "representative": self.rcv_rep,
+                "address": self.rcv_address,
+            }
+            pdf_bytes = build_statement_pdf(
+                vendor, self.stmt_cust_sel, y, m,
+                self.stmt_rows, biz_info, vendor_info,
+                self.stmt_cust_type, self.stmt_fixed_fee,
+            )
+            if not pdf_bytes:
+                self.email_msg = "PDF 생성 실패"
+                self.email_ok = False
+                self.email_sending = False
+                return
 
-        # PDF 생성
-        vendor_info = get_vendor_info(vendor)
-        rows = get_settlement_data(y, m, vendor)
-        first_school = self.settlement_data[0]["name"] if self.settlement_data else ""
-        cust_list = get_customer_details(vendor)
-        cust_info = next((c for c in cust_list if c["name"] == first_school), {})
-        biz_info = {
-            "biz_no": str(cust_info.get("biz_no", "")),
-            "representative": str(cust_info.get("representative", "")),
-            "address": str(cust_info.get("address", "")),
-        }
-        cust_type = str(cust_info.get("cust_type", ""))
-        fixed_fee = float(cust_info.get("fixed_fee", 0) or 0)
-        pdf_bytes = build_statement_pdf(
-            vendor, first_school, y, m, rows, biz_info, vendor_info, cust_type, fixed_fee,
-        )
-        if not pdf_bytes:
-            self.email_msg = "PDF 생성 실패"
+            filename = f"거래명세서_{self.stmt_cust_sel}_{y}-{str(m).zfill(2)}.pdf"
+            subject = self.stmt_email_subject or f"[{vendor}] {y}년 {m}월 거래명세서 — {self.stmt_cust_sel}"
+            body = self.stmt_email_body or (
+                f"{self.stmt_cust_sel} 담당자님께,\n\n"
+                f"안녕하세요. {vendor} 입니다.\n\n"
+                f"{y}년 {m}월 거래명세서를 첨부하여 보내드립니다.\n\n"
+                f"확인 부탁드립니다.\n감사합니다.\n\n"
+                f"— ZERODA 폐기물데이터플랫폼"
+            )
+            ok, msg = send_email_with_pdf(self.email_to, subject, body, pdf_bytes, filename)
+            self.email_ok = ok
+            self.email_msg = msg
+        except Exception as e:
             self.email_ok = False
+            self.email_msg = f"발송 실패: {e}"
+        finally:
             self.email_sending = False
-            return
-
-        # 이메일 발송
-        filename = f"거래명세서_{vendor}_{y}-{str(m).zfill(2)}.pdf"
-        subject = f"[ZERODA] {y}년 {m}월 거래명세서 — {vendor}"
-        body = (
-            f"안녕하세요.\n\n"
-            f"{vendor}의 {y}년 {m}월 거래명세서를 첨부하여 보내드립니다.\n\n"
-            f"확인 부탁드립니다.\n감사합니다.\n\n"
-            f"— ZERODA 폐기물데이터플랫폼"
-        )
-        ok, msg = send_email_with_pdf(self.email_to, subject, body, pdf_bytes, filename)
-        self.email_ok = ok
-        self.email_msg = msg
-        self.email_sending = False
 
     # ════════════════════════════════════════════
     #  SMS 발송 핸들러 (Phase 8)
@@ -2309,17 +2296,19 @@ class VendorState(AuthState):
         self.sms_msg = ""
 
     async def send_statement_sms(self):
-        """거래명세서 요약을 SMS로 발송"""
+        """거래명세서 요약을 SMS로 발송 (명세서발송 탭에서 조회한 거래처 기준)"""
         from zeroda_reflex.utils.sms_service import (
             send_statement_sms as _send_sms,
             build_summary_sms_text,
         )
-        from zeroda_reflex.utils.database import (
-            get_vendor_info, get_settlement_data,
-        )
+        from zeroda_reflex.utils.database import get_vendor_info
 
         if not self.sms_to or len(self.sms_to.replace("-", "")) < 10:
             self.sms_msg = "유효한 전화번호를 입력하세요."
+            self.sms_ok = False
+            return
+        if not self.stmt_cust_sel or not self.stmt_rows:
+            self.sms_msg = "명세서발송 탭에서 거래처를 선택하고 [조회]를 먼저 누르세요."
             self.sms_ok = False
             return
 
@@ -2336,41 +2325,34 @@ class VendorState(AuthState):
             self.sms_sending = False
             return
 
-        vendor = self.user_vendor
-        if not self.settlement_data:
-            self.sms_msg = "정산 데이터가 없습니다."
+        try:
+            vendor = self.user_vendor
+            vendor_info = get_vendor_info(vendor) or {}
+            contact = vendor_info.get("contact", "")
+
+            text = build_summary_sms_text(
+                vendor_name=vendor,
+                school=self.stmt_cust_sel,
+                year=y,
+                month=m,
+                total_weight=float(self.stmt_total_weight or 0),
+                total_amount=float(self.stmt_total_amount or 0),
+                contact=contact,
+            )
+
+            ok, msg = _send_sms(
+                to_phone=self.sms_to,
+                message=text,
+                vendor_name=vendor,
+                vendor_contact=contact,
+            )
+            self.sms_ok = ok
+            self.sms_msg = msg
+        except Exception as e:
             self.sms_ok = False
+            self.sms_msg = f"발송 실패: {e}"
+        finally:
             self.sms_sending = False
-            return
-
-        # 첫 번째 거래처 정산 요약
-        first = self.settlement_data[0]
-        school = first.get("name", "")
-        total_weight = float(first.get("total_weight", 0))
-        total_amount = float(first.get("amount", 0))
-
-        vendor_info = get_vendor_info(vendor) or {}
-        contact = vendor_info.get("contact", "")
-
-        text = build_summary_sms_text(
-            vendor_name=vendor,
-            school=school,
-            year=y,
-            month=m,
-            total_weight=total_weight,
-            total_amount=total_amount,
-            contact=contact,
-        )
-
-        ok, msg = _send_sms(
-            to_phone=self.sms_to,
-            message=text,
-            vendor_name=vendor,
-            vendor_contact=contact,
-        )
-        self.sms_ok = ok
-        self.sms_msg = msg
-        self.sms_sending = False
 
     # ════════════════════════════════════════════
     #  수거데이터 편집/삭제 (P2 섹션2)
