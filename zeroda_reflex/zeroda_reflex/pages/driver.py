@@ -179,32 +179,70 @@ def _safety_category(cat_key: str, cat_info: dict) -> rx.Component:
 
 
 def _safety_section() -> rx.Component:
-    """안전점검 섹션 — 완료/미완료 분기"""
+    """안전점검 섹션 — 접힘/완료/미완료 3단 분기"""
     return rx.cond(
-        DriverState.safety_done_today,
-        # ── 완료 상태 ──
+        DriverState.safety_panel_collapsed,
+        # ── 접힌 상태: 완료 후 자동 축소 ──
         rx.box(
             rx.hstack(
-                rx.icon("circle_check", color="#34a853", size=20),
+                rx.icon("circle_check", color="#34a853", size=18),
                 rx.text(
                     rx.text.strong("일일 안전점검 완료"),
                     f" ({DriverState.safety_saved_time} 저장)",
-                    font_size="15px",
+                    font_size="14px",
                 ),
-            ),
-            rx.text(
-                "오늘 안전점검이 이미 완료되었습니다. 안전 운행하세요! 🚦",
-                color="#34a853",
-                font_size="14px",
-                margin_top="8px",
+                rx.spacer(),
+                rx.button(
+                    "다시 보기 ▼",
+                    on_click=DriverState.toggle_safety_panel,
+                    size="1",
+                    variant="ghost",
+                    color="#34a853",
+                ),
+                width="100%",
+                align="center",
             ),
             bg="#f0fdf4",
             border="1px solid #bbf7d0",
             border_radius="12px",
-            padding="16px",
+            padding="12px 16px",
             width="100%",
         ),
-        # ── 미완료 상태: 체크리스트 ──
+        # ── 펼친 상태 ──
+        rx.cond(
+            DriverState.safety_done_today,
+            # ── 완료 상태 (펼쳐짐) ──
+            rx.box(
+                rx.hstack(
+                    rx.icon("circle_check", color="#34a853", size=20),
+                    rx.text(
+                        rx.text.strong("일일 안전점검 완료"),
+                        f" ({DriverState.safety_saved_time} 저장)",
+                        font_size="15px",
+                    ),
+                    rx.spacer(),
+                    rx.button(
+                        "접기 ▲",
+                        on_click=DriverState.toggle_safety_panel,
+                        size="1",
+                        variant="ghost",
+                    ),
+                    width="100%",
+                    align="center",
+                ),
+                rx.text(
+                    "오늘 안전점검이 이미 완료되었습니다. 안전 운행하세요! 🚦",
+                    color="#34a853",
+                    font_size="14px",
+                    margin_top="8px",
+                ),
+                bg="#f0fdf4",
+                border="1px solid #bbf7d0",
+                border_radius="12px",
+                padding="16px",
+                width="100%",
+            ),
+            # ── 미완료 상태: 체크리스트 ──
         rx.vstack(
             rx.hstack(
                 rx.icon("triangle_alert", color="#ea580c", size=20),
@@ -292,7 +330,8 @@ def _safety_section() -> rx.Component:
             padding="16px",
             box_shadow="0 2px 8px rgba(0,0,0,0.06)",
         ),
-    )
+        ),  # ← 내부 rx.cond(safety_done_today, ...) 닫기
+    )       # ← 외부 rx.cond(safety_panel_collapsed, ...) 닫기
 
 
 def _schedule_school_card(s: dict) -> rx.Component:

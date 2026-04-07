@@ -87,6 +87,7 @@ class DriverState(AuthState):
     # ── 안전점검 ──
     safety_done_today: bool = False
     safety_saved_time: str = ""
+    safety_panel_collapsed: bool = False   # 완료 후 자동 접기
     checked_items: dict[str, bool] = {}
     fail_memo: str = ""
     safety_save_msg: str = ""
@@ -207,6 +208,7 @@ class DriverState(AuthState):
         if self.safety_done_today and checks:
             ct = str(checks[0].get("created_at", ""))
             self.safety_saved_time = ct[11:16] if len(ct) >= 16 else ""
+            self.safety_panel_collapsed = True   # 오늘 이미 완료 → 자동 접기
 
     # ── 수거일정 핸들러 ──
 
@@ -332,9 +334,14 @@ class DriverState(AuthState):
         if ok:
             self.safety_done_today = True
             self.safety_saved_time = datetime.now().strftime("%H:%M")
+            self.safety_panel_collapsed = True   # 저장 직후 자동 접기
             self.safety_save_msg = "저장 완료"
         else:
             self.safety_save_msg = "저장 중 오류가 발생했습니다."
+
+    def toggle_safety_panel(self):
+        """안전점검 패널 접기/펼치기"""
+        self.safety_panel_collapsed = not self.safety_panel_collapsed
 
     # ── 수거입력 핸들러 ──
 
