@@ -925,7 +925,7 @@ def _collection_section() -> rx.Component:
     """수동 수거 추가 섹션 — 일정에 없는 거래처 대상 (축소 버전)"""
     return rx.vstack(
         rx.hstack(
-            rx.icon("plus_circle", size=18, color="#64748b"),
+            rx.icon("circle_plus", size=18, color="#64748b"),
             rx.text("수동 수거 추가", font_weight="700", font_size="14px", color="#64748b"),
             rx.spacer(),
             rx.text(
