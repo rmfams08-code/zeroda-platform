@@ -799,7 +799,27 @@ class DriverState(AuthState):
     # ── 퇴근 핸들러 ──
 
     def do_checkout(self):
-        """퇴근 처리"""
+        """퇴근 처리 — 안전점검 미완료 시 경고 후 퇴근 진행"""
+        # ── 안전점검 미완료 카테고리 확인 ──
+        checks = get_daily_safety_checks(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            check_date=self.today_str,
+        )
+        saved_cats = {r.get("category", "") for r in checks}
+        missing_labels = [
+            SAFETY_CHECKLIST[k]["label"]
+            for k in SAFETY_CHECKLIST
+            if k not in saved_cats
+        ]
+        if missing_labels:
+            warning_msg = (
+                "\u26a0\ufe0f \uc548\uc804\uc810\uac80 \ubbf8\uc644\ub8cc \ud56d\ubaa9:\\n"
+                + ", ".join(missing_labels)
+                + "\\n\\n\ud1f4\uadfc \ucc98\ub9ac\ub97c \uc9c4\ud589\ud569\ub2c8\ub2e4."
+            )
+            yield rx.call_script(f"alert('{warning_msg}')")
+
         ok = save_driver_checkout(
             vendor=self.user_vendor,
             driver=self.user_name,
