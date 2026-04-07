@@ -41,6 +41,7 @@ class SchoolState(AuthState):
     monthly_rows: list[dict] = []
     monthly_total_weight: str = "0"
     monthly_total_count: str = "0"
+    monthly_selected_month: str = str(datetime.now().month)
 
     # ══════════════════════════════
     #  수거내역 (탭2)
@@ -87,8 +88,31 @@ class SchoolState(AuthState):
         return any(float(r.get("weight", 0)) > 0 for r in self.monthly_rows)
 
     @rx.var
+    def monthly_current_weight(self) -> str:
+        """선택된 월의 수거량"""
+        for r in self.monthly_rows:
+            if str(r.get("month", "")) == self.monthly_selected_month:
+                return r.get("weight", "0")
+        return "0"
+
+    @rx.var
+    def monthly_avg_weight(self) -> str:
+        """데이터 있는 월의 평균 수거량"""
+        months_with_data = [r for r in self.monthly_rows if float(r.get("weight", 0)) > 0]
+        if not months_with_data:
+            return "0"
+        total = sum(float(r.get("weight", 0)) for r in months_with_data)
+        return str(round(total / len(months_with_data), 1))
+
+    @rx.var
     def has_detail(self) -> bool:
         return len(self.detail_rows) > 0
+
+    @rx.var
+    def detail_total_weight(self) -> str:
+        """수거내역 탭 총 합계 중량"""
+        total = sum(float(r.get("weight", 0)) for r in self.detail_rows)
+        return str(round(total, 1))
 
     @rx.var
     def has_settle(self) -> bool:
@@ -101,6 +125,22 @@ class SchoolState(AuthState):
     @rx.var
     def has_esg(self) -> bool:
         return bool(self.esg_data) and safe_int(self.esg_data.get("count", 0)) > 0
+
+    @rx.var
+    def esg_pine_trees(self) -> str:
+        """소나무 환산 (30년생 소나무 1그루 연간 CO2 흡수 4.6kg 기준)"""
+        carbon = float(self.esg_data.get("carbon_reduced", 0) or 0)
+        if carbon <= 0:
+            return "0"
+        return str(round(carbon / 4.6, 1))
+
+    @rx.var
+    def esg_tree_general(self) -> str:
+        """나무(일반) 환산 (일반 나무 1그루 연간 CO2 흡수 6.6kg 기준)"""
+        carbon = float(self.esg_data.get("carbon_reduced", 0) or 0)
+        if carbon <= 0:
+            return "0"
+        return str(round(carbon / 6.6, 1))
 
     @rx.var
     def has_safety_scores(self) -> bool:
@@ -117,6 +157,21 @@ class SchoolState(AuthState):
     @rx.var
     def has_daily_checks(self) -> bool:
         return len(self.daily_checks) > 0
+
+    @rx.var
+    def safety_grade_good(self) -> str:
+        """안전등급 양호(S/A) 업체 수"""
+        return str(sum(1 for r in self.safety_scores if r.get("grade", "") in ("S", "A")))
+
+    @rx.var
+    def safety_grade_caution(self) -> str:
+        """안전등급 주의(B) 업체 수"""
+        return str(sum(1 for r in self.safety_scores if r.get("grade", "") == "B"))
+
+    @rx.var
+    def safety_grade_danger(self) -> str:
+        """안전등급 위험(C/D) 업체 수"""
+        return str(sum(1 for r in self.safety_scores if r.get("grade", "") in ("C", "D")))
 
     @rx.var
     def has_schools(self) -> bool:
@@ -158,6 +213,10 @@ class SchoolState(AuthState):
     def set_selected_month(self, m: str):
         self.selected_month = m
         self.load_tab_data()
+
+    def set_monthly_month(self, m: str):
+        """월별현황 탭 전용 월 선택 (데이터 재로드 불필요 — computed var로 처리)"""
+        self.monthly_selected_month = m
 
     def load_tab_data(self):
         """현재 탭에 맞는 데이터 로드"""

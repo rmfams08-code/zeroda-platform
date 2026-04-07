@@ -113,6 +113,27 @@ def _year_filter() -> rx.Component:
     )
 
 
+def _monthly_year_month_filter() -> rx.Component:
+    """월별현황 탭 전용 연/월 필터 — 월은 monthly_selected_month"""
+    return rx.hstack(
+        rx.select(
+            get_year_options(),
+            value=SchoolState.selected_year,
+            on_change=SchoolState.set_selected_year,
+            size="2", width="90px",
+        ),
+        rx.text("년", font_size="13px", color="#64748b"),
+        rx.select(
+            ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
+            value=SchoolState.monthly_selected_month,
+            on_change=SchoolState.set_monthly_month,
+            size="2", width="80px",
+        ),
+        rx.text("월 기준", font_size="13px", color="#64748b"),
+        spacing="2", align="center",
+    )
+
+
 def _esg_year_month_filter() -> rx.Component:
     return rx.hstack(
         rx.select(
@@ -158,11 +179,13 @@ def _monthly_tab() -> rx.Component:
             rx.text(SchoolState.selected_year, font_size="14px"), rx.text("년", font_size="14px", color="#94a3b8"),
             spacing="1", align="center",
         ),
-        _year_filter(),
-        # KPI
+        _monthly_year_month_filter(),
+        # KPI 3개: 이번 달 수거량 / 누적 수거량 / 월평균
         rx.hstack(
-            _kpi_card("연간 총 수거량", SchoolState.monthly_total_weight, "kg", "weight", "#38bd94"),
-            _kpi_card("연간 수거 건수", SchoolState.monthly_total_count, "건", "hash", "#3b82f6"),
+            _kpi_card("이번 달 수거량", SchoolState.monthly_current_weight, "kg", "calendar_check", "#3b82f6"),
+            _kpi_card("연간 누적 수거량", SchoolState.monthly_total_weight, "kg", "weight", "#38bd94"),
+            _kpi_card("월 평균 수거량", SchoolState.monthly_avg_weight, "kg", "bar_chart_3", "#8b5cf6"),
+            _kpi_card("연간 수거 건수", SchoolState.monthly_total_count, "건", "hash", "#f59e0b"),
             spacing="3", width="100%", flex_wrap="wrap",
         ),
         # 월별 테이블
@@ -217,47 +240,67 @@ def _detail_tab() -> rx.Component:
         ),
         _year_month_filter(),
         _card_box(
-            rx.cond(
-                SchoolState.has_detail,
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            rx.table.column_header_cell(rx.text("수거일", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("품목", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("중량(kg)", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("기사", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("상태", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("비고", font_size="12px", font_weight="700", color="#64748b")),
-                        ),
-                    ),
-                    rx.table.body(
-                        rx.foreach(
-                            SchoolState.detail_rows,
-                            lambda r: rx.table.row(
-                                rx.table.cell(rx.text(r["collect_date"], font_size="12px")),
-                                rx.table.cell(rx.text(r["item_type"], font_size="12px")),
-                                rx.table.cell(rx.text(r["weight"], font_size="12px", font_weight="600")),
-                                rx.table.cell(rx.text(r["driver"], font_size="12px")),
-                                rx.table.cell(rx.text(r["vendor"], font_size="12px")),
-                                rx.table.cell(
-                                    rx.badge(
-                                        r["status"],
-                                        color_scheme=rx.cond(
-                                            r["status"] == "confirmed", "green",
-                                            rx.cond(r["status"] == "submitted", "blue", "gray"),
-                                        ),
-                                        size="1",
-                                    ),
-                                ),
-                                rx.table.cell(rx.text(r["memo"], font_size="11px", color="#94a3b8")),
+            rx.vstack(
+                rx.cond(
+                    SchoolState.has_detail,
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell(rx.text("수거일", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("품목", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("중량(kg)", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("기사", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("상태", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("비고", font_size="12px", font_weight="700", color="#64748b")),
                             ),
                         ),
+                        rx.table.body(
+                            rx.foreach(
+                                SchoolState.detail_rows,
+                                lambda r: rx.table.row(
+                                    rx.table.cell(rx.text(r["collect_date"], font_size="12px")),
+                                    rx.table.cell(rx.text(r["item_type"], font_size="12px")),
+                                    rx.table.cell(rx.text(r["weight"], font_size="12px", font_weight="600")),
+                                    rx.table.cell(rx.text(r["driver"], font_size="12px")),
+                                    rx.table.cell(rx.text(r["vendor"], font_size="12px")),
+                                    rx.table.cell(
+                                        rx.badge(
+                                            rx.cond(
+                                                r["status"] == "confirmed", "확인완료",
+                                                rx.cond(r["status"] == "submitted", "전송완료", "임시저장"),
+                                            ),
+                                            color_scheme=rx.cond(
+                                                r["status"] == "confirmed", "green",
+                                                rx.cond(r["status"] == "submitted", "blue", "gray"),
+                                            ),
+                                            size="1",
+                                        ),
+                                    ),
+                                    rx.table.cell(rx.text(r["memo"], font_size="11px", color="#94a3b8")),
+                                ),
+                            ),
+                        ),
+                        width="100%",
                     ),
-                    width="100%",
+                    rx.text("해당 기간 수거 데이터가 없습니다.", font_size="13px", color="#94a3b8",
+                             padding="20px", text_align="center"),
                 ),
-                rx.text("해당 기간 수거 데이터가 없습니다.", font_size="13px", color="#94a3b8",
-                         padding="20px", text_align="center"),
+                # 합계 행
+                rx.cond(
+                    SchoolState.has_detail,
+                    rx.hstack(
+                        rx.spacer(),
+                        rx.text("총 합계:", font_size="13px", font_weight="600", color="#64748b"),
+                        rx.text(SchoolState.detail_total_weight, font_size="14px", font_weight="700", color="#1e293b"),
+                        rx.text("kg", font_size="13px", color="#64748b"),
+                        spacing="1", align="center",
+                        padding_top="8px",
+                        border_top="1px solid #e2e8f0",
+                        width="100%",
+                    ),
+                ),
+                spacing="0", width="100%",
             ),
         ),
         spacing="4", width="100%",
@@ -353,9 +396,15 @@ def _esg_tab() -> rx.Component:
                 # 탄소 KPI
                 rx.hstack(
                     _kpi_card("탄소 감축량", SchoolState.esg_data.get("carbon_reduced", "0"), "kg CO₂", "leaf", "#22c55e"),
-                    _kpi_card("나무 환산", SchoolState.esg_data.get("tree_equivalent", "0"), "그루", "tree_pine", "#16a34a"),
                     _kpi_card("CO₂ 톤", SchoolState.esg_data.get("carbon_tons", "0"), "tCO₂", "globe", "#0ea5e9"),
                     _kpi_card("수거 건수", SchoolState.esg_data.get("count", "0"), "건", "hash", "#8b5cf6"),
+                    spacing="3", width="100%", flex_wrap="wrap",
+                ),
+                # 나무 환산 KPI (소나무 + 일반)
+                rx.hstack(
+                    _kpi_card("소나무 환산", SchoolState.esg_pine_trees, "그루", "tree_pine", "#16a34a"),
+                    _kpi_card("나무(일반) 환산", SchoolState.esg_tree_general, "그루", "tree_pine", "#38bd94"),
+                    _kpi_card("기존 나무 환산", SchoolState.esg_data.get("tree_equivalent", "0"), "그루", "tree_pine", "#94a3b8"),
                     spacing="3", width="100%", flex_wrap="wrap",
                 ),
                 # 설명
@@ -365,7 +414,9 @@ def _esg_tab() -> rx.Component:
                         rx.text("음식물 폐기물: 0.47 kgCO₂/kg", font_size="12px", color="#64748b"),
                         rx.text("재활용 폐기물: 0.21 kgCO₂/kg", font_size="12px", color="#64748b"),
                         rx.text("일반 폐기물: 0.09 kgCO₂/kg", font_size="12px", color="#64748b"),
-                        rx.text("나무 환산: 21.77 kgCO₂/그루 (소나무 기준)", font_size="12px", color="#64748b"),
+                        rx.text("소나무 환산: 30년생 소나무 1그루가 연간 흡수하는 CO₂ 약 4.6kg 기준", font_size="12px", color="#64748b"),
+                        rx.text("나무(일반) 환산: 일반 나무 1그루 연간 CO₂ 흡수 6.6kg 기준", font_size="12px", color="#64748b"),
+                        rx.text("기존 나무 환산: 21.77 kgCO₂/그루 (참고용)", font_size="12px", color="#94a3b8"),
                         spacing="1", width="100%",
                     ),
                 ),
@@ -408,6 +459,50 @@ def _safety_tab() -> rx.Component:
             _kpi_card("차량점검 건수", SchoolState.safety_checklist_count, "건", "wrench", "#f59e0b"),
             _kpi_card("사고 보고 건수", SchoolState.safety_accident_count, "건", "triangle_alert", "#ef4444"),
             spacing="3", width="100%", flex_wrap="wrap",
+        ),
+
+        # 안전등급 카드형 요약
+        rx.cond(
+            SchoolState.has_safety_scores,
+            rx.hstack(
+                rx.box(
+                    rx.vstack(
+                        rx.icon("circle_check", size=20, color="#22c55e"),
+                        rx.text("양호", font_size="13px", font_weight="700", color="#22c55e"),
+                        rx.text("(S/A등급)", font_size="11px", color="#64748b"),
+                        rx.text(SchoolState.safety_grade_good, font_size="24px", font_weight="800", color="#22c55e"),
+                        rx.text("개 업체", font_size="11px", color="#64748b"),
+                        spacing="1", align="center",
+                    ),
+                    bg="#f0fdf4", border="1px solid #bbf7d0", border_radius="8px",
+                    padding="16px", flex="1", text_align="center",
+                ),
+                rx.box(
+                    rx.vstack(
+                        rx.icon("triangle_alert", size=20, color="#f59e0b"),
+                        rx.text("주의", font_size="13px", font_weight="700", color="#f59e0b"),
+                        rx.text("(B등급)", font_size="11px", color="#64748b"),
+                        rx.text(SchoolState.safety_grade_caution, font_size="24px", font_weight="800", color="#f59e0b"),
+                        rx.text("개 업체", font_size="11px", color="#64748b"),
+                        spacing="1", align="center",
+                    ),
+                    bg="#fffbeb", border="1px solid #fde68a", border_radius="8px",
+                    padding="16px", flex="1", text_align="center",
+                ),
+                rx.box(
+                    rx.vstack(
+                        rx.icon("circle_alert", size=20, color="#ef4444"),
+                        rx.text("위험", font_size="13px", font_weight="700", color="#ef4444"),
+                        rx.text("(C/D등급)", font_size="11px", color="#64748b"),
+                        rx.text(SchoolState.safety_grade_danger, font_size="24px", font_weight="800", color="#ef4444"),
+                        rx.text("개 업체", font_size="11px", color="#64748b"),
+                        spacing="1", align="center",
+                    ),
+                    bg="#fef2f2", border="1px solid #fecaca", border_radius="8px",
+                    padding="16px", flex="1", text_align="center",
+                ),
+                spacing="3", width="100%",
+            ),
         ),
 
         # 안전등급
