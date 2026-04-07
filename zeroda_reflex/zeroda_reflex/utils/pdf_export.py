@@ -1,164 +1,113 @@
 # zeroda_reflex/utils/pdf_export.py
-# PDF 생성 래퍼 — 기존 services/pdf_generator.py 재사용
-# Phase 5-A: Reflex에서 PDF 바이트를 생성하여 rx.download()로 전달
+# PDF 생성 래퍼 — zeroda_reflex 내부 pdf_generator 직접 import
+# sys.path 해킹 제거: services/pdf_generator.py 의존성 없음
 import logging
-import sys
-import pathlib
 
 logger = logging.getLogger(__name__)
 
-# ── 기존 pdf_generator.py를 import 경로에 추가 ──
-_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent.parent  # zeroda_platform/
-_SERVICES_DIR = _PROJECT_ROOT / "services"
-if str(_SERVICES_DIR) not in sys.path:
-    sys.path.insert(0, str(_SERVICES_DIR))
 
-
-def _import_generator():
-    """pdf_generator 모듈을 지연 import (reportlab 미설치 환경 대비)"""
-    try:
-        import pdf_generator
-        return pdf_generator
-    except ImportError as e:
-        logger.error(f"pdf_generator import 실패: {e}")
-        return None
-
-
-# ══════════════════════════════════════════
-#  1. 거래명세서 PDF (업체관리자 · 본사관리자)
-# ══════════════════════════════════════════
-
-def build_statement_pdf(
-    vendor: str, school_name: str, year: int, month: int,
-    rows: list, biz_info: dict, vendor_info: dict,
-    cust_type: str = "", fixed_fee: float = 0,
-) -> bytes | None:
-    """거래명세서 PDF 바이트 반환. 실패 시 None."""
-    gen = _import_generator()
-    if not gen:
-        return None
-    try:
-        return gen.generate_statement_pdf(
-            vendor, school_name, year, month,
-            rows, biz_info, vendor_info, cust_type, fixed_fee,
-        )
-    except Exception as e:
-        logger.error(f"거래명세서 PDF 생성 실패: {e}")
-        return None
-
-
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
 #  2. 스마트월말명세서 PDF (급식담당자)
-# ══════════════════════════════════════════
+#     → zeroda_reflex/utils/pdf_generator.py 직접 import
+# ══════════════════════════════════════════════════════════════════════
 
 def build_meal_statement_pdf(
-    site_name: str, year: int, month: int,
+    site_name: str,
+    year: int,
+    month: int,
     analysis_rows: list,
     menu_ranking: dict | None = None,
-    ai_recommendation: list | None = None,
-    school_standard: dict | None = None,
+    ai_comment: str = "",
+    **kwargs,
 ) -> bytes | None:
-    """스마트월말명세서 PDF 바이트 반환."""
-    gen = _import_generator()
-    if not gen:
-        return None
+    """
+    스마트월말명세서 PDF 바이트 반환.
+    ai_comment: AI 추천 텍스트 (있으면 기관정보 다음, 분석표 이전에 배치)
+    """
     try:
-        return gen.generate_meal_statement_pdf(
-            site_name, year, month, analysis_rows,
-            menu_ranking, ai_recommendation, school_standard,
+        from zeroda_reflex.utils.pdf_generator import generate_meal_statement_pdf
+        return generate_meal_statement_pdf(
+            site_name=site_name,
+            year_month=f"{year}-{str(month).zfill(2)}",
+            analysis_rows=analysis_rows,
+            ai_comment=ai_comment,
+            menu_ranking=menu_ranking,
         )
+    except FileNotFoundError as e:
+        # 폰트 없음 — 사용자가 조치해야 하므로 경고 로그 출력
+        logger.error(f"스마트월말명세서 PDF 생성 실패 (폰트 없음):\n{e}")
+        return None
     except Exception as e:
         logger.error(f"스마트월말명세서 PDF 생성 실패: {e}")
         return None
 
 
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
 #  3. AI 월말명세서 PDF (급식담당자)
-# ══════════════════════════════════════════
+#     → zeroda_reflex/utils/pdf_generator.py 직접 import
+# ══════════════════════════════════════════════════════════════════════
 
 def build_ai_meal_statement_pdf(
-    site_name: str, year: int, month: int,
-    analysis_rows: list, **kwargs,
+    site_name: str,
+    year: int,
+    month: int,
+    analysis_rows: list,
+    ai_comment: str = "",
+    menu_ranking: dict | None = None,
+    cost_savings: dict | None = None,
+    weekday_pattern: list | None = None,
+    price_food: int = 0,
+    **kwargs,
 ) -> bytes | None:
-    """AI 월말명세서 PDF 바이트 반환. kwargs로 선택 인자 전달."""
-    gen = _import_generator()
-    if not gen:
-        return None
+    """
+    AI 월말명세서 PDF 바이트 반환.
+    ai_comment: Paragraph + wordWrap='CJK' 로 자동 줄바꿈, 최상단 배치.
+    """
     try:
-        return gen.generate_ai_meal_statement_pdf(
-            site_name, year, month, analysis_rows, **kwargs,
+        from zeroda_reflex.utils.pdf_generator import generate_ai_meal_statement_pdf
+        return generate_ai_meal_statement_pdf(
+            site_name=site_name,
+            year_month=f"{year}-{str(month).zfill(2)}",
+            analysis_rows=analysis_rows,
+            ai_comment=ai_comment,
+            menu_ranking=menu_ranking,
+            cost_savings=cost_savings,
+            weekday_pattern=weekday_pattern,
+            price_food=price_food,
         )
+    except FileNotFoundError as e:
+        logger.error(f"AI 월말명세서 PDF 생성 실패 (폰트 없음):\n{e}")
+        return None
     except Exception as e:
         logger.error(f"AI 월말명세서 PDF 생성 실패: {e}")
         return None
 
 
-# ══════════════════════════════════════════
-#  4. 학교 ESG 보고서 PDF
-# ══════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════
+#  1 / 4 / 5 / 6. 레거시 PDF 함수 — services/pdf_generator.py 삭제로
+#  현재 사용 불가. 각 함수는 None 을 반환하고 경고 로그를 남깁니다.
+#  향후 zeroda_reflex/utils/pdf_generator.py 에 이전 예정.
+# ══════════════════════════════════════════════════════════════════════
 
-def build_school_esg_pdf(
-    school_name: str, year: int, month_label: str,
-    rows: list, vendor: str = "",
-) -> bytes | None:
-    """학교 ESG 보고서 PDF 바이트 반환."""
-    gen = _import_generator()
-    if not gen:
-        return None
-    try:
-        return gen.generate_school_esg_pdf(
-            school_name, year, month_label, rows, vendor,
-        )
-    except Exception as e:
-        logger.error(f"학교 ESG PDF 생성 실패: {e}")
-        return None
+def build_statement_pdf(*args, **kwargs) -> bytes | None:
+    """거래명세서 PDF — 미이전 (services/ 삭제됨). None 반환."""
+    logger.warning("build_statement_pdf: services/pdf_generator.py 삭제로 사용 불가.")
+    return None
 
 
-# ══════════════════════════════════════════
-#  5. 교육청 ESG 보고서 PDF
-# ══════════════════════════════════════════
-
-def build_edu_office_esg_pdf(
-    edu_office_name: str, year: int, month_label: str,
-    school_data: list, vendor: str = "",
-) -> bytes | None:
-    """교육청 ESG 보고서 PDF 바이트 반환."""
-    gen = _import_generator()
-    if not gen:
-        return None
-    try:
-        return gen.generate_edu_office_esg_pdf(
-            edu_office_name, year, month_label, school_data, vendor,
-        )
-    except Exception as e:
-        logger.error(f"교육청 ESG PDF 생성 실패: {e}")
-        return None
+def build_school_esg_pdf(*args, **kwargs) -> bytes | None:
+    """학교 ESG 보고서 PDF — 미이전. None 반환."""
+    logger.warning("build_school_esg_pdf: services/pdf_generator.py 삭제로 사용 불가.")
+    return None
 
 
-# ══════════════════════════════════════════
-#  6. 안전관리 보고서 PDF (학교 · 교육청 공용)
-# ══════════════════════════════════════════
+def build_edu_office_esg_pdf(*args, **kwargs) -> bytes | None:
+    """교육청 ESG 보고서 PDF — 미이전. None 반환."""
+    logger.warning("build_edu_office_esg_pdf: services/pdf_generator.py 삭제로 사용 불가.")
+    return None
 
-def build_safety_report_pdf(
-    org_name: str, org_type: str, year: int, month: int,
-    vendor_scores: list, violations: list,
-    education_records: list, checklist_records: list,
-    accident_records: list, vendor_name: str = "",
-    checklist_results: list | None = None,
-    daily_checks: list | None = None,
-) -> bytes | None:
-    """안전관리 보고서 PDF 바이트 반환."""
-    gen = _import_generator()
-    if not gen:
-        return None
-    try:
-        return gen.generate_safety_report_pdf(
-            org_name, org_type, year, month,
-            vendor_scores, violations,
-            education_records, checklist_records,
-            accident_records, vendor_name,
-            checklist_results, daily_checks,
-        )
-    except Exception as e:
-        logger.error(f"안전관리 보고서 PDF 생성 실패: {e}")
-        return None
+
+def build_safety_report_pdf(*args, **kwargs) -> bytes | None:
+    """안전관리 보고서 PDF — 미이전. None 반환."""
+    logger.warning("build_safety_report_pdf: services/pdf_generator.py 삭제로 사용 불가.")
+    return None

@@ -533,8 +533,9 @@ class MealState(AuthState):
                 self.ai_comprehensive_result = result
 
     def download_ai_pdf(self):
-        """AI 월말명세서 PDF 다운로드"""
+        """AI 월말명세서 PDF 다운로드 (generate_ai_recommendation 호출 포함)"""
         from zeroda_reflex.utils.pdf_export import build_ai_meal_statement_pdf
+        from zeroda_reflex.utils.ai_recommend import generate_ai_recommendation
         try:
             y = int(self.selected_year)
             m = int(self.selected_month)
@@ -542,11 +543,23 @@ class MealState(AuthState):
             return None
         if not self.analysis_rows:
             return None
+
+        # AI 추천 생성 (C/D 등급 타겟, 예산/알레르기 검증)
+        ai_comment = generate_ai_recommendation(
+            analysis_rows=self.analysis_rows,
+            site_name=self.site_name,
+            year_month=self.year_month,
+        )
+        # API 오류 시 빈 문자열로 처리 (PDF 생성은 계속 진행)
+        if ai_comment.startswith("[ERROR]"):
+            logger.warning(f"AI 추천 생성 실패: {ai_comment}")
+            ai_comment = self.ai_comprehensive_result[:2000] if self.ai_comprehensive_result else ""
+
         best, worst = meal_get_menu_ranking(self.analysis_rows)
         pdf_bytes = build_ai_meal_statement_pdf(
             self.site_name, y, m, self.analysis_rows,
             menu_ranking={"best": best, "worst": worst},
-            ai_comment=self.ai_comprehensive_result[:2000] if self.ai_comprehensive_result else "",
+            ai_comment=ai_comment,
             cost_savings=self.cost_data,
             weekday_pattern=self.weekday_pattern,
         )
@@ -599,8 +612,9 @@ class MealState(AuthState):
     # ══════════════════════════════
 
     def download_smart_pdf(self):
-        """스마트월말명세서 PDF 다운로드"""
+        """스마트월말명세서 PDF 다운로드 (generate_ai_recommendation 호출 포함)"""
         from zeroda_reflex.utils.pdf_export import build_meal_statement_pdf
+        from zeroda_reflex.utils.ai_recommend import generate_ai_recommendation
         try:
             y = int(self.selected_year)
             m = int(self.selected_month)
@@ -608,10 +622,23 @@ class MealState(AuthState):
             return None
         if not self.analysis_rows:
             return None
+
+        # AI 추천 생성 (C/D 등급 타겟, 예산/알레르기 검증)
+        ai_comment = generate_ai_recommendation(
+            analysis_rows=self.analysis_rows,
+            site_name=self.site_name,
+            year_month=self.year_month,
+        )
+        # API 오류 시 빈 문자열로 처리 (PDF 생성은 계속 진행)
+        if ai_comment.startswith("[ERROR]"):
+            logger.warning(f"AI 추천 생성 실패: {ai_comment}")
+            ai_comment = ""
+
         best, worst = meal_get_menu_ranking(self.analysis_rows)
         ranking = {"best": best, "worst": worst}
         pdf_bytes = build_meal_statement_pdf(
             self.site_name, y, m, self.analysis_rows, ranking,
+            ai_comment=ai_comment,
         )
         if pdf_bytes:
             return rx.download(
