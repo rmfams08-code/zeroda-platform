@@ -66,6 +66,17 @@ class SchoolState(AuthState):
     safety_violations: list[dict] = []
     safety_education: list[dict] = []
     safety_vendors: list[str] = []
+    # 차량점검·사고 KPI
+    safety_checklist_count: str = "0"
+    safety_accident_count: str = "0"
+    # 일일안전점검
+    daily_checks: list[dict] = []
+    daily_check_count: str = "0"
+    daily_check_days: str = "0"
+    daily_check_ok_rate: str = "0"
+    daily_check_fail_count: str = "0"
+    # 안전보건 점검 체크리스트 (7항목)
+    checklist_results: list[str] = ["예", "예", "예", "예", "예", "예", "예"]
 
     # ══════════════════════════════
     #  Computed vars
@@ -102,6 +113,10 @@ class SchoolState(AuthState):
     @rx.var
     def has_safety_education(self) -> bool:
         return len(self.safety_education) > 0
+
+    @rx.var
+    def has_daily_checks(self) -> bool:
+        return len(self.daily_checks) > 0
 
     @rx.var
     def has_schools(self) -> bool:
@@ -225,6 +240,13 @@ class SchoolState(AuthState):
     #  탭5: 안전관리보고서
     # ══════════════════════════════
 
+    def set_checklist_item(self, index_value: list):
+        idx = int(index_value[0])
+        val = index_value[1]
+        results = list(self.checklist_results)
+        results[idx] = val
+        self.checklist_results = results
+
     def load_safety(self):
         try:
             y = int(self.selected_year)
@@ -237,6 +259,24 @@ class SchoolState(AuthState):
         self.safety_scores = data.get("scores", [])
         self.safety_violations = data.get("violations", [])
         self.safety_education = data.get("education", [])
+        # 차량점검·사고 KPI
+        self.safety_checklist_count = str(len(data.get("checklist", [])))
+        self.safety_accident_count = str(len(data.get("accident", [])))
+        # 일일안전점검
+        dc = data.get("daily_checks", [])
+        self.daily_checks = dc
+        self.daily_check_count = str(len(dc))
+        dates = set()
+        for r in dc:
+            d = r.get("check_date", "")
+            if d:
+                dates.add(d)
+        self.daily_check_days = str(len(dates))
+        total_ok = sum(int(r.get("total_ok", 0)) for r in dc)
+        total_fail = sum(int(r.get("total_fail", 0)) for r in dc)
+        all_items = total_ok + total_fail
+        self.daily_check_ok_rate = f"{(total_ok / all_items * 100):.1f}" if all_items > 0 else "0"
+        self.daily_check_fail_count = str(total_fail)
 
     # ══════════════════════════════
     #  PDF 다운로드 핸들러
@@ -291,6 +331,8 @@ class SchoolState(AuthState):
             checklist_records=data.get("checklist", []),
             accident_records=data.get("accident", []),
             vendor_name=vendor,
+            checklist_results=list(self.checklist_results),
+            daily_checks=data.get("daily_checks", []),
         )
         if pdf_bytes:
             return rx.download(

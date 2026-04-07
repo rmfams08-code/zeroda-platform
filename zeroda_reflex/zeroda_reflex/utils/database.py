@@ -3400,16 +3400,53 @@ def school_get_safety_report(school_name: str, year_month: str) -> dict:
                         "completed": str(d.get("completed", "")),
                     })
 
+        # 4. 차량점검(safety_checklist)
+        checklist_rows = []
+        for v in vendors:
+            rows = conn.execute(
+                "SELECT * FROM safety_checklist WHERE vendor=?", (v,)
+            ).fetchall()
+            for r in rows:
+                d = dict(r)
+                cd = str(d.get("check_date", ""))
+                if cd.startswith(year_month):
+                    checklist_rows.append(d)
+
+        # 5. 사고보고(accident_report)
+        accident_rows = []
+        for v in vendors:
+            rows = conn.execute(
+                "SELECT * FROM accident_report WHERE vendor=?", (v,)
+            ).fetchall()
+            for r in rows:
+                d = dict(r)
+                od = str(d.get("occur_date", ""))
+                if od.startswith(year_month):
+                    accident_rows.append(d)
+
+        # 6. 일일안전점검(daily_safety_check)
+        daily_checks = []
+        for v in vendors:
+            rows = conn.execute(
+                "SELECT * FROM daily_safety_check WHERE vendor=? AND check_date LIKE ?",
+                (v, f"{year_month}%")
+            ).fetchall()
+            daily_checks.extend([dict(r) for r in rows])
+
         return {
             "vendors": vendors,
             "scores": scores,
             "violations": violations,
             "education": edu_rows,
+            "checklist": checklist_rows,
+            "accident": accident_rows,
+            "daily_checks": daily_checks,
         }
     except Exception as e:
         print(f"[DB ERROR] school_get_safety_report: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
-        return {"vendors": [], "scores": [], "violations": [], "education": []}
+        return {"vendors": [], "scores": [], "violations": [], "education": [],
+                "checklist": [], "accident": [], "daily_checks": []}
     finally:
         conn.close()
 
