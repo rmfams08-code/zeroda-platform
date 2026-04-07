@@ -3,6 +3,17 @@
 import reflex as rx
 from zeroda_reflex.state.school_state import SchoolState, SCHOOL_TABS
 from zeroda_reflex.state.auth_state import get_year_options, MONTH_OPTIONS
+
+# ── 안전보건 점검 체크리스트 7항목 (모듈 상수) ──
+SAFETY_CHECKLIST_ITEMS = [
+    "과업지시서(또는 계약서)에 '안전관리 및 예방조치 후 작업' 실시 내용 포함",
+    "공사(용역)업체에서 근로자에 대한 안전보건교육 실시",
+    "안전보호구(안전모, 안전대, 안전화 등) 착용 주지",
+    "위험사항(위험성평가 등)과 기계·기구·설비 안전점검 안내",
+    "학교 현장 이동 시 행정실(담당자) 안내 주지",
+    "유해·위험 작업 시 안전보건 점검표 제출 여부",
+    "안전·보건에 관한 종사자 의견청취 실시",
+]
 # ── 공통 컴포넌트 import (Phase 0-A 모듈화) ──
 from zeroda_reflex.components.shared import (
     kpi_card_compact as _kpi_card,    # 학교는 컴팩트형 KPI
@@ -96,6 +107,24 @@ def _year_filter() -> rx.Component:
             get_year_options(),
             value=SchoolState.selected_year,
             on_change=SchoolState.set_selected_year,
+            size="2", width="90px",
+        ),
+        spacing="2",
+    )
+
+
+def _esg_year_month_filter() -> rx.Component:
+    return rx.hstack(
+        rx.select(
+            get_year_options(),
+            value=SchoolState.selected_year,
+            on_change=SchoolState.set_selected_year,
+            size="2", width="90px",
+        ),
+        rx.select(
+            ["전체", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
+            value=SchoolState.selected_month,
+            on_change=SchoolState.set_selected_month,
             size="2", width="90px",
         ),
         spacing="2",
@@ -309,7 +338,7 @@ def _esg_tab() -> rx.Component:
             ),
             width="100%", align="center",
         ),
-        _year_filter(),
+        _esg_year_month_filter(),
         rx.cond(
             SchoolState.has_esg,
             rx.vstack(
@@ -360,7 +389,7 @@ GRADE_COLORS = {
 
 def _safety_tab() -> rx.Component:
     return rx.vstack(
-        # ── 헤더 + PDF 다운로드 (Phase 5) ──
+        # ── 헤더 + PDF 다운로드 ──
         rx.hstack(
             _section_header("shield_check", "안전관리 보고서"),
             rx.spacer(),
@@ -372,6 +401,14 @@ def _safety_tab() -> rx.Component:
             width="100%", align="center",
         ),
         _year_month_filter(),
+
+        # ── 수정2: 차량점검·사고 KPI ──
+        rx.hstack(
+            _kpi_card("안전교육 이수", SchoolState.safety_checklist_count, "건", "graduation_cap", "#3b82f6"),
+            _kpi_card("차량점검 건수", SchoolState.safety_checklist_count, "건", "wrench", "#f59e0b"),
+            _kpi_card("사고 보고 건수", SchoolState.safety_accident_count, "건", "triangle_alert", "#ef4444"),
+            spacing="3", width="100%", flex_wrap="wrap",
+        ),
 
         # 안전등급
         _card_box(
@@ -493,6 +530,93 @@ def _safety_tab() -> rx.Component:
                              padding="20px", text_align="center"),
                 ),
                 spacing="3", width="100%",
+            ),
+        ),
+
+        # ── 수정3: 일일안전보건 점검 이행 현황 ──
+        _card_box(
+            rx.vstack(
+                _section_header("clipboard_check", "일일안전보건 점검 이행 현황"),
+                rx.cond(
+                    SchoolState.has_daily_checks,
+                    rx.vstack(
+                        rx.hstack(
+                            _kpi_card("점검 건수", SchoolState.daily_check_count, "건", "clipboard_check", "#3b82f6"),
+                            _kpi_card("점검일 수", SchoolState.daily_check_days, "일", "calendar", "#8b5cf6"),
+                            _kpi_card("양호율", SchoolState.daily_check_ok_rate, "%", "check_circle", "#22c55e"),
+                            _kpi_card("불량 항목", SchoolState.daily_check_fail_count, "건", "x_circle", "#ef4444"),
+                            spacing="3", width="100%", flex_wrap="wrap",
+                        ),
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    rx.table.column_header_cell(rx.text("점검일", font_size="12px", font_weight="700", color="#64748b")),
+                                    rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color="#64748b")),
+                                    rx.table.column_header_cell(rx.text("기사", font_size="12px", font_weight="700", color="#64748b")),
+                                    rx.table.column_header_cell(rx.text("카테고리", font_size="12px", font_weight="700", color="#64748b")),
+                                    rx.table.column_header_cell(rx.text("양호", font_size="12px", font_weight="700", color="#64748b")),
+                                    rx.table.column_header_cell(rx.text("불량", font_size="12px", font_weight="700", color="#64748b")),
+                                    rx.table.column_header_cell(rx.text("메모", font_size="12px", font_weight="700", color="#64748b")),
+                                ),
+                            ),
+                            rx.table.body(
+                                rx.foreach(
+                                    SchoolState.daily_checks,
+                                    lambda r: rx.table.row(
+                                        rx.table.cell(rx.text(r["check_date"], font_size="12px")),
+                                        rx.table.cell(rx.text(r["vendor"], font_size="12px")),
+                                        rx.table.cell(rx.text(r["driver"], font_size="12px")),
+                                        rx.table.cell(rx.text(r["category"], font_size="12px")),
+                                        rx.table.cell(rx.text(r["total_ok"], font_size="12px", color="#22c55e")),
+                                        rx.table.cell(
+                                            rx.text(
+                                                r["total_fail"],
+                                                font_size="12px",
+                                                color=rx.cond(r["total_fail"] != "0", "#ef4444", "#64748b"),
+                                                font_weight=rx.cond(r["total_fail"] != "0", "700", "400"),
+                                            ),
+                                        ),
+                                        rx.table.cell(rx.text(r["memo"], font_size="11px", color="#94a3b8")),
+                                    ),
+                                ),
+                            ),
+                            width="100%",
+                        ),
+                        spacing="3", width="100%",
+                    ),
+                    rx.text("해당 기간 일일안전점검 이력이 없습니다.", font_size="13px", color="#94a3b8",
+                             padding="20px", text_align="center"),
+                ),
+                spacing="3", width="100%",
+            ),
+        ),
+
+        # ── 수정4: 안전보건 점검 체크리스트 7항목 ──
+        _card_box(
+            rx.vstack(
+                _section_header("check_square", "안전보건 점검 체크리스트"),
+                rx.text(
+                    "도급·용역 업체 안전관리 점검 항목을 확인하고 예/아니오를 선택하세요.",
+                    font_size="12px", color="#64748b",
+                ),
+                *[
+                    rx.hstack(
+                        rx.text(f"{i+1}.", font_size="12px", color="#64748b", min_width="20px"),
+                        rx.text(SAFETY_CHECKLIST_ITEMS[i], font_size="12px", flex="1"),
+                        rx.select(
+                            ["예", "아니오"],
+                            value=SchoolState.checklist_results[i],
+                            on_change=lambda v, idx=i: SchoolState.set_checklist_item([str(idx), v]),
+                            size="1",
+                            width="80px",
+                        ),
+                        spacing="2", align="center", width="100%",
+                        padding_y="4px",
+                        border_bottom="1px solid #f1f5f9",
+                    )
+                    for i in range(7)
+                ],
+                spacing="2", width="100%",
             ),
         ),
 
