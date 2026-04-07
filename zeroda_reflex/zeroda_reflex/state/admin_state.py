@@ -10,7 +10,8 @@ from zeroda_reflex.utils.database import (
     db_get, db_insert, db_upsert,
     get_all_collections, get_all_vendors_list,
     get_all_users, update_user_approval, update_user_active,
-    reset_user_password,
+    reset_user_password, update_user_fields, delete_user,
+    create_user, validate_password,
     # 섹션B: 수거데이터
     get_pending_collections, confirm_all_pending, reject_collection_by_id,
     get_filtered_collections, get_all_schools_list,
@@ -192,6 +193,28 @@ class AdminState(AuthState):
     acct_filter_status: str = "전체"
     acct_msg: str = ""
     acct_ok: bool = False
+
+    # 생성 다이얼로그
+    acct_create_open: bool = False
+    acct_new_id: str = ""
+    acct_new_name: str = ""
+    acct_new_pw: str = ""
+    acct_new_role: str = "driver"
+    acct_new_vendor: str = ""
+    acct_new_schools: str = ""
+    acct_new_edu: str = ""
+    # 수정 다이얼로그
+    acct_edit_open: bool = False
+    acct_edit_target: str = ""
+    acct_edit_name: str = ""
+    acct_edit_role: str = ""
+    acct_edit_vendor: str = ""
+    acct_edit_schools: str = ""
+    acct_edit_edu: str = ""
+    acct_edit_new_pw: str = ""
+    # 삭제 확인
+    acct_delete_open: bool = False
+    acct_delete_target: str = ""
 
     # ══════════════════════════════
     #  수거데이터 (섹션B)
@@ -882,6 +905,126 @@ class AdminState(AuthState):
         else:
             self.acct_msg = "초기화 실패"
             self.acct_ok = False
+
+    # ── 계정 생성 ──
+    def open_create_dialog(self):
+        self.acct_new_id = ""
+        self.acct_new_name = ""
+        self.acct_new_pw = ""
+        self.acct_new_role = "driver"
+        self.acct_new_vendor = ""
+        self.acct_new_schools = ""
+        self.acct_new_edu = ""
+        self.acct_msg = ""
+        self.acct_create_open = True
+
+    def close_create_dialog(self):
+        self.acct_create_open = False
+
+    def set_acct_new_id(self, v: str): self.acct_new_id = v
+    def set_acct_new_name(self, v: str): self.acct_new_name = v
+    def set_acct_new_pw(self, v: str): self.acct_new_pw = v
+    def set_acct_new_role(self, v: str):
+        self.acct_new_role = v
+        self.acct_new_vendor = ""
+        self.acct_new_schools = ""
+        self.acct_new_edu = ""
+    def set_acct_new_vendor(self, v: str): self.acct_new_vendor = v
+    def set_acct_new_schools(self, v: str): self.acct_new_schools = v
+    def set_acct_new_edu(self, v: str): self.acct_new_edu = v
+
+    def submit_create_user(self):
+        if not self.acct_new_id or not self.acct_new_name or not self.acct_new_pw:
+            self.acct_msg = "아이디, 이름, 비밀번호는 필수입니다."
+            self.acct_ok = False
+            return
+        ok, msg = validate_password(self.acct_new_pw)
+        if not ok:
+            self.acct_msg = msg
+            self.acct_ok = False
+            return
+        created, msg = create_user(
+            user_id=self.acct_new_id.strip(),
+            password=self.acct_new_pw,
+            role=self.acct_new_role,
+            name=self.acct_new_name.strip(),
+            vendor=self.acct_new_vendor.strip(),
+            schools=self.acct_new_schools.strip(),
+            edu_office=self.acct_new_edu.strip(),
+            approval_status="approved",
+            is_active=1,
+        )
+        if not created:
+            self.acct_msg = msg
+            self.acct_ok = False
+            return
+        self.acct_msg = msg
+        self.acct_ok = True
+        self.acct_create_open = False
+        self.load_users()
+
+    # ── 계정 수정 ──
+    def open_edit_dialog(self, user_id: str):
+        user = next((u for u in self.all_users if u.get("user_id") == user_id), None)
+        if not user:
+            return
+        self.acct_edit_target = user_id
+        self.acct_edit_name = user.get("name", "")
+        self.acct_edit_role = user.get("role", "")
+        self.acct_edit_vendor = user.get("vendor", "")
+        self.acct_edit_schools = user.get("schools", "")
+        self.acct_edit_edu = user.get("edu_office", "")
+        self.acct_edit_new_pw = ""
+        self.acct_msg = ""
+        self.acct_edit_open = True
+
+    def close_edit_dialog(self):
+        self.acct_edit_open = False
+
+    def set_acct_edit_name(self, v: str): self.acct_edit_name = v
+    def set_acct_edit_role(self, v: str): self.acct_edit_role = v
+    def set_acct_edit_vendor(self, v: str): self.acct_edit_vendor = v
+    def set_acct_edit_schools(self, v: str): self.acct_edit_schools = v
+    def set_acct_edit_edu(self, v: str): self.acct_edit_edu = v
+    def set_acct_edit_new_pw(self, v: str): self.acct_edit_new_pw = v
+
+    def submit_edit_user(self):
+        if self.acct_edit_new_pw:
+            ok, msg = validate_password(self.acct_edit_new_pw)
+            if not ok:
+                self.acct_msg = msg
+                self.acct_ok = False
+                return
+        ok, msg = update_user_fields(
+            user_id=self.acct_edit_target,
+            name=self.acct_edit_name or None,
+            role=self.acct_edit_role or None,
+            vendor=self.acct_edit_vendor,
+            schools=self.acct_edit_schools,
+            edu_office=self.acct_edit_edu,
+            new_password=self.acct_edit_new_pw if self.acct_edit_new_pw else None,
+        )
+        self.acct_msg = msg
+        self.acct_ok = ok
+        if ok:
+            self.acct_edit_open = False
+            self.load_users()
+
+    # ── 계정 삭제 ──
+    def open_delete_dialog(self, user_id: str):
+        self.acct_delete_target = user_id
+        self.acct_msg = ""
+        self.acct_delete_open = True
+
+    def close_delete_dialog(self):
+        self.acct_delete_open = False
+
+    def confirm_delete_user(self):
+        ok, msg = delete_user(self.acct_delete_target)
+        self.acct_msg = msg
+        self.acct_ok = ok
+        self.acct_delete_open = False
+        self.load_users()
 
     # ══════════════════════════════
     #  이벤트 — 수거데이터 (섹션B)

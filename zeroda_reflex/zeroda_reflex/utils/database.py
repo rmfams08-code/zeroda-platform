@@ -2037,6 +2037,62 @@ def reset_user_password(user_id: str, new_pw: str) -> bool:
         conn.close()
 
 
+def update_user_fields(user_id: str, name=None, role=None, vendor=None,
+                       schools=None, edu_office=None, is_active=None,
+                       new_password=None) -> tuple[bool, str]:
+    """None이 아닌 필드만 동적으로 UPDATE. new_password 있으면 bcrypt 해시."""
+    import bcrypt
+    from datetime import datetime
+    fields = []
+    values = []
+    if name is not None:
+        fields.append("name = ?"); values.append(name)
+    if role is not None:
+        fields.append("role = ?"); values.append(role)
+    if vendor is not None:
+        fields.append("vendor = ?"); values.append(vendor)
+    if schools is not None:
+        fields.append("schools = ?"); values.append(schools)
+    if edu_office is not None:
+        fields.append("edu_office = ?"); values.append(edu_office)
+    if is_active is not None:
+        fields.append("is_active = ?"); values.append(int(is_active))
+    if new_password is not None:
+        pw_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+        fields.append("pw_hash = ?"); values.append(pw_hash)
+    if not fields:
+        return False, "변경할 항목이 없습니다."
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    fields.append("updated_at = ?"); values.append(now)
+    values.append(user_id)
+    sql = f"UPDATE users SET {', '.join(fields)} WHERE user_id = ?"
+    conn = get_db()
+    try:
+        conn.execute(sql, values)
+        conn.commit()
+        return True, f"'{user_id}' 수정 완료"
+    except Exception as e:
+        print(f"[DB ERROR] update_user_fields: {e}")
+        logger.warning(f"Exception in update_user_fields: {str(e)}")
+        return False, f"수정 중 오류: {e}"
+    finally:
+        conn.close()
+
+
+def delete_user(user_id: str) -> tuple[bool, str]:
+    """계정 삭제. admin 마지막 계정 보호."""
+    rows = db_get("users", {"role": "admin"})
+    target = db_get("users", {"user_id": user_id})
+    if not target:
+        return False, "존재하지 않는 계정입니다."
+    if target[0].get("role") == "admin" and len(rows) <= 1:
+        return False, "본사관리자 계정이 1개뿐입니다. 삭제할 수 없습니다."
+    ok = db_delete("users", {"user_id": user_id})
+    if ok:
+        return True, f"'{user_id}' 계정이 삭제되었습니다."
+    return False, "삭제 중 오류가 발생했습니다."
+
+
 def validate_password(pw: str) -> tuple[bool, str]:
     import re
     if not pw or len(pw) < 8:

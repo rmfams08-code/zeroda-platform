@@ -320,6 +320,10 @@ def _user_row(user: dict) -> rx.Component:
                 ),
                 rx.button("PW초기화", size="1", variant="ghost", color="#94a3b8",
                            on_click=AdminState.reset_password(uid)),
+                rx.button("✏️ 수정", size="1", variant="outline", color_scheme="blue",
+                           on_click=AdminState.open_edit_dialog(uid)),
+                rx.button("🗑️ 삭제", size="1", variant="outline", color_scheme="red",
+                           on_click=AdminState.open_delete_dialog(uid)),
                 spacing="1",
             ),
         ),
@@ -363,6 +367,10 @@ def _account_tab() -> rx.Component:
                 on_click=AdminState.load_users,
                 variant="outline", size="2",
             ),
+            rx.button(
+                "➕ 계정 생성", size="2", color_scheme="green",
+                on_click=AdminState.open_create_dialog,
+            ),
             spacing="2",
         ),
 
@@ -401,6 +409,192 @@ def _account_tab() -> rx.Component:
                 rx.text("조건에 맞는 사용자가 없습니다.", font_size="13px", color="#94a3b8",
                          padding="20px", text_align="center"),
             ),
+        ),
+
+        # ── 계정 생성 다이얼로그 ──
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.dialog.title("계정 생성"),
+                rx.vstack(
+                    rx.vstack(
+                        rx.text("아이디 *", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_new_id,
+                                 on_change=AdminState.set_acct_new_id,
+                                 placeholder="아이디 (영문/숫자)", width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("이름 *", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_new_name,
+                                 on_change=AdminState.set_acct_new_name,
+                                 placeholder="실명", width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("비밀번호 *", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_new_pw,
+                                 on_change=AdminState.set_acct_new_pw,
+                                 type="password",
+                                 placeholder="최소 8자, 대문자+숫자+특수문자",
+                                 width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("역할 *", size="2", weight="bold"),
+                        rx.select(
+                            ["admin", "vendor_admin", "driver", "school",
+                             "meal_manager", "edu_office"],
+                            value=AdminState.acct_new_role,
+                            on_change=AdminState.set_acct_new_role,
+                            width="100%",
+                        ),
+                        spacing="1", width="100%",
+                    ),
+                    rx.cond(
+                        (AdminState.acct_new_role == "driver") |
+                        (AdminState.acct_new_role == "vendor_admin"),
+                        rx.vstack(
+                            rx.text("업체명", size="2", weight="bold"),
+                            rx.input(value=AdminState.acct_new_vendor,
+                                     on_change=AdminState.set_acct_new_vendor,
+                                     placeholder="소속 업체명", width="100%"),
+                            spacing="1", width="100%",
+                        ),
+                    ),
+                    rx.cond(
+                        (AdminState.acct_new_role == "school") |
+                        (AdminState.acct_new_role == "meal_manager"),
+                        rx.vstack(
+                            rx.text("학교명", size="2", weight="bold"),
+                            rx.input(value=AdminState.acct_new_schools,
+                                     on_change=AdminState.set_acct_new_schools,
+                                     placeholder="소속 학교명", width="100%"),
+                            spacing="1", width="100%",
+                        ),
+                    ),
+                    rx.cond(
+                        AdminState.acct_new_role == "edu_office",
+                        rx.vstack(
+                            rx.text("교육청", size="2", weight="bold"),
+                            rx.input(value=AdminState.acct_new_edu,
+                                     on_change=AdminState.set_acct_new_edu,
+                                     placeholder="소속 교육청명", width="100%"),
+                            spacing="1", width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.dialog.close(
+                            rx.button("취소", variant="outline",
+                                      on_click=AdminState.close_create_dialog),
+                        ),
+                        rx.button("생성", color_scheme="green",
+                                  on_click=AdminState.submit_create_user),
+                        spacing="2", justify="end", width="100%",
+                    ),
+                    spacing="3", width="100%",
+                ),
+                max_width="420px",
+            ),
+            open=AdminState.acct_create_open,
+        ),
+
+        # ── 계정 수정 다이얼로그 ──
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.dialog.title("계정 수정"),
+                rx.vstack(
+                    rx.text("대상: ", AdminState.acct_edit_target,
+                            size="2", color="gray"),
+                    rx.vstack(
+                        rx.text("이름", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_edit_name,
+                                 on_change=AdminState.set_acct_edit_name,
+                                 placeholder="이름", width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("역할", size="2", weight="bold"),
+                        rx.select(
+                            ["admin", "vendor_admin", "driver", "school",
+                             "meal_manager", "edu_office"],
+                            value=AdminState.acct_edit_role,
+                            on_change=AdminState.set_acct_edit_role,
+                            width="100%",
+                        ),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("업체명", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_edit_vendor,
+                                 on_change=AdminState.set_acct_edit_vendor,
+                                 placeholder="업체명", width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("학교명", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_edit_schools,
+                                 on_change=AdminState.set_acct_edit_schools,
+                                 placeholder="학교명", width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("교육청", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_edit_edu,
+                                 on_change=AdminState.set_acct_edit_edu,
+                                 placeholder="교육청명", width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.vstack(
+                        rx.text("새 비밀번호 (변경 시만 입력)", size="2", weight="bold"),
+                        rx.input(value=AdminState.acct_edit_new_pw,
+                                 on_change=AdminState.set_acct_edit_new_pw,
+                                 type="password",
+                                 placeholder="최소 8자, 대문자+숫자+특수문자",
+                                 width="100%"),
+                        spacing="1", width="100%",
+                    ),
+                    rx.hstack(
+                        rx.dialog.close(
+                            rx.button("취소", variant="outline",
+                                      on_click=AdminState.close_edit_dialog),
+                        ),
+                        rx.button("저장", color_scheme="blue",
+                                  on_click=AdminState.submit_edit_user),
+                        spacing="2", justify="end", width="100%",
+                    ),
+                    spacing="3", width="100%",
+                ),
+                max_width="420px",
+            ),
+            open=AdminState.acct_edit_open,
+        ),
+
+        # ── 계정 삭제 확인 다이얼로그 ──
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.dialog.title("계정 삭제"),
+                rx.vstack(
+                    rx.callout(
+                        "삭제된 계정은 복구할 수 없습니다.",
+                        color="red",
+                        width="100%",
+                    ),
+                    rx.text("삭제 대상: ", AdminState.acct_delete_target,
+                            size="2", weight="bold"),
+                    rx.hstack(
+                        rx.dialog.close(
+                            rx.button("취소", variant="outline",
+                                      on_click=AdminState.close_delete_dialog),
+                        ),
+                        rx.button("완전 삭제", color_scheme="red",
+                                  on_click=AdminState.confirm_delete_user),
+                        spacing="2", justify="end", width="100%",
+                    ),
+                    spacing="3", width="100%",
+                ),
+                max_width="380px",
+            ),
+            open=AdminState.acct_delete_open,
         ),
 
         spacing="4", width="100%",
