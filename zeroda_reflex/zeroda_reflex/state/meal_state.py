@@ -345,6 +345,14 @@ class MealState(AuthState):
     def has_ai_daily_remarks(self) -> bool:
         return bool(self.ai_daily_remarks)
 
+    @rx.var
+    def daily_remarks_list(self) -> list[dict]:
+        """ai_daily_remarks dict → foreach 가능한 list[dict]"""
+        return [
+            {"date": k, "remark": v}
+            for k, v in self.ai_daily_remarks.items()
+        ]
+
     # ══════════════════════════════
     #  수정13: 전체 메뉴 통계
     # ══════════════════════════════
