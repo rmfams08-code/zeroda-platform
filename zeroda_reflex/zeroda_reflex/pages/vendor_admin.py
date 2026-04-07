@@ -1832,10 +1832,22 @@ def _monthly_settle_detail_row(row: dict) -> rx.Component:
         rx.table.cell(rx.text(row["name"], font_size="12px", font_weight="600", color="#1e293b")),
         rx.table.cell(rx.badge(row["cust_type"], size="1", color_scheme="blue", variant="soft")),
         rx.table.cell(rx.badge(row["tax_label"], size="1", color_scheme="gray", variant="outline")),
-        rx.table.cell(rx.text(row["weight"] + " kg", font_size="12px", color="#475569")),
-        rx.table.cell(rx.text(row["supply"] + " 원", font_size="12px", color="#475569")),
-        rx.table.cell(rx.text(row["vat"] + " 원", font_size="12px", color="#64748b")),
-        rx.table.cell(rx.text(row["total"] + " 원", font_size="12px", font_weight="700", color="#0f172a")),
+        rx.table.cell(
+            rx.hstack(rx.text(row["weight"], font_size="12px", color="#475569"),
+                      rx.text("kg", font_size="11px", color="#94a3b8"), spacing="1"),
+        ),
+        rx.table.cell(
+            rx.hstack(rx.text(row["supply"], font_size="12px", color="#475569"),
+                      rx.text("원", font_size="11px", color="#94a3b8"), spacing="1"),
+        ),
+        rx.table.cell(
+            rx.hstack(rx.text(row["vat"], font_size="12px", color="#64748b"),
+                      rx.text("원", font_size="11px", color="#94a3b8"), spacing="1"),
+        ),
+        rx.table.cell(
+            rx.hstack(rx.text(row["total"], font_size="12px", font_weight="700", color="#0f172a"),
+                      rx.text("원", font_size="11px", color="#94a3b8"), spacing="1"),
+        ),
         _hover={"bg": "#f8fafc"},
     )
 
@@ -2980,14 +2992,17 @@ def _driver_compliance_row(row: dict) -> rx.Component:
         rx.hstack(
             rx.text(row["driver"], font_size="13px", font_weight="500",
                     color="#1e293b", flex="1"),
-            rx.text(row["check_days"] + "일", font_size="12px", color="#475569",
-                    flex_shrink="0", width="70px"),
-            rx.text(row["avg_rate"] + "%", font_size="13px", font_weight="700",
-                    color=rx.cond(
-                        row["avg_rate"].to(float) >= 90,
-                        "#38bd94", rx.cond(row["avg_rate"].to(float) >= 70, "#f59e0b", "#ef4444"),
-                    ),
-                    flex_shrink="0", width="80px"),
+            rx.hstack(
+                rx.text(row["check_days"], font_size="12px", color="#475569"),
+                rx.text("일", font_size="11px", color="#94a3b8"),
+                spacing="1", flex_shrink="0", width="70px",
+            ),
+            rx.hstack(
+                rx.text(row["avg_rate"], font_size="13px", font_weight="700",
+                        color="#3b82f6"),
+                rx.text("%", font_size="11px", color="#94a3b8"),
+                spacing="1", flex_shrink="0", width="80px",
+            ),
             rx.text(row["total_fail"], font_size="12px",
                     color=rx.cond(row["total_fail"] == "0", "#94a3b8", "#ef4444"),
                     flex_shrink="0", width="60px"),
@@ -3899,10 +3914,10 @@ def _photo_tab() -> rx.Component:
         ),
         rx.hstack(
             rx.icon("camera", size=14, color="#64748b"),
-            rx.text(
-                "총 " + VendorState.photo_rows.length().to(str) + "장",
-                font_size="13px", color="#64748b",
-            ),
+            rx.text("총", font_size="13px", color="#64748b"),
+            rx.badge(VendorState.photo_rows.length(), size="1",
+                     color_scheme="blue", variant="soft"),
+            rx.text("장", font_size="13px", color="#64748b"),
             spacing="1", align="center",
         ),
         rx.cond(
