@@ -229,3 +229,39 @@ systemctl restart nginx
 | Anthropic | AI 잔반분석 | ANTHROPIC_API_KEY |
 
 > 2026-04-07 webhook 정상화 재검증 완료
+
+---
+
+## 9. 사고 사례 & 교훈
+
+### 사례 5: GitHub 폴더 통째 업로드 사고 + Reflex Var 결합 버그 (2026-04-07)
+
+**사고 경위**
+- 11:47 사용자가 GitHub 웹의 "Upload files" 기능으로 로컬 PC `zeroda_reflex/` 폴더를 통째 드래그 업로드
+- 폴더 구조가 한 단계 어긋나 있었음 → 서버 `/opt/zeroda-platform/zeroda_reflex/` 안에 파일이 두 레벨로 섞임
+- 운영 DB `zeroda.db` (339KB) 가 public 저장소에 commit → 보안 사고
+- `__pycache__/*.pyc` 대량 commit
+- Reflex 서비스 `ModuleNotFoundError: Module zeroda_reflex.zeroda_reflex not found` → 사이트 다운
+
+**진짜 원인 (추가)**
+- `driver.py` 346줄 부근 지도링크에서 `"https://map.kakao.com/..." + address` 형태로 Reflex Var(ObjectItemOperation)와 Python 문자열을 `+` 연산
+- `TypeError` → Reflex 컴파일 실패 → systemd가 **827회 재시작 루프**
+- 사고는 두 건이 겹쳐 있었음: (1) 폴더 업로드 구조 손상 (2) 기존 코드의 Var 결합 버그
+
+**해결 과정**
+1. **1단계** 서버 응급 복구: driver.py의 지도링크 3곳(카카오/T맵/네이버) `address.to(str)`으로 수정, systemd 재시작 → 사이트 200 OK
+2. **보안** `.gitignore` 강화 (`*.db`, `.web`, `.states`, `__pycache__/`, `venv/`, `.env`), `git-filter-repo`로 히스토리에서 `zeroda.db` 완전 제거 (2,202 커밋 재작성), force push
+3. **systemd 튜닝** `Restart=on-failure`, `RestartSec=10`, `StartLimitIntervalSec=300`, `StartLimitBurst=5` → 재시작 루프 재발 방지
+4. **2단계** Streamlit 레거시 분리: `legacy-streamlit` 브랜치 생성 후 main에서 `auth/`, `config/`, `database/`, `deploy_guide/`, `hq_admin/`, `modules/`, `services/`, `vendor_admin/`, `main.py` 등 112파일 30,199줄 삭제
+5. **3단계** 로컬 PC 폴더를 `_OLD_` 로 백업 후 `git clone`으로 정상 git 저장소화
+6. **4단계** P1 5기능(거래처7종/명세서발송/NEIS/급식승인/수거분석) 서버 존재 확인 — 누락 없음
+7. **5단계** webhook 스크립트 `git pull` → `git fetch + reset --hard origin/main` 으로 교체 (force push 내성 확보), 더미 커밋으로 자동 배포 검증
+
+**교훈**
+1. **GitHub 웹 "Upload files" 영구 금지** — 반드시 로컬 `git push` 표준 방식
+2. **로컬 PC는 git clone으로 셋업** — 폴더 복사/드래그 금지
+3. **운영 DB는 `.gitignore` 필수** — 한 번 올라가면 히스토리에서도 지워야 함 (`git-filter-repo` 또는 `bfg`)
+4. **Reflex Var는 `+` 결합 금지** — `rx.Var.create()` 감싸거나 `.to(str)` 형변환, f-string 형태 권장
+5. **systemd 재시작 루프 방지 설정 필수** — `StartLimitBurst` 로 폭주 차단
+6. **webhook은 `fetch + reset --hard`** — `git pull` 은 force push 후 divergence 로 멈춤
+7. **폴더 구조 엄격** — Reflex는 이중 패키지(`zeroda_reflex/zeroda_reflex/`) 구조를 깨면 `ModuleNotFoundError`
