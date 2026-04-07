@@ -683,7 +683,7 @@ def _smart_tab() -> rx.Component:
                     rx.foreach(
                         MealState.anomaly_dates,
                         lambda a: rx.callout(
-                            a["date"] + ": 잔반 " + a["type"] + " (" + a["waste_per_person"] + "g/인, Z=" + a["z_score"] + ")",
+                            rx.text(a["date"], ": 잔반 ", a["type"], " (", a["waste_per_person"], "g/인, Z=", a["z_score"], ")"),
                             icon="triangle_alert",
                             color_scheme=rx.cond(a["type"] == "급증", "red", "blue"),
                             size="1",
@@ -1122,16 +1122,12 @@ def _ai_tab() -> rx.Component:
                 rx.vstack(
                     _header("calendar_days", "AI 일별 특이사항"),
                     rx.foreach(
-                        MealState.analysis_rows,
-                        lambda r: rx.cond(
-                            MealState.ai_daily_remarks.get(r["meal_date"], "") != "",
-                            rx.hstack(
-                                rx.text(r["meal_date"], font_size="12px", font_weight="600",
-                                        color="#374151", min_width="100px"),
-                                rx.text(MealState.ai_daily_remarks.get(r["meal_date"], ""),
-                                        font_size="12px", color="#64748b"),
-                                spacing="2", align="start", width="100%",
-                            ),
+                        MealState.daily_remarks_list,
+                        lambda r: rx.hstack(
+                            rx.text(r["date"], font_size="12px", font_weight="600",
+                                    color="#374151", min_width="100px"),
+                            rx.text(r["remark"], font_size="12px", color="#64748b"),
+                            spacing="2", align="start", width="100%",
                         ),
                     ),
                     spacing="2", width="100%",
