@@ -233,17 +233,19 @@ class DriverState(AuthState):
             driver=self.user_name,
             sel_date=self.schedule_date,
         )
-        # 기존 입력값 보존 (날짜 변경 시 이미 입력한 값 유지)
+        # 기존 입력값 보존 (날짜 변경 시 이미 입력한 행 유지)
         existing = {s.get("school_name", ""): s for s in self.schedule_schools}
         result = []
         for s in schools:
             name = s.get("school_name", "")
             ex = existing.get(name, {})
+            default_rows = [{"date": self.schedule_date, "item_type": "음식물", "weight": "", "memo": ""}]
+            rows = ex.get("rows", default_rows)
+            if not rows:
+                rows = default_rows
             result.append({
                 **s,
-                "weight":    ex.get("weight", ""),
-                "item_type": ex.get("item_type", "음식물"),
-                "memo":      ex.get("memo", ""),
+                "rows":      rows,
                 "save_msg":  ex.get("save_msg", ""),
                 "photo_msg": ex.get("photo_msg", ""),
             })
@@ -634,12 +636,78 @@ class DriverState(AuthState):
             self.schedule_schools = schools
 
     def set_school_memo(self, pair: list):
-        """특정 거래처 메모 변경 [idx, value]"""
+        """특정 거래처 메모 변경 [idx, value] — 레거시 단일행 호환"""
         idx, val = int(pair[0]), str(pair[1])
         schools = list(self.schedule_schools)
         if 0 <= idx < len(schools):
             schools[idx] = {**schools[idx], "memo": val}
             self.schedule_schools = schools
+
+    # ── 거래처 카드 다일자 행 핸들러 ──
+
+    def add_row_for_school(self, idx: int):
+        """거래처 카드에 수거 행 추가 (오늘 날짜 빈 행)"""
+        schools = list(self.schedule_schools)
+        if 0 <= idx < len(schools):
+            rows = list(schools[idx].get("rows", []))
+            rows.append({"date": self.today_str, "item_type": "음식물", "weight": "", "memo": ""})
+            schools[idx] = {**schools[idx], "rows": rows}
+            self.schedule_schools = schools
+
+    def remove_row_for_school(self, pair: list):
+        """거래처 카드 행 삭제 [school_idx, row_idx] — 마지막 행은 삭제 불가"""
+        school_idx, row_idx = int(pair[0]), int(pair[1])
+        schools = list(self.schedule_schools)
+        if 0 <= school_idx < len(schools):
+            rows = list(schools[school_idx].get("rows", []))
+            if len(rows) > 1 and 0 <= row_idx < len(rows):
+                rows.pop(row_idx)
+                schools[school_idx] = {**schools[school_idx], "rows": rows}
+                self.schedule_schools = schools
+
+    def set_school_row_date(self, triple: list):
+        """행 날짜 변경 [school_idx, row_idx, value]"""
+        school_idx, row_idx, val = int(triple[0]), int(triple[1]), str(triple[2])
+        schools = list(self.schedule_schools)
+        if 0 <= school_idx < len(schools):
+            rows = list(schools[school_idx].get("rows", []))
+            if 0 <= row_idx < len(rows):
+                rows[row_idx] = {**rows[row_idx], "date": val}
+                schools[school_idx] = {**schools[school_idx], "rows": rows}
+                self.schedule_schools = schools
+
+    def set_school_row_item_type(self, triple: list):
+        """행 품목 변경 [school_idx, row_idx, value]"""
+        school_idx, row_idx, val = int(triple[0]), int(triple[1]), str(triple[2])
+        schools = list(self.schedule_schools)
+        if 0 <= school_idx < len(schools):
+            rows = list(schools[school_idx].get("rows", []))
+            if 0 <= row_idx < len(rows):
+                rows[row_idx] = {**rows[row_idx], "item_type": val}
+                schools[school_idx] = {**schools[school_idx], "rows": rows}
+                self.schedule_schools = schools
+
+    def set_school_row_weight(self, triple: list):
+        """행 수거량 변경 [school_idx, row_idx, value]"""
+        school_idx, row_idx, val = int(triple[0]), int(triple[1]), str(triple[2])
+        schools = list(self.schedule_schools)
+        if 0 <= school_idx < len(schools):
+            rows = list(schools[school_idx].get("rows", []))
+            if 0 <= row_idx < len(rows):
+                rows[row_idx] = {**rows[row_idx], "weight": val}
+                schools[school_idx] = {**schools[school_idx], "rows": rows}
+                self.schedule_schools = schools
+
+    def set_school_row_memo(self, triple: list):
+        """행 메모 변경 [school_idx, row_idx, value]"""
+        school_idx, row_idx, val = int(triple[0]), int(triple[1]), str(triple[2])
+        schools = list(self.schedule_schools)
+        if 0 <= school_idx < len(schools):
+            rows = list(schools[school_idx].get("rows", []))
+            if 0 <= row_idx < len(rows):
+                rows[row_idx] = {**rows[row_idx], "memo": val}
+                schools[school_idx] = {**schools[school_idx], "rows": rows}
+                self.schedule_schools = schools
 
     def initiate_save_for_school(self, idx: int):
         """카드 수거완료 버튼 — GPS 취득 후 저장 (submitted)"""
@@ -694,7 +762,7 @@ class DriverState(AuthState):
         )
 
     def handle_voice_for_school(self, text: str):
-        """음성인식 결과 → active_save_school의 weight에 채워 넣기"""
+        """음성인식 결과 → active_save_school의 rows 중 첫 번째 빈 weight 행에 채워 넣기"""
         import re
         if not text or text in ("지원안됨", ""):
             self.voice_result = "음성 인식 실패"
@@ -706,7 +774,17 @@ class DriverState(AuthState):
             schools = list(self.schedule_schools)
             for i, s in enumerate(schools):
                 if s.get("school_name") == school:
-                    schools[i] = {**schools[i], "weight": matched_kg}
+                    rows = list(s.get("rows", []))
+                    placed = False
+                    for j, row in enumerate(rows):
+                        if not row.get("weight"):
+                            rows[j] = {**rows[j], "weight": matched_kg}
+                            placed = True
+                            break
+                    if not placed and rows:
+                        # 모든 행에 이미 값이 있으면 마지막 행에 덮어쓰기
+                        rows[-1] = {**rows[-1], "weight": matched_kg}
+                    schools[i] = {**schools[i], "rows": rows}
                     break
             self.schedule_schools = schools
             self.voice_result = f"🎤 {school}: {matched_kg}kg"
@@ -722,7 +800,7 @@ class DriverState(AuthState):
         self._do_save_for_school(coords, "draft")
 
     def _do_save_for_school(self, coords: str, status: str):
-        """거래처별 수거 저장 공통 로직 (schedule_schools 리스트에서 데이터 조회)"""
+        """거래처별 수거 저장 — 카드의 모든 행(rows)을 순회하며 INSERT"""
         school = self.active_save_school
         if not school:
             return
@@ -738,19 +816,6 @@ class DriverState(AuthState):
         if school_data is None:
             return
 
-        weight_str = school_data.get("weight", "")
-        try:
-            w = float(weight_str)
-        except (ValueError, TypeError):
-            self._set_school_save_msg(school_idx, "수거량을 입력하세요.")
-            return
-        if w <= 0:
-            self._set_school_save_msg(school_idx, "수거량은 0보다 커야 합니다.")
-            return
-        if w > 9999:
-            self._set_school_save_msg(school_idx, "수거량이 너무 큽니다. (최대 9,999kg)")
-            return
-
         # GPS 파싱
         lat, lng = None, None
         if coords and coords not in ("0,0", ""):
@@ -761,53 +826,91 @@ class DriverState(AuthState):
             except (ValueError, IndexError):
                 pass
 
-        item_type = school_data.get("item_type", "음식물")
-        memo = school_data.get("memo", "")
-        collect_time = datetime.now().strftime("%H:%M")
-
-        # 토요일 → 금요일 자동 변환 (학교만)
-        collect_date = self.today_str
+        # 토요일→금요일 변환용 거래처 타입 조회 (한 번만)
         try:
-            from datetime import timedelta as _td
             cust_rows = db_get("customer_info", {"vendor": self.user_vendor})
             cust_type_map = {cr.get("name", ""): cr.get("cust_type", cr.get("\uad6c\ubd84", "")) for cr in cust_rows}
-            rd_date = date.fromisoformat(collect_date)
-            ct_type = cust_type_map.get(school, "")
-            if rd_date.weekday() == 5 and ct_type in ("학교", "school", ""):
-                rd_date = rd_date - _td(days=1)
-                collect_date = rd_date.strftime("%Y-%m-%d")
         except Exception:
-            pass
-
-        ok = save_collection(
-            vendor=self.user_vendor,
-            driver=self.user_name,
-            school_name=school,
-            collect_date=collect_date,
-            item_type=item_type,
-            weight=w,
-            status=status,
-            unit_price=0,
-            memo=memo,
-            collect_time=collect_time,
-            lat=lat,
-            lng=lng,
-        )
+            cust_type_map = {}
 
         label = "임시저장" if status == "draft" else "전송 완료"
-        if ok:
-            self._set_school_save_msg(school_idx, f"✅ {w}kg {label}", clear_weight=True)
+        collect_time = datetime.now().strftime("%H:%M")
+
+        rows = school_data.get("rows", [])
+        if not rows:
+            self._set_school_save_msg(school_idx, "입력된 행이 없습니다.")
+            return
+
+        saved = 0
+        skipped = 0
+        sat_converted = False
+
+        for row in rows:
+            weight_str = row.get("weight", "")
+            try:
+                w = float(weight_str)
+            except (ValueError, TypeError):
+                skipped += 1
+                continue
+            if w <= 0 or w > 9999:
+                skipped += 1
+                continue
+
+            collect_date = str(row.get("date", self.today_str)) or self.today_str
+            item_type = str(row.get("item_type", "음식물"))
+            memo = str(row.get("memo", ""))
+
+            # 토요일 → 금요일 자동 변환 (학교만)
+            try:
+                from datetime import timedelta as _td
+                rd_date = date.fromisoformat(collect_date)
+                ct_type = cust_type_map.get(school, "")
+                if rd_date.weekday() == 5 and ct_type in ("학교", "school", ""):
+                    rd_date = rd_date - _td(days=1)
+                    collect_date = rd_date.strftime("%Y-%m-%d")
+                    sat_converted = True
+            except Exception:
+                pass
+
+            ok = save_collection(
+                vendor=self.user_vendor,
+                driver=self.user_name,
+                school_name=school,
+                collect_date=collect_date,
+                item_type=item_type,
+                weight=w,
+                status=status,
+                unit_price=0,
+                memo=memo,
+                collect_time=collect_time,
+                lat=lat,
+                lng=lng,
+            )
+            if ok:
+                saved += 1
+
+        if saved > 0:
+            msg = f"✅ {saved}건 {label}"
+            if skipped > 0:
+                msg += f" ({skipped}행 건너뜀)"
+            if sat_converted:
+                msg += " (토→금 변환)"
+            clear = (status == "submitted")
+            self._set_school_save_msg(school_idx, msg, clear_rows=clear)
             self._load_today_collections()
+        elif skipped > 0:
+            self._set_school_save_msg(school_idx, "수거량을 입력하세요.")
         else:
             self._set_school_save_msg(school_idx, "저장 실패")
 
-    def _set_school_save_msg(self, idx: int, msg: str, clear_weight: bool = False):
+    def _set_school_save_msg(self, idx: int, msg: str, clear_weight: bool = False, clear_rows: bool = False):
         """schedule_schools[idx]의 save_msg 업데이트 헬퍼"""
         if 0 <= idx < len(self.schedule_schools):
             schools = list(self.schedule_schools)
             update = {"save_msg": msg}
-            if clear_weight:
-                update["weight"] = ""
+            if clear_weight or clear_rows:
+                # 전송 완료 후 행 초기화 (오늘 날짜 빈 행 1개)
+                update["rows"] = [{"date": self.today_str, "item_type": "음식물", "weight": "", "memo": ""}]
             schools[idx] = {**schools[idx], **update}
             self.schedule_schools = schools
 

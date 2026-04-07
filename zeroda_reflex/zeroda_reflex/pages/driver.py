@@ -365,10 +365,66 @@ def _safety_section() -> rx.Component:
     )       # ← 외부 rx.cond(safety_panel_collapsed, ...) 닫기
 
 
+def _row_input(school_idx, row_idx, row) -> rx.Component:
+    """수거 입력 행 — 날짜/품목/kg/메모/삭제
+    school_idx: 외부 foreach Var (거래처 인덱스)
+    row_idx: 내부 foreach Var (행 인덱스)
+    row: 행 dict {"date", "item_type", "weight", "memo"}
+    """
+    return rx.hstack(
+        rx.input(
+            value=row["date"],
+            on_change=lambda v: DriverState.set_school_row_date([school_idx, row_idx, v]),
+            type="date",
+            size="1",
+            width="128px",
+            flex_shrink="0",
+        ),
+        rx.select(
+            ["음식물", "재활용", "일반"],
+            value=row["item_type"],
+            on_change=lambda v: DriverState.set_school_row_item_type([school_idx, row_idx, v]),
+            size="1",
+            width="82px",
+            flex_shrink="0",
+        ),
+        rx.input(
+            placeholder="kg",
+            value=row["weight"],
+            on_change=lambda v: DriverState.set_school_row_weight([school_idx, row_idx, v]),
+            type="number",
+            input_mode="decimal",
+            size="1",
+            width="68px",
+            flex_shrink="0",
+        ),
+        rx.input(
+            placeholder="메모",
+            value=row["memo"],
+            on_change=lambda v: DriverState.set_school_row_memo([school_idx, row_idx, v]),
+            size="1",
+            flex="1",
+            min_width="0",
+        ),
+        rx.icon_button(
+            rx.icon("x", size=12),
+            size="1",
+            variant="ghost",
+            color_scheme="red",
+            on_click=DriverState.remove_row_for_school([school_idx, row_idx]),
+            flex_shrink="0",
+        ),
+        width="100%",
+        spacing="1",
+        align="center",
+    )
+
+
 def _schedule_school_card(s: dict, idx) -> rx.Component:
-    """일정 학교 카드 — 수거입력 통합 (완료 시 녹색, 미완료 시 입력폼 표시)
-    idx: foreach 인덱스 (Var) — dict state var 인덱싱 대신 schedule_schools[idx] 업데이트
-    입력값은 s["weight"], s["item_type"], s["memo"], s["save_msg"], s["photo_msg"] 로 직접 접근
+    """일정 학교 카드 — 수거입력 통합 (완료 시 녹색, 미완료 시 다일자 행 입력폼 표시)
+    idx: foreach 인덱스 (Var)
+    s["rows"]: 행 리스트 [{"date","item_type","weight","memo"}]
+    s["save_msg"], s["photo_msg"]: 카드 레벨 메시지
     """
     school_name = s["school_name"]
     items_text = s["items"]
@@ -451,45 +507,40 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
             rx.vstack(
                 rx.divider(color="#e5e7eb", margin_y="4px"),
 
-                # 품목 선택 + 수거량 입력 + 음성버튼
-                # s["weight"], s["item_type"], s["memo"] — foreach 원소 직접 접근 (Var 인덱싱 없음)
+                # ── 컬럼 헤더 ──
                 rx.hstack(
-                    rx.select(
-                        ["음식물", "재활용", "일반"],
-                        value=s["item_type"],
-                        on_change=lambda v: DriverState.set_school_item_type([idx, v]),
-                        size="2",
-                        width="96px",
+                    rx.text("📅 날짜", font_size="11px", color="#9ca3af", width="128px", flex_shrink="0"),
+                    rx.text("품목", font_size="11px", color="#9ca3af", width="82px", flex_shrink="0"),
+                    rx.text("kg", font_size="11px", color="#9ca3af", width="68px", flex_shrink="0"),
+                    rx.text("메모", font_size="11px", color="#9ca3af", flex="1"),
+                    rx.box(width="28px", flex_shrink="0"),
+                    width="100%",
+                    spacing="1",
+                ),
+
+                # ── 행 목록 (다일자 입력) ──
+                rx.foreach(s["rows"], lambda r, ridx: _row_input(idx, ridx, r)),
+
+                # ── + 행 추가 / 음성 ──
+                rx.hstack(
+                    rx.button(
+                        "+ 행 추가",
+                        on_click=DriverState.add_row_for_school(idx),
+                        size="1",
+                        variant="ghost",
+                        color_scheme="blue",
                     ),
-                    rx.input(
-                        placeholder="수거량 (kg)",
-                        value=s["weight"],
-                        on_change=lambda v: DriverState.set_school_weight([idx, v]),
-                        type="number",
-                        input_mode="decimal",
-                        size="2",
-                        flex="1",
-                    ),
+                    rx.spacer(),
                     rx.icon_button(
                         rx.icon("mic", size=14),
                         size="2",
                         variant="outline",
                         color_scheme="purple",
                         on_click=DriverState.initiate_voice_for_school(idx),
-                        title="음성으로 수거량 입력",
+                        title="음성으로 수거량 입력 (첫 번째 빈 행에 적용)",
                     ),
                     width="100%",
-                    spacing="2",
                     align="center",
-                ),
-
-                # 메모 입력 (선택)
-                rx.input(
-                    placeholder="메모 (선택 — 특이사항)",
-                    value=s["memo"],
-                    on_change=lambda v: DriverState.set_school_memo([idx, v]),
-                    size="2",
-                    width="100%",
                 ),
 
                 # 사진 첨부 (토글 패널 — show_photo_for == school_name 비교)
