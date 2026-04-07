@@ -570,6 +570,26 @@ def _collection_section() -> rx.Component:
             width="100%",
         ),
 
+        # ── GPS 자동 거래처 매칭 버튼 ──
+        rx.hstack(
+            rx.button(
+                "📍 현재 위치로 거래처 찾기",
+                size="1",
+                variant="outline",
+                color_scheme="green",
+                on_click=rx.call_script(
+                    "new Promise((resolve) => {"
+                    "  navigator.geolocation.getCurrentPosition("
+                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+                    "    () => resolve('0,0')"
+                    "  );"
+                    "})",
+                    callback=DriverState.auto_match_school_by_gps,
+                ),
+            ),
+            width="100%",
+        ),
+
         # ── 음성입력 ──
         rx.hstack(
             rx.button(
