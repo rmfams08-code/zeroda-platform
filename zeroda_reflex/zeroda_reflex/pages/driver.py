@@ -535,7 +535,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     align="center",
                 ),
 
-                # 사진 첨부 (토글 패널 — show_photo_for == school_name 비교)
+                # 사진 첨부 + 위치설정
                 rx.hstack(
                     rx.button(
                         rx.cond(
@@ -547,6 +547,13 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                         size="1",
                         variant="outline",
                         color_scheme="orange",
+                    ),
+                    rx.button(
+                        "📍 위치설정",
+                        on_click=DriverState.initiate_location_for_school(idx),
+                        size="1",
+                        variant="outline",
+                        color_scheme="violet",
                     ),
                     rx.cond(
                         s["photo_msg"] != "",
@@ -930,185 +937,6 @@ def _schedule_section() -> rx.Component:
     )
 
 
-def _collection_section() -> rx.Component:
-    """수동 수거 추가 섹션 — 일정에 없는 거래처 대상 (축소 버전)"""
-    return rx.vstack(
-        rx.hstack(
-            rx.icon("circle_plus", size=18, color="#64748b"),
-            rx.text("수동 수거 추가", font_weight="700", font_size="14px", color="#64748b"),
-            rx.spacer(),
-            rx.text(
-                "일정에 없는 거래처",
-                font_size="11px",
-                color="#94a3b8",
-            ),
-        ),
-        rx.text(
-            "일정에 없는 거래처의 수거량을 직접 입력합니다.",
-            font_size="12px",
-            color="#94a3b8",
-        ),
-
-        # ── 거래처 선택 ──
-        rx.select(
-            DriverState.assigned_schools,
-            value=DriverState.selected_school,
-            on_change=DriverState.set_selected_school,
-            placeholder="거래처를 선택하세요",
-            width="100%",
-            size="2",
-        ),
-
-        # ── GPS 자동 거래처 매칭 ──
-        rx.button(
-            "📍 현재 위치로 거래처 자동 선택",
-            size="1",
-            variant="outline",
-            color_scheme="green",
-            width="100%",
-            on_click=rx.call_script(
-                "new Promise((resolve) => {"
-                "  navigator.geolocation.getCurrentPosition("
-                "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
-                "    () => resolve('0,0')"
-                "  );"
-                "})",
-                callback=DriverState.auto_match_school_by_gps,
-            ),
-        ),
-        rx.cond(
-            DriverState.gps_msg != "",
-            rx.text(DriverState.gps_msg, font_size="11px", color="#64748b"),
-        ),
-
-        # ── 날짜별 다중행 수거입력 ──
-        rx.hstack(
-            rx.text("날짜별 수거량", font_size="13px", font_weight="600", color="#374151"),
-            rx.spacer(),
-            rx.button(
-                "＋ 날짜 추가",
-                on_click=DriverState.add_collection_row,
-                size="1",
-                variant="outline",
-            ),
-            width="100%",
-        ),
-        rx.foreach(
-            DriverState.collection_rows,
-            lambda row, idx: rx.hstack(
-                rx.input(
-                    value=row["date"],
-                    on_change=lambda v: DriverState.set_row_date([idx, v]),
-                    type="date",
-                    size="2",
-                    width="120px",
-                ),
-                rx.select(
-                    ["음식물", "재활용", "일반"],
-                    value=row["item"],
-                    on_change=lambda v: DriverState.set_row_item([idx, v]),
-                    size="2",
-                    width="90px",
-                ),
-                rx.input(
-                    placeholder="kg",
-                    value=row["weight"],
-                    on_change=lambda v: DriverState.set_row_weight([idx, v]),
-                    type="number",
-                    input_mode="decimal",
-                    size="2",
-                    flex="1",
-                ),
-                rx.cond(
-                    idx > 0,
-                    rx.icon_button(
-                        rx.icon("trash_2", size=14),
-                        size="1",
-                        variant="ghost",
-                        color_scheme="red",
-                        on_click=DriverState.remove_collection_row(idx),
-                    ),
-                    rx.box(width="28px"),
-                ),
-                width="100%",
-                spacing="2",
-                align="center",
-            ),
-        ),
-
-        # ── 메모 ──
-        rx.input(
-            placeholder="메모 (선택)",
-            value=DriverState.collection_memo,
-            on_change=DriverState.set_collection_memo,
-            width="100%",
-            size="2",
-        ),
-
-        # ── 저장 버튼 ──
-        rx.hstack(
-            rx.button(
-                "📋 임시저장",
-                on_click=rx.call_script(
-                    "new Promise((resolve) => {"
-                    "  if (!navigator.geolocation) { resolve(''); return; }"
-                    "  navigator.geolocation.getCurrentPosition("
-                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
-                    "    () => resolve(''),"
-                    "    {timeout: 5000, maximumAge: 60000}"
-                    "  );"
-                    "})",
-                    callback=DriverState.save_draft_with_gps,
-                ),
-                flex="1",
-                size="2",
-                variant="outline",
-                color_scheme="gray",
-            ),
-            rx.button(
-                "✅ 수거완료",
-                on_click=rx.call_script(
-                    "new Promise((resolve) => {"
-                    "  if (!navigator.geolocation) { resolve(''); return; }"
-                    "  navigator.geolocation.getCurrentPosition("
-                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
-                    "    () => resolve(''),"
-                    "    {timeout: 5000, maximumAge: 60000}"
-                    "  );"
-                    "})",
-                    callback=DriverState.save_collection_with_gps,
-                ),
-                flex="1",
-                size="2",
-                color_scheme="blue",
-            ),
-            width="100%",
-            spacing="2",
-        ),
-
-        # ── 메시지 ──
-        rx.cond(
-            DriverState.collection_save_msg != "",
-            rx.text(
-                DriverState.collection_save_msg,
-                font_size="12px",
-                color=rx.cond(
-                    DriverState.collection_save_msg.contains("완료"),
-                    "#16a34a",
-                    "#dc2626",
-                ),
-            ),
-        ),
-
-        spacing="2",
-        width="100%",
-        bg="#f8fafc",
-        border="1px dashed #d1d5db",
-        border_radius="12px",
-        padding="14px",
-    )
-
-
 def _processing_section() -> rx.Component:
     """계근표(처리확인) 섹션"""
     return rx.vstack(
@@ -1300,7 +1128,6 @@ def driver_page() -> rx.Component:
             _safety_section(),
             _schedule_section(),
             _voice_confirm_dialog(),
-            _collection_section(),
             _processing_section(),
             _checkout_section(),
 

@@ -10,7 +10,7 @@ from zeroda_reflex.utils.weather_service import fetch_today_weather_alert
 from zeroda_reflex.utils.database import (
     get_daily_safety_checks, save_daily_safety_check,
     save_daily_safety_checks_transaction,
-    get_schools_by_vendor, db_get, db_insert,
+    db_get,
     get_today_collections, get_driver_collections_range, save_collection,
     get_driver_checkout_log, save_driver_checkout,
     delete_collection,
@@ -18,7 +18,6 @@ from zeroda_reflex.utils.database import (
     get_today_processing, save_processing_confirm,
     save_photo_record, get_photo_records_today,
     save_customer_gps,
-    get_customers_with_gps, haversine, get_school_icons,
 )
 import os
 
@@ -276,28 +275,9 @@ class DriverState(AuthState):
     schedule_loading: bool = False
 
     # ── 수거 ──
-    assigned_schools: list[str] = []
-    selected_school: str = ""
-    collection_weight: str = ""
-    collection_item_type: str = "음식물"
     today_collections: list[dict] = []
     recent_collections: list[dict] = []
     record_filter: str = "7days"
-    collection_rows: list[dict] = []   # 다중행: [{"date":"YYYY-MM-DD","item":"음식물","weight":""}]
-    collection_unit_price: str = ""
-    collection_time: str = ""
-    collection_memo: str = ""
-    collection_save_msg: str = ""
-
-    # ── GPS (거래첫 위치 저장용) ──
-    gps_msg: str = ""
-
-    # ── 수거 GPS (수거완료 시 자동 취득) ──
-    collection_lat: float = 0.0
-    collection_lng: float = 0.0
-
-    # ── 거래처 아이콘 맵 ──
-    school_icon_map: dict[str, str] = {}
 
     # ── 음성입력 ──
     voice_active: bool = False
@@ -368,7 +348,6 @@ class DriverState(AuthState):
             return rx.redirect("/")
         self._load_weather()
         self._load_safety_status()
-        self._load_schools()
         self._load_today_collections()
         self._load_recent_collections()
         self._load_today_photos()
@@ -472,13 +451,6 @@ class DriverState(AuthState):
         """일정 중 미수거 학교"""
         done = set(self.collected_schools)
         return [s["school_name"] for s in self.schedule_schools if s["school_name"] not in done]
-
-    def _load_schools(self):
-        """배정된 학교 목록 + 아이콘 맵 로드"""
-        self.assigned_schools = get_schools_by_vendor(self.user_vendor)
-        self.school_icon_map = get_school_icons(self.user_vendor)
-        if self.assigned_schools and not self.selected_school:
-            self.selected_school = self.assigned_schools[0]
 
     def _load_today_collections(self):
         """오늘 수거 기록 로드"""
@@ -584,92 +556,6 @@ class DriverState(AuthState):
         """안전점검 패널 접기/펼치기"""
         self.safety_panel_collapsed = not self.safety_panel_collapsed
 
-    # ── 수거입력 핸들러 ──
-
-    def set_selected_school(self, value: str):
-        """거래처 선택 → 다중행 초기화"""
-        self.selected_school = value
-        self.collection_rows = [
-            {"date": self.today_str, "item": self.collection_item_type, "weight": ""}
-        ]
-
-    def set_collection_weight(self, value: str):
-        """수거량 입력 (단일행 호환)"""
-        self.collection_weight = value
-
-    # ── 다중행 핸들러 ──
-
-    def add_collection_row(self):
-        """행 추가"""
-        from datetime import timedelta
-        existing_dates = {r["date"] for r in self.collection_rows}
-        new_date = self.today_str
-        for d in range(1, 31):
-            candidate = (date.today() - timedelta(days=d)).strftime("%Y-%m-%d")
-            if candidate not in existing_dates:
-                new_date = candidate
-                break
-        self.collection_rows = self.collection_rows + [
-            {"date": new_date, "item": "음식물", "weight": ""}
-        ]
-
-    def remove_collection_row(self, idx: int):
-        """행 삭제"""
-        if len(self.collection_rows) > 1:
-            rows = list(self.collection_rows)
-            rows.pop(idx)
-            self.collection_rows = rows
-
-    def set_row_date(self, idx_val: list):
-        """행 날짜 변경 [idx, value]"""
-        idx, val = int(idx_val[0]), str(idx_val[1])
-        rows = list(self.collection_rows)
-        if 0 <= idx < len(rows):
-            rows[idx] = {**rows[idx], "date": val}
-            self.collection_rows = rows
-
-    def set_row_item(self, idx_val: list):
-        """행 품목 변경 [idx, value]"""
-        idx, val = int(idx_val[0]), str(idx_val[1])
-        rows = list(self.collection_rows)
-        if 0 <= idx < len(rows):
-            rows[idx] = {**rows[idx], "item": val}
-            self.collection_rows = rows
-
-    def set_row_weight(self, idx_val: list):
-        """행 수거량 변경 [idx, value]"""
-        idx, val = int(idx_val[0]), str(idx_val[1])
-        rows = list(self.collection_rows)
-        if 0 <= idx < len(rows):
-            rows[idx] = {**rows[idx], "weight": val}
-            self.collection_rows = rows
-
-    def set_collection_item_type(self, value: str):
-        """품목 선택"""
-        self.collection_item_type = value
-
-    def set_collection_unit_price(self, value: str):
-        """단가 입력"""
-        self.collection_unit_price = value
-
-    def set_collection_time(self, value: str):
-        """수거시간 입력"""
-        self.collection_time = value
-
-    def set_collection_memo(self, value: str):
-        """메모 입력"""
-        self.collection_memo = value
-
-    @rx.var
-    def estimated_amount(self) -> str:
-        """예상금액 자동계산"""
-        try:
-            w = float(self.collection_weight)
-            p = float(self.collection_unit_price)
-            return f"{int(w * p):,}원"
-        except (ValueError, TypeError):
-            return "-"
-
     @rx.var
     def today_total_weight(self) -> float:
         """오늘 총 수거량"""
@@ -701,147 +587,6 @@ class DriverState(AuthState):
             "month": "이번 달",
         }
         return labels.get(self.record_filter, "최근 7일")
-
-    def _validate_collection(self) -> float:
-        """수거 입력 공통 검증. 유효하면 weight 반환, 실패 시 -1"""
-        if not self.selected_school:
-            self.collection_save_msg = "거래처를 선택하세요."
-            return -1
-        try:
-            w = float(self.collection_weight)
-        except (ValueError, TypeError):
-            self.collection_save_msg = "수거량을 올바르게 입력하세요."
-            return -1
-        if w <= 0:
-            self.collection_save_msg = "수거량은 0보다 커야 합니다."
-            return -1
-        if w > 9999:
-            self.collection_save_msg = "수거량이 너무 큽니다. (최대 9,999kg)"
-            return -1
-        return w
-
-    def _do_save_collection(self, status: str):
-        """수거 데이터 저장 (draft / submitted) — 다중행 지원"""
-        self.collection_save_msg = ""
-        if not self.selected_school:
-            self.collection_save_msg = "거래처를 선택하세요."
-            return
-        # 단가 파싱
-        try:
-            up = float(self.collection_unit_price) if self.collection_unit_price else 0
-        except (ValueError, TypeError):
-            up = 0
-        ct = self.collection_time if self.collection_time else datetime.now().strftime("%H:%M")
-        label = "임시저장" if status == "draft" else "본사전송"
-
-        # 다중행이 있으면 다중행 저장, 없으면 단일행
-        rows_to_save = self.collection_rows if self.collection_rows else []
-        if not rows_to_save:
-            # 단일행 폴백
-            w = self._validate_collection()
-            if w < 0:
-                return
-            rows_to_save = [{"date": self.today_str, "item": self.collection_item_type, "weight": str(w)}]
-
-        # ── 학교 타입 확인 (토요일→금요일 변환용) ──
-        cust_rows = db_get("customer_info", {"vendor": self.user_vendor})
-        cust_type_map = {}
-        for cr in cust_rows:
-            cust_type_map[cr.get("name", "")] = cr.get("cust_type", cr.get("\uad6c\ubd84", ""))
-
-        sat_converted = False
-        saved = 0
-        for row in rows_to_save:
-            try:
-                w = float(row.get("weight", 0))
-            except (ValueError, TypeError):
-                continue
-            if w <= 0:
-                continue
-            rd = str(row.get("date", self.today_str))
-            ri = str(row.get("item", "음식물"))
-
-            # ── 토요일→금요일 자동 변환 (학교만) ──
-            try:
-                from datetime import timedelta as _td
-                rd_date = date.fromisoformat(rd)
-                ct = cust_type_map.get(self.selected_school, "")
-                if rd_date.weekday() == 5 and ct in ("학교", "school", ""):
-                    rd_date = rd_date - _td(days=1)
-                    rd = rd_date.strftime("%Y-%m-%d")
-                    sat_converted = True
-            except Exception:
-                pass
-            ok = save_collection(
-                vendor=self.user_vendor,
-                driver=self.user_name,
-                school_name=self.selected_school,
-                collect_date=rd,
-                item_type=ri,
-                weight=w,
-                status=status,
-                unit_price=up,
-                memo=self.collection_memo,
-                collect_time=ct,
-                lat=self.collection_lat if self.collection_lat != 0.0 else None,
-                lng=self.collection_lng if self.collection_lng != 0.0 else None,
-            )
-            if ok:
-                saved += 1
-
-        if saved > 0:
-            msg = f"✅ {self.selected_school} {saved}건 {label} 완료"
-            if sat_converted:
-                msg += " (토요일→금요일 자동변환)"
-            self.collection_save_msg = msg
-            self.collection_weight = ""
-            self.collection_unit_price = ""
-            self.collection_memo = ""
-            self.collection_rows = [
-                {"date": self.today_str, "item": self.collection_item_type, "weight": ""}
-            ]
-            self._load_today_collections()
-            self._load_recent_collections()
-        else:
-            self.collection_save_msg = "저장 중 오류가 발생했습니다."
-
-    def save_collection_entry(self):
-        """수거완료·본사전송 (submitted) — GPS 없이 직접 저장"""
-        self.collection_lat = 0.0
-        self.collection_lng = 0.0
-        self._do_save_collection("submitted")
-
-    def save_collection_draft(self):
-        """임시저장 (draft) — GPS 없이 직접 저장"""
-        self.collection_lat = 0.0
-        self.collection_lng = 0.0
-        self._do_save_collection("draft")
-
-    def save_collection_with_gps(self, coords: str):
-        """GPS 좌표를 받아 수거완료·본사전송 (JS call_script 콜백)"""
-        self.collection_lat = 0.0
-        self.collection_lng = 0.0
-        if coords and coords not in ("0,0", ""):
-            try:
-                parts = coords.split(",")
-                self.collection_lat = float(parts[0])
-                self.collection_lng = float(parts[1])
-            except (ValueError, IndexError):
-                pass
-        self._do_save_collection("submitted")
-
-    def save_draft_with_gps(self, coords: str):
-        """GPS 좌표를 받아 임시저장 (JS call_script 콜백)"""
-        self.collection_lat = 0.0
-        self.collection_lng = 0.0
-        if coords and coords not in ("0,0", ""):
-            try:
-                parts = coords.split(",")
-                self.collection_lat = float(parts[0])
-                self.collection_lng = float(parts[1])
-            except (ValueError, IndexError):
-                pass
-        self._do_save_collection("draft")
 
     # ── 거래처별 수거 입력 핸들러 (일정 카드 통합 — idx 기반) ──
 
@@ -1206,119 +951,69 @@ class DriverState(AuthState):
         return list({c.get("school_name", "") for c in self.today_collections})
 
     @rx.var
-    def remaining_schools(self) -> list[str]:
-        """아직 수거하지 않은 거래처 목록"""
-        done = set(self.collected_schools)
-        return [s for s in self.assigned_schools if s not in done]
-
-    @rx.var
-    def collection_progress_text(self) -> str:
-        """수거 진행률 텍스트 (예: 3/5 거래처 완료)"""
-        done = len(self.collected_schools)
-        total = len(self.assigned_schools)
-        return f"{done}/{total} 거래처 완료"
-
-    @rx.var
     def collection_progress_pct(self) -> int:
-        """수거 진행률 (0~100)"""
-        total = len(self.assigned_schools)
+        """수거 진행률 (0~100) — 오늘 일정 기준"""
+        total = len(self.schedule_schools)
         if total == 0:
             return 0
         done = len(self.collected_schools)
         return int(done * 100 / total)
 
-    @rx.var
-    def selected_school_icon(self) -> str:
-        """선택된 거래처의 아이콘 (cust_type 기반, 기본값 🏫)"""
-        return self.school_icon_map.get(self.selected_school, "🏫")
-
-    @rx.var
-    def all_collected(self) -> bool:
-        """모든 거래처 수거 완료 여부"""
-        return (
-            len(self.assigned_schools) > 0
-            and len(self.remaining_schools) == 0
-        )
-
     # ── 수거기록 삭제 ──
 
     def delete_collection_entry(self, rowid: int):
         """수거 기록 삭제"""
-        self.collection_save_msg = ""
         ok = delete_collection(rowid)
         if ok:
-            self.collection_save_msg = "삭제 완료"
             self._load_today_collections()
             self._load_recent_collections()
+            yield rx.toast.success("삭제 완료")
         else:
-            self.collection_save_msg = "삭제 실패"
+            yield rx.toast.error("삭제 실패")
 
-    # ── GPS 핸들러 ──
+    # ── 거래처 위치설정 핸들러 ──
 
-    def save_gps_location(self, coords: str):
-        """GPS 좌표 저장 (JS에서 'lat,lng' 문자열로 전달)"""
-        self.gps_msg = ""
-        if not self.selected_school:
-            self.gps_msg = "거래처를 선택하세요."
+    def initiate_location_for_school(self, idx: int):
+        """카드 위치설정 버튼 — GPS 취득 후 customer_info에 저장"""
+        if 0 <= idx < len(self.schedule_schools):
+            self.active_save_school = self.schedule_schools[idx].get("school_name", "")
+        yield rx.call_script(
+            "new Promise((resolve) => {"
+            "  if (!navigator.geolocation) { resolve(''); return; }"
+            "  navigator.geolocation.getCurrentPosition("
+            "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+            "    () => resolve(''),"
+            "    {timeout: 8000, maximumAge: 0}"
+            "  );"
+            "})",
+            callback=DriverState.save_location_for_school_with_gps,
+        )
+
+    def save_location_for_school_with_gps(self, coords: str):
+        """GPS 콜백 — active_save_school 위치를 customer_info에 저장"""
+        school = self.active_save_school
+        if not school:
+            yield rx.toast.error("거래처 정보가 없습니다.")
+            return
+        if not coords or coords in ("0,0", ""):
+            yield rx.toast.error("위치 권한을 허용해주세요.")
             return
         try:
             parts = coords.split(",")
             lat = float(parts[0])
             lng = float(parts[1])
         except (ValueError, IndexError):
-            self.gps_msg = "위치 정보를 가져올 수 없습니다."
+            yield rx.toast.error("위치 정보를 가져올 수 없습니다.")
             return
         ok = save_customer_gps(
             vendor=self.user_vendor,
-            name=self.selected_school,
+            name=school,
             lat=lat, lng=lng,
         )
         if ok:
-            self.gps_msg = f"📍 위치 저장: {self.selected_school} ({lat:.5f}, {lng:.5f})"
+            yield rx.toast.success(f"📍 위치 저장: {school} ({lat:.5f}, {lng:.5f})")
         else:
-            self.gps_msg = "위치 저장 실패"
-
-    def auto_match_school_by_gps(self, coords: str):
-        """GPS 기반 거래처 자동 선택 — 200m 이내 가장 가까운 거래처 선택"""
-        self.gps_msg = ""
-        try:
-            parts = coords.split(",")
-            cur_lat = float(parts[0])
-            cur_lng = float(parts[1])
-        except (ValueError, IndexError):
-            self.gps_msg = "위치 정보를 가져올 수 없습니다."
-            return
-
-        if cur_lat == 0 and cur_lng == 0:
-            self.gps_msg = "위치 권한을 허용해주세요."
-            return
-
-        candidates = get_customers_with_gps(self.user_vendor)
-        if not candidates:
-            self.gps_msg = "GPS 좌표가 등록된 거래처가 없습니다."
-            return
-
-        best_dist = float("inf")
-        best_name = ""
-        for c in candidates:
-            dist = haversine(cur_lat, cur_lng, c["lat"], c["lng"])
-            if dist < best_dist:
-                best_dist = dist
-                best_name = c["name"]
-
-        if best_dist <= 200:
-            self.selected_school = best_name
-            self.collection_rows = [
-                {
-                    "date": self.today_str,
-                    "item": self.collection_item_type,
-                    "weight": "",
-                }
-            ]
-            self.gps_msg = f"📍 자동 선택: {best_name} ({int(best_dist)}m)"
-        else:
-            near_info = f"{best_name} {int(best_dist)}m" if best_name else "-"
-            self.gps_msg = f"근처 거래처 없음 (최근: {near_info})"
+            yield rx.toast.error(f"{school} 위치 저장 실패")
 
     # ── 스쿨존 핸들러 ──
 
