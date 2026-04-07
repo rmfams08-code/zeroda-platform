@@ -332,6 +332,11 @@ class VendorState(AuthState):
         return len(self.vendor_schools)
 
     @rx.var
+    def customer_names(self) -> list:
+        """거래처 이름 목록 — 별칭관리 select용"""
+        return [s.get("name", "") for s in self.customers_list if s.get("name")]
+
+    @rx.var
     def avg_weight_per_school(self) -> float:
         if not self.school_summary:
             return 0.0
