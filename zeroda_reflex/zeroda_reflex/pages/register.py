@@ -122,18 +122,20 @@ def register_page() -> rx.Component:
                     AuthState.reg_error != "",
                     rx.callout(
                         AuthState.reg_error,
-                        color="red",
+                        color_scheme="red",
                         width="100%",
                     ),
+                    rx.fragment(),
                 ),
                 # 성공 메시지
                 rx.cond(
                     AuthState.reg_success != "",
                     rx.callout(
                         AuthState.reg_success,
-                        color="green",
+                        color_scheme="green",
                         width="100%",
                     ),
+                    rx.fragment(),
                 ),
                 # 가입 버튼
                 rx.button(

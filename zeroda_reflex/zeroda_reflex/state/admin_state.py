@@ -772,6 +772,8 @@ class AdminState(AuthState):
         elif tab == "현장사진":
             self.load_photos()
         elif tab == "계정관리":
+            self.acct_msg = ""
+            self.acct_ok = False
             self.load_users()
 
     def set_selected_year(self, y: str):
@@ -844,7 +846,7 @@ class AdminState(AuthState):
 
     def load_users(self):
         self.all_users = get_all_users()
-        self.acct_msg = ""
+        # acct_msg는 여기서 초기화하지 않음 — approve/reject/toggle에서 설정 후 유지
 
     def set_acct_filter_role(self, v: str):
         self.acct_filter_role = v
@@ -855,40 +857,40 @@ class AdminState(AuthState):
     def approve_user(self, user_id: str):
         """사용자 승인"""
         ok = update_user_approval(user_id, "approved")
+        self.all_users = get_all_users()   # load_users 대신 직접 갱신 (메시지 보존)
         if ok:
             self.acct_msg = f"{user_id} 승인 완료"
             self.acct_ok = True
         else:
             self.acct_msg = "승인 처리 실패"
             self.acct_ok = False
-        self.load_users()
 
     def reject_user(self, user_id: str):
         """사용자 반려"""
         ok = update_user_approval(user_id, "rejected")
+        self.all_users = get_all_users()
         if ok:
             self.acct_msg = f"{user_id} 반려 완료"
             self.acct_ok = True
         else:
             self.acct_msg = "반려 처리 실패"
             self.acct_ok = False
-        self.load_users()
 
     def toggle_user_active(self, user_id: str):
         """사용자 활성/비활성 전환"""
         user = next((u for u in self.all_users if u.get("user_id") == user_id), None)
         if not user:
             return
-        current = str(user.get("is_active", "1"))
-        new_val = 0 if current == "1" else 1
+        current = int(user.get("is_active", 1) or 1)
+        new_val = 0 if current == 1 else 1
         ok = update_user_active(user_id, new_val)
+        self.all_users = get_all_users()
         if ok:
             self.acct_msg = f"{user_id} {'활성화' if new_val else '비활성화'} 완료"
             self.acct_ok = True
         else:
             self.acct_msg = "처리 실패"
             self.acct_ok = False
-        self.load_users()
 
     def reset_password(self, user_id: str):
         """비밀번호 초기화 — 랜덤 8자리 임시비번 생성 (Phase 1-2 보안 강화)"""

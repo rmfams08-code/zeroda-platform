@@ -67,6 +67,15 @@ class AuthState(rx.State):
     def set_reg_edu_office(self, v: str): self.reg_edu_office = v
 
     def submit_register(self):
+        try:
+            self._do_register()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"[submit_register] 예외: {e}", exc_info=True)
+            self.reg_error = f"가입 처리 중 오류가 발생했습니다: {e}"
+            self.reg_loading = False
+
+    def _do_register(self):
         from zeroda_reflex.utils.database import create_user, validate_password
         self.reg_loading = True
         self.reg_error = ""
@@ -157,13 +166,13 @@ class AuthState(rx.State):
             self.login_loading = False
             return
 
-        # 로그인 성공
-        self.user_id = user.get("user_id", "")
-        self.user_name = user.get("name", "")
-        self.user_role = user.get("role", "")
-        self.user_vendor = user.get("vendor", "")
-        self.user_schools = user.get("schools", "")
-        self.user_edu_office = user.get("edu_office", "")
+        # 로그인 성공 — DB NULL 값을 빈 문자열로 안전 변환 (None → "" 방지)
+        self.user_id = user.get("user_id") or ""
+        self.user_name = user.get("name") or ""
+        self.user_role = user.get("role") or ""
+        self.user_vendor = user.get("vendor") or ""
+        self.user_schools = user.get("schools") or ""
+        self.user_edu_office = user.get("edu_office") or ""
         self.is_authenticated = True
         self.login_loading = False
         self.login_error = ""
