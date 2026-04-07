@@ -1077,7 +1077,7 @@ def get_driver_schedule_schools(
 
         # ── 거래처 정보 조회 (주소 + 유형) ──
         addr_rows = conn.execute(
-            "SELECT name, address, cust_type FROM customer_info WHERE vendor=?",
+            "SELECT name, addr, cust_type FROM customer_info WHERE vendor=?",
             (vendor,),
         ).fetchall()
         addr_map = {}
@@ -1085,7 +1085,7 @@ def get_driver_schedule_schools(
         for ar in addr_rows:
             ard = dict(ar)
             nm = ard.get("name", "")
-            addr_map[nm] = str(ard.get("address", ard.get("\uc8fc\uc18c", "")) or "")
+            addr_map[nm] = str(ard.get("addr", ard.get("address", ard.get("\uc8fc\uc18c", ""))) or "")
             ct = str(ard.get("cust_type", ard.get("\uad6c\ubd84", "")) or "")
             type_map[nm] = ct
 
