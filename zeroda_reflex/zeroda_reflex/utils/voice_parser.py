@@ -187,6 +187,12 @@ def jamo_decompose(text: str) -> str:
     return "".join(result)
 
 
+# ── 접미사 목록 (짧은 이름 매칭 시 핵심부 비교에 사용) ──
+_MATCH_SUFFIXES: tuple = (
+    "고등학교", "초등학교", "중학교", "식당", "고", "초", "중",
+)
+
+
 def match_school_by_jamo(
     spoken: str,
     candidates: list,
@@ -194,9 +200,16 @@ def match_school_by_jamo(
 ) -> tuple:
     """발화된 거래처명과 후보 목록을 자모+원문 유사도로 매칭.
 
+    개선 사항 (정가네식당 등 STT 변형 대응):
+    1) 공백 정규화: 발화·후보 모두 공백 제거 후 비교
+    2) 포함 보너스: 한쪽이 다른 쪽에 완전 포함되면 +0.15
+    3) 짧은 이름 임계값: 후보가 5자 이하이면 min_score → 0.42
+    4) 핵심어 매칭: 접미사(식당/고등학교 등) 제거 후 코어 유사도 산출,
+       원 점수보다 높으면 0.95 배율로 반영
+
     - 자모 유사도: jamo_decompose 후 SequenceMatcher
     - 원문 유사도: 직접 SequenceMatcher
-    - 두 값 중 max 가 min_score 이상이면 매칭 성공
+    - 두 값 중 max 가 effective_threshold 이상이면 매칭 성공
 
     반환: (matched_name: str, score: float)
     매칭 실패 시: ("", 0.0)
@@ -204,21 +217,58 @@ def match_school_by_jamo(
     if not spoken or not candidates:
         return ("", 0.0)
 
-    spoken_jamo = jamo_decompose(spoken)
-    best_name   = ""
-    best_score  = 0.0
+    # 1) 공백 정규화
+    spoken_stripped = spoken.replace(" ", "")
+    spoken_jamo     = jamo_decompose(spoken_stripped)
+
+    best_name  = ""
+    best_score = 0.0
 
     for cand in candidates:
         if not cand:
             continue
-        cand_jamo  = jamo_decompose(str(cand))
-        jamo_score = SequenceMatcher(None, spoken_jamo, cand_jamo).ratio()
-        raw_score  = SequenceMatcher(None, spoken,      str(cand) ).ratio()
+        cand_str     = str(cand)
+        cand_stripped = cand_str.replace(" ", "")
+        cand_jamo    = jamo_decompose(cand_stripped)
+
+        jamo_score = SequenceMatcher(None, spoken_jamo,     cand_jamo    ).ratio()
+        raw_score  = SequenceMatcher(None, spoken_stripped, cand_stripped).ratio()
         score      = max(jamo_score, raw_score)
+
+        # 2) 포함 보너스
+        if cand_stripped in spoken_stripped or spoken_stripped in cand_stripped:
+            score = min(1.0, score + 0.15)
+
+        # 4) 핵심어(접미사 제거) 매칭 보너스
+        spoken_core = spoken_stripped
+        cand_core   = cand_stripped
+        for sfx in _MATCH_SUFFIXES:
+            if spoken_core.endswith(sfx):
+                spoken_core = spoken_core[: -len(sfx)]
+                break
+        for sfx in _MATCH_SUFFIXES:
+            if cand_core.endswith(sfx):
+                cand_core = cand_core[: -len(sfx)]
+                break
+        # 접미사가 실제로 제거된 경우에만 보너스 적용
+        if spoken_core and cand_core and spoken_core != spoken_stripped:
+            core_jamo = SequenceMatcher(
+                None, jamo_decompose(spoken_core), jamo_decompose(cand_core)
+            ).ratio()
+            core_raw  = SequenceMatcher(None, spoken_core, cand_core).ratio()
+            core_score = max(core_jamo, core_raw) * 0.95  # 약간 패널티
+            if core_score > score:
+                score = core_score
+
         if score > best_score:
             best_score = score
-            best_name  = str(cand)
+            best_name  = cand_str
 
-    if best_score >= min_score:
+    # 3) 짧은 이름(5자 이하) 임계값 완화
+    effective_threshold = min_score
+    if best_name and len(best_name.replace(" ", "")) <= 5:
+        effective_threshold = min(min_score, 0.42)
+
+    if best_score >= effective_threshold:
         return (best_name, best_score)
     return ("", 0.0)
