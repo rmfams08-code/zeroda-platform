@@ -1231,8 +1231,7 @@ def _cust_alias_panel() -> rx.Component:
         rx.hstack(
             rx.text("거래처 선택", font_size="13px", font_weight="600", color="#374151"),
             rx.select(
-                [s.get("name", "") for s in VendorState.customers_list
-                 if s.get("name")],
+                VendorState.customer_names,
                 value=VendorState.alias_customer_sel,
                 on_change=VendorState.set_alias_customer,
                 placeholder="거래처를 선택하세요",
