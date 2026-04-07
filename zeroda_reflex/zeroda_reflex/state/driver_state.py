@@ -22,6 +22,183 @@ from zeroda_reflex.utils.database import (
 )
 import os
 
+# ── 한글 숫자 변환 사전 ──
+KOREAN_NUMS = {
+    "영": 0, "일": 1, "이": 2, "삼": 3, "사": 4,
+    "오": 5, "육": 6, "칠": 7, "팔": 8, "구": 9,
+    "십": 10, "백": 100, "천": 1000,
+}
+
+
+def _korean_to_int(text: str):
+    """한글 숫자 문자열 → 정수 변환. 실패 시 None.
+    예: '이백사' → 204, '백오십' → 150, '삼백' → 300
+    """
+    result = 0
+    current = 0
+    for ch in text:
+        if ch not in KOREAN_NUMS:
+            return None
+        n = KOREAN_NUMS[ch]
+        if n >= 10:   # 십/백/천 단위
+            if current == 0:
+                current = 1
+            result += current * n
+            current = 0
+        else:
+            current = n
+    result += current
+    return result if result > 0 else None
+
+
+def _normalize_school(name: str) -> str:
+    """약칭 → 정식명 정규화: 초/중/고 접미사 처리.
+    '서초고' → '서초고등학교', '서초중' → '서초중학교', '서초초' → '서초초등학교'
+    """
+    import re
+    name = re.sub(r"초(?!등)", "초등학교", name)
+    name = re.sub(r"중(?!학)", "중학교", name)
+    name = re.sub(r"고(?!등)", "고등학교", name)
+    return name
+
+
+def _parse_voice_entries(text: str, today, schedule_schools: list) -> tuple:
+    """발화 텍스트 파싱 → (entries, failed_chunks).
+
+    entries: [{"date": "YYYY-MM-DD", "school": str, "weight": str}, ...]
+    failed_chunks: 파싱 실패 청크 목록
+
+    예: '6일 서초고 204, 17일 서초고 200'
+     → [{"date":"2026-04-06","school":"서초고등학교","weight":"204"},
+        {"date":"2026-04-17","school":"서초고등학교","weight":"200"}]
+    """
+    import re
+    import difflib
+    from datetime import timedelta
+
+    school_names = [s.get("school_name", "") for s in schedule_schools]
+
+    # 청크 분리: 쉼표/마침표/한국어 접속사
+    chunks = re.split(r"[,，、.。]|그리고|그다음|그 다음|그담|그 담|또한|그리고서", text)
+
+    entries = []
+    failed = []
+
+    for raw in chunks:
+        chunk = raw.strip()
+        if not chunk:
+            continue
+
+        remaining = chunk
+        d = None
+
+        # ── 1. 날짜 추출 ──
+        for kw, delta in [("오늘", 0), ("어제", -1), ("내일", 1), ("모레", 2), ("그제", -2)]:
+            if kw in remaining:
+                d = today + timedelta(days=delta)
+                remaining = remaining.replace(kw, "", 1).strip()
+                break
+
+        if d is None:
+            # "N월 N일"
+            m = re.search(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", remaining)
+            if m:
+                try:
+                    from datetime import date as _date
+                    d = _date(today.year, int(m.group(1)), int(m.group(2)))
+                except ValueError:
+                    pass
+                remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
+
+        if d is None:
+            # "N/N"
+            m = re.search(r"(\d{1,2})/(\d{1,2})", remaining)
+            if m:
+                try:
+                    from datetime import date as _date
+                    d = _date(today.year, int(m.group(1)), int(m.group(2)))
+                except ValueError:
+                    pass
+                remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
+
+        if d is None:
+            # "N일" (현재 월 사용)
+            m = re.search(r"(\d{1,2})\s*일", remaining)
+            if m:
+                try:
+                    from datetime import date as _date
+                    d = _date(today.year, today.month, int(m.group(1)))
+                except ValueError:
+                    pass
+                remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
+
+        if d is None:
+            failed.append(chunk)
+            continue
+
+        # ── 2. 수거량(kg) 추출 ──
+        weight = None
+
+        # 명시적 단위 우선
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(kg|킬로그램|킬로|키로|k)\b", remaining, re.IGNORECASE)
+        if m:
+            weight = m.group(1)
+            remaining = (remaining[:m.start()] + remaining[m.end():]).strip()
+        else:
+            # 단위 없는 아라비아 숫자 (마지막 등장 기준)
+            nums = list(re.finditer(r"\d+(?:\.\d+)?", remaining))
+            if nums:
+                last = nums[-1]
+                weight = last.group(0)
+                remaining = (remaining[:last.start()] + remaining[last.end():]).strip()
+            else:
+                # 한글 숫자 시도 (2자 이상)
+                m_kor = re.search(r"([일이삼사오육칠팔구십백천]{2,})", remaining)
+                if m_kor:
+                    w = _korean_to_int(m_kor.group(1))
+                    if w is not None and w > 0:
+                        weight = str(w)
+                        remaining = (remaining[:m_kor.start()] + remaining[m_kor.end():]).strip()
+
+        if not weight:
+            failed.append(chunk)
+            continue
+
+        # ── 3. 거래처명 매칭 ──
+        name_text = remaining.strip()
+        norm_text = _normalize_school(name_text)
+
+        matched = None
+        best_score = 0.0
+
+        for sn in school_names:
+            norm_sn = _normalize_school(sn)
+            # 직접 포함 (최우선)
+            if (sn in name_text or norm_sn in norm_text
+                    or (name_text and name_text in sn)
+                    or (norm_text and norm_text in norm_sn)):
+                matched = sn
+                best_score = 1.0
+                break
+            # difflib 유사도
+            score = difflib.SequenceMatcher(None, norm_text, norm_sn).ratio()
+            if score > best_score:
+                best_score = score
+                matched = sn
+
+        if not matched or best_score < 0.55:
+            failed.append(chunk)
+            continue
+
+        entries.append({
+            "date": d.strftime("%Y-%m-%d"),
+            "school": matched,
+            "weight": weight,
+        })
+
+    return entries, failed
+
+
 # ── 안전점검 체크리스트 (기존 settings.py에서 가져옴) ──
 SAFETY_CHECKLIST = {
     "1인작업안전": {
@@ -673,10 +850,10 @@ class DriverState(AuthState):
             callback=DriverState.save_collection_for_school_draft_with_gps,
         )
 
-    def initiate_voice_for_school(self, idx: int):
-        """카드 음성입력 버튼 — 음성 인식 후 해당 거래처 weight 채우기"""
-        if 0 <= idx < len(self.schedule_schools):
-            self.active_save_school = self.schedule_schools[idx].get("school_name", "")
+    def start_global_voice(self):
+        """전역 음성 입력 시작 — 날짜+거래처+수거량 동시 인식"""
+        self.voice_active = True
+        self.voice_result = ""
         yield rx.call_script(
             "new Promise((resolve) => {"
             "  try {"
@@ -690,28 +867,98 @@ class DriverState(AuthState):
             "    r.start();"
             "  } catch(e) { resolve('지원안됨'); }"
             "})",
-            callback=DriverState.handle_voice_for_school,
+            callback=DriverState.handle_global_voice_result,
         )
 
-    def handle_voice_for_school(self, text: str):
-        """음성인식 결과 → active_save_school의 weight에 채워 넣기"""
-        import re
+    def handle_global_voice_result(self, text: str):
+        """전역 음성 인식 결과 → 날짜+거래처+수거량 파싱 → 카드 자동 입력 / 직접 DB 저장"""
+        self.voice_active = False
+
         if not text or text in ("지원안됨", ""):
             self.voice_result = "음성 인식 실패"
+            yield rx.toast.warning("음성 인식에 실패했습니다. 다시 시도해 주세요.")
             return
-        nums = re.findall(r"\d+\.?\d*", text)
-        matched_kg = nums[0] if nums else ""
-        school = self.active_save_school
-        if matched_kg and school:
-            schools = list(self.schedule_schools)
-            for i, s in enumerate(schools):
-                if s.get("school_name") == school:
-                    schools[i] = {**schools[i], "weight": matched_kg}
-                    break
-            self.schedule_schools = schools
-            self.voice_result = f"🎤 {school}: {matched_kg}kg"
-        else:
+
+        today = date.today()
+        entries, failed_chunks = _parse_voice_entries(text, today, self.schedule_schools)
+
+        if not entries:
+            hint = ("예: '6일 서초고 204' 또는 '6일 서초고 204, 17일 서초고 200'")
             self.voice_result = f"🎤 인식: {text}"
+            yield rx.toast.warning(f"입력 항목을 찾지 못했습니다. {hint}")
+            return
+
+        applied = []
+        failed_msg = []
+        new_schedules = list(self.schedule_schools)
+
+        for entry in entries:
+            sch = entry["school"]
+            entry_date = entry["date"]
+            entry_weight = entry["weight"]
+
+            # 해당 거래처 카드 찾기
+            card_idx = -1
+            for i, s in enumerate(new_schedules):
+                if s.get("school_name") == sch:
+                    card_idx = i
+                    break
+
+            if card_idx < 0:
+                failed_msg.append(f"{sch}(일정 없음)")
+                continue
+
+            if entry_date == self.schedule_date:
+                # 현재 보이는 날짜 → 카드 weight 업데이트 (사용자가 수거완료 버튼으로 최종 저장)
+                new_schedules[card_idx] = {**new_schedules[card_idx], "weight": entry_weight}
+            else:
+                # 다른 날짜 → 직접 DB 저장
+                try:
+                    w = float(entry_weight)
+                except (ValueError, TypeError):
+                    failed_msg.append(f"{sch} 수거량 오류")
+                    continue
+                if w <= 0:
+                    failed_msg.append(f"{sch} 수거량 오류")
+                    continue
+                card = new_schedules[card_idx]
+                item_type = card.get("item_type", "음식물")
+                ok = save_collection(
+                    vendor=self.user_vendor,
+                    driver=self.user_name,
+                    school_name=sch,
+                    collect_date=entry_date,
+                    item_type=item_type,
+                    weight=w,
+                    status="submitted",
+                    unit_price=0,
+                    memo="",
+                    collect_time=datetime.now().strftime("%H:%M"),
+                    lat=None,
+                    lng=None,
+                )
+                if not ok:
+                    failed_msg.append(f"{sch} 저장 실패")
+                    continue
+
+            disp_date = entry_date[5:]  # "2026-04-06" → "04-06"
+            applied.append(f"{sch} {disp_date} {entry_weight}kg")
+
+        self.schedule_schools = new_schedules
+
+        if applied:
+            self._load_today_collections()
+
+        parts = ["🎤 인식됨: " + ", ".join(applied)] if applied else []
+        if failed_msg:
+            parts.append("실패: " + ", ".join(failed_msg))
+        msg = " / ".join(parts) if parts else f"🎤 인식: {text}"
+        self.voice_result = msg
+
+        if applied:
+            yield rx.toast.success(msg)
+        else:
+            yield rx.toast.warning(msg)
 
     def save_collection_for_school_with_gps(self, coords: str):
         """GPS 콜백 — active_save_school 수거량 submitted로 저장"""
@@ -864,89 +1111,6 @@ class DriverState(AuthState):
             self._load_today_collections()
         else:
             self.collection_save_msg = "삭제 실패"
-
-    # ── 음성입력 핸들러 ──
-
-    def handle_voice_result(self, text: str):
-        """음성인식 결과 처리 — 숫자 추출 + 거래처명 매칭"""
-        import re
-        import difflib
-
-        self.voice_active = False
-        if not text:
-            self.voice_result = "음성을 인식하지 못했습니다."
-            return
-
-        # ── 1. 숫자(kg) 추출 ──
-        nums = re.findall(r"\d+\.?\d*", text)
-        matched_kg = nums[0] if nums else ""
-
-        if matched_kg:
-            if self.collection_rows:
-                rows = list(self.collection_rows)
-                placed = False
-                for i, row in enumerate(rows):
-                    if not row.get("weight"):
-                        rows[i] = {**rows[i], "weight": matched_kg}
-                        self.collection_rows = rows
-                        placed = True
-                        break
-                if not placed:
-                    self.collection_weight = matched_kg
-            else:
-                self.collection_weight = matched_kg
-
-        # ── 2. 거래처명 매칭 (사용자가 이미 선택한 경우 덮지 않음) ──
-        matched_school = ""
-        if not self.selected_school and self.assigned_schools:
-
-            def _norm(s: str) -> str:
-                """약칭 정규화: 초→초등학교, 중→중학교, 고→고등학교"""
-                s = re.sub(r"초(?!등)", "초등학교", s)
-                s = re.sub(r"중(?!학)", "중학교", s)
-                s = re.sub(r"고(?!등)", "고등학교", s)
-                return s
-
-            norm_text = _norm(text)
-            best_score = 0.0
-            best_school = ""
-
-            for school in self.assigned_schools:
-                # 직접 포함 확인 (최우선)
-                if school in text or school in norm_text:
-                    best_school = school
-                    best_score = 1.0
-                    break
-                # difflib 유사도 (threshold 0.6)
-                score = difflib.SequenceMatcher(
-                    None, norm_text, _norm(school)
-                ).ratio()
-                if score > best_score:
-                    best_score = score
-                    best_school = school
-
-            if best_school and best_score >= 0.6:
-                matched_school = best_school
-                self.selected_school = best_school
-                # 거래처 변경 → 다중행 초기화 (weight는 방금 추출한 값 유지)
-                self.collection_rows = [
-                    {
-                        "date": self.today_str,
-                        "item": self.collection_item_type,
-                        "weight": matched_kg,
-                    }
-                ]
-
-        # ── 결과 토스트 ──
-        parts = []
-        if matched_school:
-            parts.append(matched_school)
-        if matched_kg:
-            parts.append(f"{matched_kg}kg")
-        if parts:
-            self.voice_result = "🎤 음성 인식: " + " ".join(parts)
-        else:
-            self.voice_result = f"🎤 인식: {text}"
 
     # ── GPS 핸들러 ──
 

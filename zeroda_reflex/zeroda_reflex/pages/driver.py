@@ -451,7 +451,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
             rx.vstack(
                 rx.divider(color="#e5e7eb", margin_y="4px"),
 
-                # 품목 선택 + 수거량 입력 + 음성버튼
+                # 품목 선택 + 수거량 입력
                 # s["weight"], s["item_type"], s["memo"] — foreach 원소 직접 접근 (Var 인덱싱 없음)
                 rx.hstack(
                     rx.select(
@@ -469,14 +469,6 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                         input_mode="decimal",
                         size="2",
                         flex="1",
-                    ),
-                    rx.icon_button(
-                        rx.icon("mic", size=14),
-                        size="2",
-                        variant="outline",
-                        color_scheme="purple",
-                        on_click=DriverState.initiate_voice_for_school(idx),
-                        title="음성으로 수거량 입력",
                     ),
                     width="100%",
                     spacing="2",
@@ -627,6 +619,32 @@ def _schedule_section() -> rx.Component:
             DriverState.schedule_date_display,
             font_size="13px",
             color="#64748b",
+        ),
+
+        # ── 전역 음성 입력 버튼 ──
+        rx.button(
+            rx.cond(
+                DriverState.voice_active,
+                rx.hstack(
+                    rx.spinner(size="2"),
+                    rx.text("🎤 듣는 중..."),
+                    spacing="2",
+                    align="center",
+                ),
+                rx.text("🎤 음성으로 한꺼번에 입력"),
+            ),
+            on_click=DriverState.start_global_voice,
+            size="3",
+            width="100%",
+            color_scheme="grass",
+            disabled=DriverState.voice_active,
+            style={"min_height": "52px"},
+        ),
+        rx.text(
+            "예: '6일 서초고 204, 17일 서초고 200'",
+            font_size="11px",
+            color="#94a3b8",
+            text_align="center",
         ),
 
         # 일정이 있을 때
