@@ -99,6 +99,24 @@ def db_upsert(table: str, data: dict, key_col: str = "id") -> bool:
         conn.close()
 
 
+def db_delete(table: str, where: dict) -> bool:
+    if not where:
+        return False
+    conn = get_db()
+    try:
+        cols = " AND ".join([f"{k}=?" for k in where.keys()])
+        sql = f"DELETE FROM {table} WHERE {cols}"
+        conn.execute(sql, tuple(where.values()))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB ERROR] db_delete({table}): {e}")
+        logger.warning(f"Exception in db_delete: {str(e)}")
+        return False
+    finally:
+        conn.close()
+
+
 # ── 인증 관련 ──
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -2015,6 +2033,46 @@ def reset_user_password(user_id: str, new_pw: str) -> bool:
         print(f"[DB ERROR] reset_user_password: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
+    finally:
+        conn.close()
+
+
+def validate_password(pw: str) -> tuple[bool, str]:
+    import re
+    if not pw or len(pw) < 8:
+        return False, "비밀번호는 최소 8자 이상이어야 합니다."
+    if not re.search(r"[A-Z]", pw):
+        return False, "비밀번호에 영문 대문자가 1자 이상 포함되어야 합니다."
+    if not re.search(r"[0-9]", pw):
+        return False, "비밀번호에 숫자가 1자 이상 포함되어야 합니다."
+    if not re.search(r"[^A-Za-z0-9]", pw):
+        return False, "비밀번호에 특수문자가 1자 이상 포함되어야 합니다."
+    return True, "OK"
+
+
+def create_user(user_id, password, role, name, vendor="", schools="",
+                edu_office="", approval_status="pending", is_active=1):
+    import bcrypt
+    existing = db_get("users", {"user_id": user_id})
+    if existing:
+        return False, "이미 존재하는 아이디입니다."
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO users "
+            "(user_id, pw_hash, role, name, vendor, schools, edu_office, "
+            " is_active, approval_status) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (user_id, pw_hash, role, name, vendor, schools, edu_office,
+             int(is_active), approval_status),
+        )
+        conn.commit()
+        return True, f"계정 '{user_id}' 가입 신청 완료"
+    except Exception as e:
+        print(f"[DB ERROR] create_user: {e}")
+        logger.warning(f"Exception in create_user: {str(e)}")
+        return False, f"가입 처리 중 오류: {e}"
     finally:
         conn.close()
 
