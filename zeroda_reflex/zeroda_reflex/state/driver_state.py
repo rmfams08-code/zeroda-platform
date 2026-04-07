@@ -138,6 +138,17 @@ class DriverState(AuthState):
     proc_save_msg: str = ""
     today_processing: list[dict] = []
 
+    # ── 거래처별 수거 입력 (일정 카드 통합) ──
+    school_weights: dict[str, str] = {}       # {school_name: "25.5"}
+    school_item_types: dict[str, str] = {}    # {school_name: "음식물"}
+    school_memos: dict[str, str] = {}         # {school_name: "메모"}
+    school_save_msgs: dict[str, str] = {}     # {school_name: "✅ 완료"}
+    active_save_school: str = ""              # GPS/음성/사진 콜백용 현재 대상 거래처
+
+    # ── 거래처별 사진 (카드 통합) ──
+    show_photo_for: str = ""                  # 사진 업로드 패널 열린 거래처 (한 번에 하나)
+    school_photo_msgs: dict[str, str] = {}    # {school_name: "📸 업로드 완료"}
+
     # ── 퇴근 ──
     is_checked_out: bool = False
     checkout_time: str = ""
@@ -227,6 +238,24 @@ class DriverState(AuthState):
             driver=self.user_name,
             sel_date=self.schedule_date,
         )
+        # 거래처별 입력 딕셔너리 초기화 (기존 입력값 보존, 신규만 빈값으로)
+        sw = {}
+        si = {}
+        sm = {}
+        ssm = {}
+        spm = {}
+        for s in self.schedule_schools:
+            name = s.get("school_name", "")
+            sw[name] = self.school_weights.get(name, "")
+            si[name] = self.school_item_types.get(name, "음식물")
+            sm[name] = self.school_memos.get(name, "")
+            ssm[name] = self.school_save_msgs.get(name, "")
+            spm[name] = self.school_photo_msgs.get(name, "")
+        self.school_weights = sw
+        self.school_item_types = si
+        self.school_memos = sm
+        self.school_save_msgs = ssm
+        self.school_photo_msgs = spm
 
     def set_schedule_date(self, value: str):
         """일정 날짜 변경"""
@@ -594,6 +623,165 @@ class DriverState(AuthState):
                 pass
         self._do_save_collection("draft")
 
+    # ── 거래처별 수거 입력 핸들러 (일정 카드 통합) ──
+
+    def set_school_weight(self, pair: list):
+        """특정 거래처 수거량 변경 [school, value]"""
+        school, val = str(pair[0]), str(pair[1])
+        self.school_weights = {**self.school_weights, school: val}
+
+    def set_school_item_type(self, pair: list):
+        """특정 거래처 품목 변경 [school, value]"""
+        school, val = str(pair[0]), str(pair[1])
+        self.school_item_types = {**self.school_item_types, school: val}
+
+    def set_school_memo(self, pair: list):
+        """특정 거래처 메모 변경 [school, value]"""
+        school, val = str(pair[0]), str(pair[1])
+        self.school_memos = {**self.school_memos, school: val}
+
+    def initiate_save_for_school(self, school: str):
+        """카드 수거완료 버튼 — GPS 취득 후 저장 (submitted)"""
+        self.active_save_school = school
+        yield rx.call_script(
+            "new Promise((resolve) => {"
+            "  if (!navigator.geolocation) { resolve(''); return; }"
+            "  navigator.geolocation.getCurrentPosition("
+            "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+            "    () => resolve(''),"
+            "    {timeout: 5000, maximumAge: 60000}"
+            "  );"
+            "})",
+            callback=DriverState.save_collection_for_school_with_gps,
+        )
+
+    def initiate_draft_for_school(self, school: str):
+        """카드 임시저장 버튼 — GPS 취득 후 저장 (draft)"""
+        self.active_save_school = school
+        yield rx.call_script(
+            "new Promise((resolve) => {"
+            "  if (!navigator.geolocation) { resolve(''); return; }"
+            "  navigator.geolocation.getCurrentPosition("
+            "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+            "    () => resolve(''),"
+            "    {timeout: 5000, maximumAge: 60000}"
+            "  );"
+            "})",
+            callback=DriverState.save_collection_for_school_draft_with_gps,
+        )
+
+    def initiate_voice_for_school(self, school: str):
+        """카드 음성입력 버튼 — 음성 인식 후 해당 거래처 weight 채우기"""
+        self.active_save_school = school
+        yield rx.call_script(
+            "new Promise((resolve) => {"
+            "  try {"
+            "    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
+            "    if (!SR) { resolve('지원안됨'); return; }"
+            "    const r = new SR();"
+            "    r.lang = 'ko-KR'; r.maxAlternatives = 1;"
+            "    r.onresult = (e) => resolve(e.results[0][0].transcript);"
+            "    r.onerror = () => resolve('');"
+            "    r.onend = () => {};"
+            "    r.start();"
+            "  } catch(e) { resolve('지원안됨'); }"
+            "})",
+            callback=DriverState.handle_voice_for_school,
+        )
+
+    def handle_voice_for_school(self, text: str):
+        """음성인식 결과 → active_save_school의 weight에 채워 넣기"""
+        import re
+        if not text or text in ("지원안됨", ""):
+            self.voice_result = "음성 인식 실패"
+            return
+        nums = re.findall(r"\d+\.?\d*", text)
+        matched_kg = nums[0] if nums else ""
+        school = self.active_save_school
+        if matched_kg and school:
+            self.school_weights = {**self.school_weights, school: matched_kg}
+            self.voice_result = f"🎤 {school}: {matched_kg}kg"
+        else:
+            self.voice_result = f"🎤 인식: {text}"
+
+    def save_collection_for_school_with_gps(self, coords: str):
+        """GPS 콜백 — active_save_school 수거량 submitted로 저장"""
+        self._do_save_for_school(coords, "submitted")
+
+    def save_collection_for_school_draft_with_gps(self, coords: str):
+        """GPS 콜백 — active_save_school 수거량 draft로 저장"""
+        self._do_save_for_school(coords, "draft")
+
+    def _do_save_for_school(self, coords: str, status: str):
+        """거래처별 수거 저장 공통 로직"""
+        school = self.active_save_school
+        if not school:
+            return
+
+        weight_str = self.school_weights.get(school, "")
+        try:
+            w = float(weight_str)
+        except (ValueError, TypeError):
+            self.school_save_msgs = {**self.school_save_msgs, school: "수거량을 입력하세요."}
+            return
+        if w <= 0:
+            self.school_save_msgs = {**self.school_save_msgs, school: "수거량은 0보다 커야 합니다."}
+            return
+        if w > 9999:
+            self.school_save_msgs = {**self.school_save_msgs, school: "수거량이 너무 큽니다. (최대 9,999kg)"}
+            return
+
+        # GPS 파싱
+        lat, lng = None, None
+        if coords and coords not in ("0,0", ""):
+            try:
+                parts = coords.split(",")
+                lat = float(parts[0])
+                lng = float(parts[1])
+            except (ValueError, IndexError):
+                pass
+
+        item_type = self.school_item_types.get(school, "음식물")
+        memo = self.school_memos.get(school, "")
+        collect_time = datetime.now().strftime("%H:%M")
+
+        # 토요일 → 금요일 자동 변환 (학교만)
+        collect_date = self.today_str
+        try:
+            from datetime import timedelta as _td
+            cust_rows = db_get("customer_info", {"vendor": self.user_vendor})
+            cust_type_map = {cr.get("name", ""): cr.get("cust_type", cr.get("\uad6c\ubd84", "")) for cr in cust_rows}
+            rd_date = date.fromisoformat(collect_date)
+            ct_type = cust_type_map.get(school, "")
+            if rd_date.weekday() == 5 and ct_type in ("학교", "school", ""):
+                rd_date = rd_date - _td(days=1)
+                collect_date = rd_date.strftime("%Y-%m-%d")
+        except Exception:
+            pass
+
+        ok = save_collection(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            school_name=school,
+            collect_date=collect_date,
+            item_type=item_type,
+            weight=w,
+            status=status,
+            unit_price=0,
+            memo=memo,
+            collect_time=collect_time,
+            lat=lat,
+            lng=lng,
+        )
+
+        label = "임시저장" if status == "draft" else "전송 완료"
+        if ok:
+            self.school_save_msgs = {**self.school_save_msgs, school: f"✅ {w}kg {label}"}
+            self.school_weights = {**self.school_weights, school: ""}
+            self._load_today_collections()
+        else:
+            self.school_save_msgs = {**self.school_save_msgs, school: "저장 실패"}
+
     # ── 수거 완료/미완료 거래처 추적 ──
 
     @rx.var
@@ -805,6 +993,44 @@ class DriverState(AuthState):
         self.schoolzone_enabled = value
 
     # ── 사진 핸들러 ──
+
+    def toggle_photo_panel(self, school: str):
+        """카드 사진 업로드 패널 토글 — 한 번에 하나의 카드만 열림"""
+        if self.show_photo_for == school:
+            self.show_photo_for = ""
+        else:
+            self.show_photo_for = school
+            self.active_save_school = school  # 업로드 핸들러가 참조
+
+    async def handle_card_photo_upload(self, files: list[rx.UploadFile]):
+        """카드 내 사진 업로드 (거래처당 1장) — active_save_school 사용"""
+        school = self.active_save_school
+        if not school:
+            return
+        if not files:
+            self.school_photo_msgs = {**self.school_photo_msgs, school: "파일을 선택하세요."}
+            return
+
+        upload_dir = os.path.join("uploaded_files", "photos", self.today_str)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        file = files[0]  # 거래처당 1장
+        upload_data = await file.read()
+        fname = f"{self.user_vendor}_{school}_{datetime.now().strftime('%H%M%S')}.jpg"
+        fpath = os.path.join(upload_dir, fname)
+        with open(fpath, "wb") as f:
+            f.write(upload_data)
+        save_photo_record(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            school_name=school,
+            photo_type="collection",
+            photo_url=fpath,
+            collect_date=self.today_str,
+        )
+        self.school_photo_msgs = {**self.school_photo_msgs, school: "📸 사진 저장 완료"}
+        self.show_photo_for = ""  # 업로드 후 패널 닫기
+        self._load_today_photos()
 
     def _load_today_photos(self):
         """오늘 사진 기록 로드"""
