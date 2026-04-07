@@ -1007,9 +1007,12 @@ class VendorState(AuthState):
 
     async def send_stmt_detail_email(self):
         """거래명세서 발송 — 편집된 제목/본문 + PDF 첨부"""
+        import logging
+        import traceback
         from zeroda_reflex.utils.pdf_export import build_statement_pdf
         from zeroda_reflex.utils.email_service import send_email_with_pdf
         from zeroda_reflex.utils.database import get_vendor_info
+        _log = logging.getLogger(__name__)
 
         if not self.rcv_email or "@" not in self.rcv_email:
             self.email_msg = "유효한 수신 이메일을 입력하세요."
@@ -1034,6 +1037,9 @@ class VendorState(AuthState):
             return
 
         try:
+            # [단계1] PDF 생성
+            self.email_msg = "PDF 생성 중..."
+            yield
             vinfo = get_vendor_info(self.user_vendor) or {}
             biz_info = {
                 "biz_no": self.rcv_biz_no,
@@ -1046,21 +1052,27 @@ class VendorState(AuthState):
                 self.stmt_cust_type, self.stmt_fixed_fee,
             )
             if not pdf_bytes:
-                self.email_msg = "PDF 생성 실패"
+                self.email_msg = "❌ [PDF생성] reportlab 미설치 또는 pdf_generator 오류 — 서버 로그 확인"
                 self.email_ok = False
                 self.email_sending = False
+                _log.error("send_stmt_detail_email: build_statement_pdf returned None")
                 return
 
+            # [단계2] 이메일 발송
+            self.email_msg = "이메일 발송 중..."
+            yield
             filename = f"거래명세서_{self.stmt_cust_sel}_{y}-{str(m).zfill(2)}.pdf"
             ok, msg = send_email_with_pdf(
                 self.rcv_email, self.stmt_email_subject, self.stmt_email_body,
                 pdf_bytes, filename,
             )
             self.email_ok = ok
-            self.email_msg = msg
+            self.email_msg = f"✅ {msg}" if ok else f"❌ [SMTP] {msg}"
         except Exception as e:
             self.email_ok = False
-            self.email_msg = f"발송 실패: {e}"
+            short = str(e).split("\n")[0][:80]
+            self.email_msg = f"❌ [예외] {short}"
+            _log.exception("send_stmt_detail_email 예외:\n%s", traceback.format_exc())
         finally:
             self.email_sending = False
 
@@ -2289,9 +2301,13 @@ class VendorState(AuthState):
 
     async def send_statement_email(self):
         """거래명세서 PDF를 이메일로 발송 (명세서발송 탭에서 조회한 거래처 기준)"""
+        import logging
+        import traceback
         from zeroda_reflex.utils.pdf_export import build_statement_pdf
         from zeroda_reflex.utils.email_service import send_email_with_pdf
         from zeroda_reflex.utils.database import get_vendor_info
+        _log = logging.getLogger(__name__)
+
         if not self.email_to or "@" not in self.email_to:
             self.email_msg = "유효한 이메일 주소를 입력하세요."
             self.email_ok = False
@@ -2315,6 +2331,9 @@ class VendorState(AuthState):
             return
 
         try:
+            # [단계1] PDF 생성
+            self.email_msg = "PDF 생성 중..."
+            yield
             vendor = self.user_vendor
             vendor_info = get_vendor_info(vendor) or {}
             biz_info = {
@@ -2328,11 +2347,15 @@ class VendorState(AuthState):
                 self.stmt_cust_type, self.stmt_fixed_fee,
             )
             if not pdf_bytes:
-                self.email_msg = "PDF 생성 실패"
+                self.email_msg = "❌ [PDF생성] reportlab 미설치 또는 pdf_generator 오류 — 서버 로그 확인"
                 self.email_ok = False
                 self.email_sending = False
+                _log.error("send_statement_email: build_statement_pdf returned None")
                 return
 
+            # [단계2] 이메일 발송
+            self.email_msg = "이메일 발송 중..."
+            yield
             filename = f"거래명세서_{self.stmt_cust_sel}_{y}-{str(m).zfill(2)}.pdf"
             subject = self.stmt_email_subject or f"[{vendor}] {y}년 {m}월 거래명세서 — {self.stmt_cust_sel}"
             body = self.stmt_email_body or (
@@ -2344,10 +2367,12 @@ class VendorState(AuthState):
             )
             ok, msg = send_email_with_pdf(self.email_to, subject, body, pdf_bytes, filename)
             self.email_ok = ok
-            self.email_msg = msg
+            self.email_msg = f"✅ {msg}" if ok else f"❌ [SMTP] {msg}"
         except Exception as e:
             self.email_ok = False
-            self.email_msg = f"발송 실패: {e}"
+            short = str(e).split("\n")[0][:80]
+            self.email_msg = f"❌ [예외] {short}"
+            _log.exception("send_statement_email 예외:\n%s", traceback.format_exc())
         finally:
             self.email_sending = False
 
