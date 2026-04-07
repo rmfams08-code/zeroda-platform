@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+zeroda.db
+zeroda_reflex/zeroda.db
+
+# Secrets & Environment
+.env
+.env.local
+.dispatch_secret
+*.secret
+
+# Reflex
+.web/
+.states/
+uploaded_files/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
