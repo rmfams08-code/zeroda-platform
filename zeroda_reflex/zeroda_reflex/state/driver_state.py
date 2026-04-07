@@ -300,6 +300,10 @@ class DriverState(AuthState):
     # ── 음성입력 ──
     voice_active: bool = False
     voice_result: str = ""
+    voice_confirm_open: bool = False
+    voice_pending_entries: list[dict] = []
+    voice_pending_failed: list[str] = []
+    voice_pending_raw: str = ""
 
     # ── 스쿨존 ──
     schoolzone_enabled: bool = False
@@ -939,7 +943,7 @@ class DriverState(AuthState):
         )
 
     def handle_global_voice_result(self, text: str):
-        """전역 음성 인식 결과 → 날짜+거래처+수거량 파싱 → 카드 rows 자동 입력"""
+        """전역 음성 인식 결과 → 파싱 → 확인 다이얼로그 표시 (적용은 confirm_voice_apply에서)"""
         self.voice_active = False
 
         if not text or text in ("지원안됨", ""):
@@ -952,19 +956,26 @@ class DriverState(AuthState):
 
         if not entries:
             self.voice_result = f"🎤 인식: {text}"
-            yield rx.toast.warning("입력 항목을 찾지 못했습니다. 예: '6일 서초고 204'")
+            yield rx.toast.warning("음성에서 입력 항목을 찾지 못했습니다.")
             return
 
+        # 파싱 결과 대기열에 저장 → 다이얼로그 오픈
+        self.voice_pending_raw = text
+        self.voice_pending_entries = entries
+        self.voice_pending_failed = failed_chunks
+        self.voice_confirm_open = True
+
+    def confirm_voice_apply(self):
+        """확인 다이얼로그 '확인' — pending 항목을 카드 rows에 실제 적용"""
         applied = []
         failed_msg = []
         new_schedules = list(self.schedule_schools)
 
-        for entry in entries:
+        for entry in self.voice_pending_entries:
             sch = entry["school"]
             entry_date = entry["date"]
             entry_weight = entry["weight"]
 
-            # 해당 거래처 카드 찾기
             card_idx = -1
             for i, s in enumerate(new_schedules):
                 if s.get("school_name") == sch:
@@ -975,7 +986,6 @@ class DriverState(AuthState):
                 failed_msg.append(f"{sch}(일정 없음)")
                 continue
 
-            # 카드 rows에서 해당 날짜 행 찾기 또는 새 행 추가
             card = new_schedules[card_idx]
             rows = list(card.get("rows", []))
             row_idx = next(
@@ -992,21 +1002,32 @@ class DriverState(AuthState):
                 })
             new_schedules[card_idx] = {**card, "rows": rows}
 
-            disp_date = entry_date[5:]  # "2026-04-06" → "04-06"
+            disp_date = entry_date[5:]
             applied.append(f"{sch} {disp_date} {entry_weight}kg")
 
         self.schedule_schools = new_schedules
+        self.voice_confirm_open = False
+        self.voice_pending_entries = []
+        self.voice_pending_failed = []
+        self.voice_pending_raw = ""
 
         parts = ["🎤 인식됨: " + ", ".join(applied)] if applied else []
         if failed_msg:
             parts.append("실패: " + ", ".join(failed_msg))
-        msg = " / ".join(parts) if parts else f"🎤 인식: {text}"
+        msg = " / ".join(parts) if parts else "🎤 적용 완료"
         self.voice_result = msg
 
         if applied:
             yield rx.toast.success(msg)
         else:
             yield rx.toast.warning(msg)
+
+    def cancel_voice_apply(self):
+        """확인 다이얼로그 '취소' / 외부 클릭 — pending 비우기, 아무 것도 적용 안 함"""
+        self.voice_confirm_open = False
+        self.voice_pending_entries = []
+        self.voice_pending_failed = []
+        self.voice_pending_raw = ""
 
     def save_collection_for_school_with_gps(self, coords: str):
         """GPS 콜백 — active_save_school 수거량 submitted로 저장"""

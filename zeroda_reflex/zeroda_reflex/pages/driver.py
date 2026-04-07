@@ -631,6 +631,77 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
     )
 
 
+def _voice_confirm_dialog() -> rx.Component:
+    """음성 인식 결과 확인 다이얼로그 — 적용 전 사용자 검토"""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("🎤 음성 인식 결과 확인"),
+            rx.dialog.description(
+                rx.vstack(
+                    rx.text(
+                        "원본: ",
+                        rx.text.strong(DriverState.voice_pending_raw),
+                        size="2",
+                        color="#64748b",
+                    ),
+                    rx.divider(),
+                    rx.heading("입력될 항목", size="3"),
+                    rx.foreach(
+                        DriverState.voice_pending_entries,
+                        lambda e: rx.hstack(
+                            rx.icon("check", color="green", size=16),
+                            rx.text(e["school"], weight="bold", size="2"),
+                            rx.text(e["date"], size="2", color="#64748b"),
+                            rx.text(e["weight"] + "kg", size="2", color_scheme="grass"),
+                            spacing="3",
+                            align="center",
+                        ),
+                    ),
+                    rx.cond(
+                        DriverState.voice_pending_failed.length() > 0,
+                        rx.vstack(
+                            rx.divider(),
+                            rx.text("⚠️ 인식 실패:", color="red", size="2"),
+                            rx.foreach(
+                                DriverState.voice_pending_failed,
+                                lambda f: rx.text("· " + f, size="2", color="#94a3b8"),
+                            ),
+                            spacing="1",
+                            align="start",
+                        ),
+                        rx.fragment(),
+                    ),
+                    spacing="3",
+                    align="stretch",
+                ),
+            ),
+            rx.hstack(
+                rx.dialog.close(
+                    rx.button(
+                        "취소",
+                        variant="soft",
+                        color_scheme="gray",
+                        on_click=DriverState.cancel_voice_apply,
+                    ),
+                ),
+                rx.dialog.close(
+                    rx.button(
+                        "✅ 확인하고 입력",
+                        color_scheme="grass",
+                        on_click=DriverState.confirm_voice_apply,
+                    ),
+                ),
+                spacing="3",
+                justify="end",
+                margin_top="1em",
+            ),
+            max_width="500px",
+        ),
+        open=DriverState.voice_confirm_open,
+        on_open_change=DriverState.cancel_voice_apply,
+    )
+
+
 def _schedule_section() -> rx.Component:
     """수거일정 섹션 — 날짜 선택 → 배정 학교 목록"""
     return rx.vstack(
@@ -1183,6 +1254,7 @@ def driver_page() -> rx.Component:
             _schoolzone_section(),
             _safety_section(),
             _schedule_section(),
+            _voice_confirm_dialog(),
             _collection_section(),
             _processing_section(),
             _checkout_section(),
