@@ -652,7 +652,7 @@ def _voice_confirm_dialog() -> rx.Component:
                             rx.icon("check", color="green", size=16),
                             rx.text(e["school"], weight="bold", size="2"),
                             rx.text(e["date"], size="2", color="#64748b"),
-                            rx.text(e["weight"] + "kg", size="2", color_scheme="grass"),
+                            rx.text(e["weight"], "kg", size="2", color_scheme="grass"),
                             spacing="3",
                             align="center",
                         ),
@@ -664,7 +664,7 @@ def _voice_confirm_dialog() -> rx.Component:
                             rx.text("⚠️ 인식 실패:", color="red", size="2"),
                             rx.foreach(
                                 DriverState.voice_pending_failed,
-                                lambda f: rx.text("· " + f, size="2", color="#94a3b8"),
+                                lambda f: rx.text("· ", f, size="2", color="#94a3b8"),
                             ),
                             spacing="1",
                             align="start",
