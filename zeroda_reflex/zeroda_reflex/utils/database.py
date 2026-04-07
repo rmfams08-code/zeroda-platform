@@ -3811,6 +3811,37 @@ def _detect_school_level(school_name: str) -> str:
     return "혼합평균"
 
 
+# ── 학교급식법 공식기준 ──
+WASTE_GRADE_TABLE = [
+    {"grade": "A", "range": "150g 미만", "color": "green", "label": "우수"},
+    {"grade": "B", "range": "150~244g", "color": "blue", "label": "양호"},
+    {"grade": "C", "range": "245~299g", "color": "orange", "label": "주의"},
+    {"grade": "D", "range": "300g 이상", "color": "red", "label": "경보"},
+]
+
+# 학교급별 1끼 표준 제공량(g) — 학교급식법 기준
+_SCHOOL_STANDARD: dict = {
+    "초등": {"밥": 130, "국": 150, "반찬": 60, "김치": 40, "우유": 200, "합계": 580},
+    "중학": {"밥": 210, "국": 200, "반찬": 80, "김치": 50, "우유": 200, "합계": 740},
+    "고등": {"밥": 260, "국": 200, "반찬": 80, "김치": 50, "우유": 200, "합계": 790},
+    "혼합평균": {"밥": 200, "국": 185, "반찬": 73, "김치": 47, "우유": 200, "합계": 705},
+}
+
+# 잔반 월별/계절별 트렌드용 상수
+WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
+SEASON_MAP = {
+    "봄": [3, 4, 5],
+    "여름": [6, 7, 8],
+    "가을": [9, 10, 11],
+    "겨울": [12, 1, 2],
+}
+
+
+def get_school_standard(school_type: str) -> dict:
+    """학교급별 1끼 표준 제공량(g) 반환"""
+    return dict(_SCHOOL_STANDARD.get(school_type, _SCHOOL_STANDARD["혼합평균"]))
+
+
 def meal_get_menus(site_name: str, year_month: str) -> list[dict]:
     """식단 조회"""
     conn = get_db()
@@ -3834,6 +3865,145 @@ def meal_get_menus(site_name: str, year_month: str) -> list[dict]:
     except Exception as e:
         print(f"[DB ERROR] meal_get_menus: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
+def meal_get_menus_by_month(site_name: str, year_month: str) -> list:
+    """달력 표시용 식단 조회 (날짜→메뉴요약 매핑 리스트)"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT meal_date, menu_items FROM meal_menus WHERE site_name = ? AND year_month = ?",
+            (site_name, year_month)
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            md = str(d.get("meal_date", ""))
+            try:
+                mi = _json_mod.loads(d.get("menu_items", "[]"))
+                summary = ", ".join(str(x) for x in (mi[:3] if isinstance(mi, list) else [mi]))
+            except Exception:
+                summary = str(d.get("menu_items", ""))
+            result.append({"date": md, "summary": summary})
+        return result
+    except Exception as e:
+        logger.warning(f"meal_get_menus_by_month: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def meal_get_collected_dates(site_name: str, year_month: str) -> list:
+    """해당 급식소의 수거 완료 날짜 목록"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT collect_date FROM real_collection "
+            "WHERE school_name = ? AND collect_date LIKE ?",
+            (site_name, f"{year_month}%")
+        ).fetchall()
+        return [str(r[0]) for r in rows]
+    except Exception as e:
+        logger.warning(f"meal_get_collected_dates: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def meal_get_school_student_count(site_name: str) -> int:
+    """급식소 기본 학생수 조회 — customer_info.student_count 없으면 0 반환"""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM customer_info WHERE name = ? LIMIT 1", (site_name,)
+        ).fetchone()
+        if row is None:
+            return 0
+        d = dict(row)
+        cnt = d.get("student_count", d.get("students", 0))
+        return int(cnt or 0)
+    except Exception as e:
+        logger.warning(f"meal_get_school_student_count: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+def meal_get_monthly_trend(site_name: str, year: int) -> list:
+    """월별 잔반 트렌드 — meal_analysis 테이블에서 집계"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT year_month, AVG(waste_per_person) as avg_pp, "
+            "SUM(waste_kg) as total_kg, COUNT(*) as cnt "
+            "FROM meal_analysis WHERE site_name = ? AND year_month LIKE ? "
+            "GROUP BY year_month ORDER BY year_month",
+            (site_name, f"{year}%")
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            ym = str(d.get("year_month", ""))
+            month = ym[5:7] if len(ym) >= 7 else ym
+            result.append({
+                "month": month + "월",
+                "avg": str(round(float(d.get("avg_pp", 0) or 0), 1)),
+                "total": str(round(float(d.get("total_kg", 0) or 0), 1)),
+                "count": str(int(d.get("cnt", 0) or 0)),
+                "avg_num": round(float(d.get("avg_pp", 0) or 0), 1),
+                "total_num": round(float(d.get("total_kg", 0) or 0), 1),
+            })
+        return result
+    except Exception as e:
+        logger.warning(f"meal_get_monthly_trend: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def meal_get_seasonal_compare(site_name: str, year: int) -> list:
+    """계절별 잔반 비교"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT year_month, AVG(waste_per_person) as avg_pp, COUNT(*) as cnt "
+            "FROM meal_analysis WHERE site_name = ? AND year_month LIKE ? "
+            "GROUP BY year_month",
+            (site_name, f"{year}%")
+        ).fetchall()
+        season_data: dict = {"봄": {"sum": 0.0, "cnt": 0}, "여름": {"sum": 0.0, "cnt": 0},
+                              "가을": {"sum": 0.0, "cnt": 0}, "겨울": {"sum": 0.0, "cnt": 0}}
+        for r in rows:
+            d = dict(r)
+            ym = str(d.get("year_month", ""))
+            try:
+                month_num = int(ym[5:7])
+            except (ValueError, IndexError):
+                continue
+            avg_pp = float(d.get("avg_pp", 0) or 0)
+            cnt = int(d.get("cnt", 0) or 0)
+            for season, months in SEASON_MAP.items():
+                if month_num in months:
+                    season_data[season]["sum"] += avg_pp * cnt
+                    season_data[season]["cnt"] += cnt
+                    break
+        result = []
+        for season in ["봄", "여름", "가을", "겨울"]:
+            s = season_data[season]
+            n = s["cnt"]
+            avg = round(s["sum"] / n, 1) if n > 0 else 0.0
+            result.append({
+                "season": season,
+                "avg": str(avg),
+                "count": str(n),
+                "avg_num": avg,
+            })
+        return result
+    except Exception as e:
+        logger.warning(f"meal_get_seasonal_compare: {e}")
         return []
     finally:
         conn.close()

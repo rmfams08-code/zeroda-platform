@@ -19,6 +19,94 @@ from zeroda_reflex.components.shared import (
 
 GRADE_COLORS = {"A": "green", "B": "blue", "C": "orange", "D": "red", "-": "gray"}
 
+_WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+# ══════════════════════════════════════════
+#  수정1: 달력형 식단 보기 (helper)
+# ══════════════════════════════════════════
+
+def _calendar_cell(cell: dict) -> rx.Component:
+    """달력 한 칸 렌더링"""
+    return rx.box(
+        rx.vstack(
+            rx.text(
+                cell["day"],
+                font_size="12px",
+                font_weight="600",
+                color=rx.cond(cell["day"] == "", "transparent", "#1e293b"),
+            ),
+            rx.cond(
+                cell["day"] != "",
+                rx.vstack(
+                    rx.cond(
+                        cell["has_menu"] == "1",
+                        rx.text("✅", font_size="10px"),
+                        rx.text("❌", font_size="10px", color="#ef4444"),
+                    ),
+                    rx.cond(
+                        cell["has_collect"] == "1",
+                        rx.text("🟢", font_size="10px"),
+                        rx.text("⚪", font_size="10px"),
+                    ),
+                    spacing="0",
+                ),
+                rx.text(""),
+            ),
+            spacing="0",
+            align="center",
+        ),
+        min_width="44px",
+        min_height="58px",
+        border="1px solid #e2e8f0",
+        border_radius="6px",
+        bg=rx.cond(cell["has_menu"] == "1", "#f0fdf4", "#ffffff"),
+        padding="3px",
+        flex="1",
+    )
+
+
+def _calendar_week(week: list) -> rx.Component:
+    return rx.hstack(
+        rx.foreach(week, _calendar_cell),
+        spacing="1",
+        width="100%",
+    )
+
+
+def _calendar_view() -> rx.Component:
+    return _card(
+        rx.vstack(
+            rx.hstack(
+                _header("calendar", "달력형 식단 보기"),
+                rx.button(
+                    rx.icon("refresh_cw", size=13), "새로고침",
+                    size="1", variant="ghost",
+                    on_click=MealState.load_meal_calendar,
+                ),
+                width="100%", align="center",
+            ),
+            rx.text(
+                "✅ 식단등록  ❌ 미등록  🟢 수거완료  ⚪ 수거없음",
+                font_size="11px", color="#64748b",
+            ),
+            # 요일 헤더
+            rx.hstack(
+                *[rx.text(h, font_size="11px", font_weight="700", color="#64748b",
+                           flex="1", text_align="center")
+                  for h in _WEEKDAY_LABELS],
+                spacing="1", width="100%",
+            ),
+            # 주별 rows
+            rx.cond(
+                MealState.has_calendar,
+                rx.foreach(MealState.calendar_grid, _calendar_week),
+                rx.text("달력 데이터 없음", font_size="12px", color="#94a3b8"),
+            ),
+            spacing="2", width="100%",
+        )
+    )
+
 
 # ══════════════════════════════════════════
 #  상단바 + 네비게이션
@@ -82,6 +170,8 @@ def _menu_tab() -> rx.Component:
     return rx.vstack(
         _header("calendar", "식단 등록"),
         _ym_filter(),
+        # 수정1: 달력형 식단 보기
+        _calendar_view(),
         # 메시지
         rx.cond(
             MealState.has_msg,
@@ -173,6 +263,45 @@ def _menu_tab() -> rx.Component:
                 spacing="3", width="100%",
             ),
         ),
+        # ── 수정2: NEIS 엑셀 업로드 ──
+        _card(
+            rx.vstack(
+                rx.text("📂 NEIS 엑셀 업로드", font_size="14px", font_weight="600"),
+                rx.text(
+                    "NEIS에서 내려받은 급식식단 엑셀 파일을 업로드하면 자동 파싱됩니다. "
+                    "헤더에 '급식일자', '요리명' 컬럼이 있어야 합니다.",
+                    font_size="12px", color="#64748b",
+                ),
+                rx.upload(
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("file_spreadsheet", size=20, color="#64748b"),
+                            rx.text("NEIS 엑셀 파일을 여기에 끌어놓거나 클릭하세요",
+                                    font_size="13px", color="#64748b"),
+                            align="center", spacing="2",
+                        ),
+                        rx.text("(.xlsx 지원)", font_size="11px", color="#94a3b8"),
+                        align="center", spacing="1", padding="20px",
+                    ),
+                    id="neis_upload",
+                    accept={".xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]},
+                    max_files=1,
+                    border="2px dashed #bfdbfe",
+                    border_radius="8px",
+                    cursor="pointer",
+                    _hover={"border_color": "#3b82f6", "bg": "#eff6ff"},
+                    width="100%",
+                ),
+                rx.button(
+                    rx.icon("upload", size=14), "NEIS 업로드",
+                    size="2", color_scheme="indigo",
+                    on_click=MealState.handle_neis_upload(
+                        rx.upload_files(upload_id="neis_upload")
+                    ),
+                ),
+                spacing="3", width="100%",
+            ),
+        ),
         # 등록된 식단 목록
         _card(
             rx.vstack(
@@ -210,6 +339,195 @@ def _menu_tab() -> rx.Component:
 #  탭2: 스마트잔반분석
 # ══════════════════════════════════════════
 
+def _standard_accordion() -> rx.Component:
+    """수정4: 학교급식법 공식기준 안내 accordion"""
+    return rx.accordion.root(
+        rx.accordion.item(
+            rx.accordion.header(
+                rx.accordion.trigger(
+                    rx.hstack(
+                        rx.icon("book_open", size=14, color="#3b82f6"),
+                        rx.text("📋 학교급식법 공식기준 안내",
+                                font_size="13px", font_weight="600", color="#1e293b"),
+                        rx.accordion.icon(),
+                        spacing="2", align="center",
+                    ),
+                    padding="10px 12px",
+                ),
+            ),
+            rx.accordion.content(
+                rx.vstack(
+                    rx.hstack(
+                        # 등급 기준 테이블
+                        rx.vstack(
+                            rx.text("잔반 등급 기준 (1인당)", font_size="12px",
+                                    font_weight="700", color="#374151"),
+                            rx.table.root(
+                                rx.table.header(
+                                    rx.table.row(
+                                        _col("등급"), _col("범위"), _col("판정"))),
+                                rx.table.body(
+                                    rx.foreach(
+                                        MealState.waste_grade_table,
+                                        lambda r: rx.table.row(
+                                            rx.table.cell(
+                                                rx.badge(r["grade"], color_scheme=r["color"], size="1")),
+                                            _c(r["range"]),
+                                            _c(r["label"]),
+                                        )
+                                    )
+                                ),
+                                size="1",
+                            ),
+                            spacing="2",
+                        ),
+                        # 학교급별 표준 제공량
+                        rx.cond(
+                            MealState.has_standard,
+                            rx.vstack(
+                                rx.text("학교급별 표준 1끼 제공량(g)",
+                                        font_size="12px", font_weight="700", color="#374151"),
+                                rx.table.root(
+                                    rx.table.header(
+                                        rx.table.row(
+                                            _col("항목"), _col("제공량(g)"))),
+                                    rx.table.body(
+                                        rx.table.row(_c("밥"), _c(MealState.school_standard.get("밥", ""))),
+                                        rx.table.row(_c("국"), _c(MealState.school_standard.get("국", ""))),
+                                        rx.table.row(_c("반찬"), _c(MealState.school_standard.get("반찬", ""))),
+                                        rx.table.row(_c("김치"), _c(MealState.school_standard.get("김치", ""))),
+                                        rx.table.row(_c("우유"), _c(MealState.school_standard.get("우유", ""))),
+                                        rx.table.row(
+                                            rx.table.cell(rx.text("합계", font_weight="700")),
+                                            rx.table.cell(rx.text(
+                                                MealState.school_standard.get("합계", ""),
+                                                font_weight="700", color="#3b82f6"))),
+                                    ),
+                                    size="1",
+                                ),
+                                spacing="2",
+                            ),
+                        ),
+                        spacing="6", align="start", flex_wrap="wrap",
+                    ),
+                    # 기준 대비 달성률 KPI
+                    rx.cond(
+                        MealState.has_analysis,
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("기준 대비 잔반율", font_size="11px", color="#64748b"),
+                                rx.text(
+                                    MealState.standard_compliance + "%",
+                                    font_size="20px", font_weight="800", color="#ef4444",
+                                ),
+                                rx.text("(기준 245g 대비)", font_size="10px", color="#94a3b8"),
+                                spacing="0", align="center",
+                            ),
+                            padding="8px 16px",
+                            bg="#fef2f2", border_radius="8px",
+                        ),
+                    ),
+                    spacing="3", padding="8px 12px 12px", width="100%",
+                ),
+            ),
+            value="standard",
+        ),
+        collapsible=True,
+        type="single",
+        variant="outline",
+        width="100%",
+    )
+
+
+def _trend_subtabs() -> rx.Component:
+    """수정3: 잔반 트렌드 서브탭 (요일별/월별/계절별)"""
+    return _card(
+        rx.vstack(
+            _header("trending_up", "잔반 트렌드 분석"),
+            rx.tabs.root(
+                rx.tabs.list(
+                    rx.tabs.trigger("요일별", value="weekday"),
+                    rx.tabs.trigger("월별", value="monthly"),
+                    rx.tabs.trigger("계절별", value="seasonal"),
+                    size="1",
+                ),
+                # 요일별 탭
+                rx.tabs.content(
+                    rx.vstack(
+                        rx.cond(
+                            MealState.has_weekday,
+                            rx.recharts.bar_chart(
+                                rx.recharts.bar(
+                                    data_key="avg_num", fill="#ef4444", name="평균 잔반(kg)"),
+                                rx.recharts.bar(
+                                    data_key="pp_num", fill="#f59e0b", name="1인당(g)"),
+                                rx.recharts.x_axis(data_key="weekday", font_size=12),
+                                rx.recharts.y_axis(font_size=11),
+                                rx.recharts.cartesian_grid(stroke_dasharray="3 3"),
+                                rx.recharts.legend(),
+                                rx.recharts.tooltip(),
+                                data=MealState.weekday_pattern,
+                                width="100%", height=260,
+                            ),
+                            rx.text("요일별 데이터 없음", font_size="12px", color="#94a3b8"),
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                    value="weekday",
+                ),
+                # 월별 탭
+                rx.tabs.content(
+                    rx.vstack(
+                        rx.cond(
+                            MealState.has_monthly_trend,
+                            rx.recharts.line_chart(
+                                rx.recharts.line(
+                                    data_key="avg_num", stroke="#3b82f6",
+                                    name="1인당 평균(g)", type_="monotone", dot=True),
+                                rx.recharts.x_axis(data_key="month", font_size=11),
+                                rx.recharts.y_axis(font_size=11),
+                                rx.recharts.cartesian_grid(stroke_dasharray="3 3"),
+                                rx.recharts.legend(),
+                                rx.recharts.tooltip(),
+                                data=MealState.monthly_trend,
+                                width="100%", height=260,
+                            ),
+                            rx.text("월별 데이터 없음", font_size="12px", color="#94a3b8"),
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                    value="monthly",
+                ),
+                # 계절별 탭
+                rx.tabs.content(
+                    rx.vstack(
+                        rx.cond(
+                            MealState.has_seasonal,
+                            rx.recharts.bar_chart(
+                                rx.recharts.bar(
+                                    data_key="avg_num", fill="#8b5cf6", name="1인당 평균(g)"),
+                                rx.recharts.x_axis(data_key="season", font_size=12),
+                                rx.recharts.y_axis(font_size=11),
+                                rx.recharts.cartesian_grid(stroke_dasharray="3 3"),
+                                rx.recharts.legend(),
+                                rx.recharts.tooltip(),
+                                data=MealState.seasonal_compare,
+                                width="100%", height=260,
+                            ),
+                            rx.text("계절별 데이터 없음", font_size="12px", color="#94a3b8"),
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                    value="seasonal",
+                ),
+                default_value="weekday",
+                width="100%",
+            ),
+            spacing="3", width="100%",
+        )
+    )
+
+
 def _smart_tab() -> rx.Component:
     return rx.vstack(
         # ── 헤더 + Excel/PDF 다운로드 ──
@@ -228,6 +546,8 @@ def _smart_tab() -> rx.Component:
             ),
             width="100%", align="center",
         ),
+        # 수정4: 학교급식법 공식기준 안내
+        _standard_accordion(),
         _ym_filter(),
         # KPI
         rx.cond(
@@ -347,6 +667,8 @@ def _smart_tab() -> rx.Component:
                     ),
                     rx.text("요일별 데이터가 없습니다.", font_size="13px", color="#94a3b8")),
                 spacing="3", width="100%")),
+        # 수정3: 잔반 트렌드 서브탭
+        _trend_subtabs(),
         # 메뉴 랭킹
         rx.hstack(
             _card(
