@@ -3,6 +3,7 @@
 import reflex as rx
 
 from zeroda_reflex.pages.login import login_page
+from zeroda_reflex.pages.register import register_page
 from zeroda_reflex.pages.driver import driver_page
 from zeroda_reflex.pages.vendor_admin import vendor_admin_page
 from zeroda_reflex.pages.hq_admin import hq_admin_page
@@ -27,6 +28,7 @@ app = rx.App(
 
 # ── 페이지 등록 ──
 app.add_page(login_page, route="/", title="ZERODA 로그인")
+app.add_page(register_page, route="/register", title="ZERODA 회원가입")
 app.add_page(
     driver_page,
     route="/driver",

@@ -100,6 +100,15 @@ def login_page() -> rx.Component:
                             cursor="pointer",
                             _hover={"transform": "translateY(-2px)", "box_shadow": "0 8px 24px rgba(56,189,148,0.4)"},
                         ),
+                        rx.button(
+                            "회원가입",
+                            type="button",
+                            on_click=rx.redirect("/register"),
+                            variant="outline",
+                            width="100%",
+                            size="3",
+                            margin_top="8px",
+                        ),
 
                         spacing="1",
                         width="100%",

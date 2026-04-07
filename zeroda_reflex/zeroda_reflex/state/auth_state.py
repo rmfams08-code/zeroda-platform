@@ -40,6 +40,84 @@ class AuthState(rx.State):
     login_error: str = ""
     login_loading: bool = False
 
+    # ── 회원가입 폼 ──
+    reg_id: str = ""
+    reg_name: str = ""
+    reg_pw: str = ""
+    reg_pw2: str = ""
+    reg_role: str = "driver"
+    reg_vendor: str = ""
+    reg_schools: str = ""
+    reg_edu_office: str = ""
+    reg_error: str = ""
+    reg_success: str = ""
+    reg_loading: bool = False
+
+    def set_reg_id(self, v: str): self.reg_id = v
+    def set_reg_name(self, v: str): self.reg_name = v
+    def set_reg_pw(self, v: str): self.reg_pw = v
+    def set_reg_pw2(self, v: str): self.reg_pw2 = v
+    def set_reg_role(self, v: str):
+        self.reg_role = v
+        self.reg_vendor = ""
+        self.reg_schools = ""
+        self.reg_edu_office = ""
+    def set_reg_vendor(self, v: str): self.reg_vendor = v
+    def set_reg_schools(self, v: str): self.reg_schools = v
+    def set_reg_edu_office(self, v: str): self.reg_edu_office = v
+
+    def submit_register(self):
+        from zeroda_reflex.utils.database import create_user, validate_password
+        self.reg_loading = True
+        self.reg_error = ""
+        self.reg_success = ""
+        if not self.reg_id or not self.reg_name or not self.reg_pw:
+            self.reg_error = "아이디, 이름, 비밀번호는 필수입니다."
+            self.reg_loading = False
+            return
+        if self.reg_pw != self.reg_pw2:
+            self.reg_error = "비밀번호가 일치하지 않습니다."
+            self.reg_loading = False
+            return
+        if self.reg_role == "admin":
+            self.reg_error = "본사관리자 계정은 자가 가입이 불가합니다."
+            self.reg_loading = False
+            return
+        ok, msg = validate_password(self.reg_pw)
+        if not ok:
+            self.reg_error = msg
+            self.reg_loading = False
+            return
+        created, msg = create_user(
+            user_id=self.reg_id.strip(),
+            password=self.reg_pw,
+            role=self.reg_role,
+            name=self.reg_name.strip(),
+            vendor=self.reg_vendor.strip(),
+            schools=self.reg_schools.strip(),
+            edu_office=self.reg_edu_office.strip(),
+            approval_status="pending",
+            is_active=1,
+        )
+        if not created:
+            self.reg_error = msg
+            self.reg_loading = False
+            return
+        self.reg_success = "가입 신청 완료! 본사 관리자 승인 후 로그인할 수 있습니다."
+        self.reg_id = ""
+        self.reg_name = ""
+        self.reg_pw = ""
+        self.reg_pw2 = ""
+        self.reg_vendor = ""
+        self.reg_schools = ""
+        self.reg_edu_office = ""
+        self.reg_loading = False
+
+    def goto_login(self):
+        self.reg_error = ""
+        self.reg_success = ""
+        return rx.redirect("/")
+
     def login(self, form_data: dict):
         """로그인 처리"""
         self.login_loading = True
@@ -50,6 +128,26 @@ class AuthState(rx.State):
 
         if not uid or not pw:
             self.login_error = "아이디와 비밀번호를 모두 입력하세요."
+            self.login_loading = False
+            return
+
+        from zeroda_reflex.utils.database import db_get
+        rows = db_get("users", {"user_id": uid})
+        if not rows:
+            self.login_error = "아이디 또는 비밀번호가 올바르지 않습니다."
+            self.login_loading = False
+            return
+        _u = rows[0]
+        if _u.get("approval_status") == "pending":
+            self.login_error = "회원가입 승인 대기 중입니다. 본사 관리자 승인 후 로그인할 수 있습니다."
+            self.login_loading = False
+            return
+        if _u.get("approval_status") == "rejected":
+            self.login_error = "회원가입이 거부되었습니다. 관리자에게 문의하세요."
+            self.login_loading = False
+            return
+        if int(_u.get("is_active", 1)) == 0:
+            self.login_error = "비활성화된 계정입니다. 관리자에게 문의하세요."
             self.login_loading = False
             return
 
