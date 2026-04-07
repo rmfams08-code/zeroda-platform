@@ -2,7 +2,7 @@
 # 기사 대시보드 상태 관리
 import reflex as rx
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from zeroda_reflex.state.auth_state import AuthState
 
 logger = logging.getLogger(__name__)
@@ -11,7 +11,7 @@ from zeroda_reflex.utils.database import (
     get_daily_safety_checks, save_daily_safety_check,
     save_daily_safety_checks_transaction,
     get_schools_by_vendor, db_get, db_insert,
-    get_today_collections, save_collection,
+    get_today_collections, get_driver_collections_range, save_collection,
     get_driver_checkout_log, save_driver_checkout,
     delete_collection,
     get_driver_schedule_schools,
@@ -281,6 +281,8 @@ class DriverState(AuthState):
     collection_weight: str = ""
     collection_item_type: str = "음식물"
     today_collections: list[dict] = []
+    recent_collections: list[dict] = []
+    record_filter: str = "7days"
     collection_rows: list[dict] = []   # 다중행: [{"date":"YYYY-MM-DD","item":"음식물","weight":""}]
     collection_unit_price: str = ""
     collection_time: str = ""
@@ -368,6 +370,7 @@ class DriverState(AuthState):
         self._load_safety_status()
         self._load_schools()
         self._load_today_collections()
+        self._load_recent_collections()
         self._load_today_photos()
         self._load_today_processing()
         self._load_checkout_status()
@@ -483,6 +486,30 @@ class DriverState(AuthState):
             driver=self.user_name,
             collect_date=self.today_str,
         )
+
+    def _load_recent_collections(self):
+        """최근 수거 기록 로드 (record_filter 기준)"""
+        today = date.today()
+        f = self.record_filter
+        if f == "today":
+            date_from = today
+        elif f == "30days":
+            date_from = today - timedelta(days=29)
+        elif f == "month":
+            date_from = today.replace(day=1)
+        else:  # "7days" 기본
+            date_from = today - timedelta(days=6)
+        self.recent_collections = get_driver_collections_range(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            date_from=date_from.strftime("%Y-%m-%d"),
+            date_to=today.strftime("%Y-%m-%d"),
+        )
+
+    def set_record_filter(self, value: str):
+        """수거 기록 기간 필터 변경"""
+        self.record_filter = value
+        self._load_recent_collections()
 
     def _load_checkout_status(self):
         """퇴근 상태 로드"""
@@ -658,6 +685,22 @@ class DriverState(AuthState):
         """오늘 수거 건수"""
         return len(self.today_collections)
 
+    @rx.var
+    def recent_collection_count(self) -> int:
+        """최근 수거 기록 건수 (record_filter 기준)"""
+        return len(self.recent_collections)
+
+    @rx.var
+    def record_filter_label(self) -> str:
+        """현재 필터 레이블"""
+        labels = {
+            "today": "오늘",
+            "7days": "최근 7일",
+            "30days": "최근 30일",
+            "month": "이번 달",
+        }
+        return labels.get(self.record_filter, "최근 7일")
+
     def _validate_collection(self) -> float:
         """수거 입력 공통 검증. 유효하면 weight 반환, 실패 시 -1"""
         if not self.selected_school:
@@ -757,6 +800,7 @@ class DriverState(AuthState):
                 {"date": self.today_str, "item": self.collection_item_type, "weight": ""}
             ]
             self._load_today_collections()
+            self._load_recent_collections()
         else:
             self.collection_save_msg = "저장 중 오류가 발생했습니다."
 
@@ -1136,6 +1180,7 @@ class DriverState(AuthState):
             clear = (status == "submitted")
             self._set_school_save_msg(school_idx, msg, clear_rows=clear)
             self._load_today_collections()
+            self._load_recent_collections()
         elif skipped > 0:
             self._set_school_save_msg(school_idx, "수거량을 입력하세요.")
         else:
@@ -1203,6 +1248,7 @@ class DriverState(AuthState):
         if ok:
             self.collection_save_msg = "삭제 완료"
             self._load_today_collections()
+            self._load_recent_collections()
         else:
             self.collection_save_msg = "삭제 실패"
 

@@ -252,6 +252,25 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
         conn.close()
 
 
+def get_driver_collections_range(vendor: str, driver: str, date_from: str, date_to: str) -> list[dict]:
+    """기간별 수거 기록 조회 (date_from ~ date_to, YYYY-MM-DD)"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT rowid, * FROM real_collection "
+            "WHERE vendor=? AND driver=? AND collect_date BETWEEN ? AND ? "
+            "ORDER BY collect_date DESC, rowid DESC",
+            (vendor, driver, date_from, date_to),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print(f"[DB ERROR] get_driver_collections_range: {e}")
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
 def ensure_real_collection_gps_columns() -> None:
     """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시)"""
     conn = get_db()

@@ -816,30 +816,59 @@ def _schedule_section() -> rx.Component:
             ),
         ),
 
-        # ── 오늘 수거 기록 (삭제 버튼 포함) ──
-        rx.cond(
-            DriverState.today_collection_count > 0,
-            rx.vstack(
-                rx.divider(),
-                rx.hstack(
-                    rx.text(
-                        "오늘 수거 기록",
-                        font_size="13px",
-                        font_weight="600",
-                        color="#374151",
-                    ),
-                    rx.spacer(),
-                    rx.badge(
-                        DriverState.today_collection_count.to(str) + "건 / "
-                        + DriverState.today_total_weight.to(str) + "kg",
-                        color_scheme="blue",
-                        size="1",
-                    ),
-                    width="100%",
+        # ── 최근 수거 기록 (기간 필터 + 삭제) ──
+        rx.vstack(
+            rx.divider(),
+            rx.hstack(
+                rx.text(
+                    "📋 최근 수거 기록",
+                    font_size="13px",
+                    font_weight="600",
+                    color="#374151",
                 ),
+                rx.spacer(),
+                rx.badge(
+                    DriverState.record_filter_label + ": "
+                    + DriverState.recent_collection_count.to(str) + "건",
+                    color_scheme="blue",
+                    size="1",
+                ),
+                width="100%",
+            ),
+            rx.hstack(
+                rx.button(
+                    "오늘",
+                    size="1",
+                    variant=rx.cond(DriverState.record_filter == "today", "solid", "soft"),
+                    on_click=DriverState.set_record_filter("today"),
+                ),
+                rx.button(
+                    "최근 7일",
+                    size="1",
+                    variant=rx.cond(DriverState.record_filter == "7days", "solid", "soft"),
+                    on_click=DriverState.set_record_filter("7days"),
+                ),
+                rx.button(
+                    "최근 30일",
+                    size="1",
+                    variant=rx.cond(DriverState.record_filter == "30days", "solid", "soft"),
+                    on_click=DriverState.set_record_filter("30days"),
+                ),
+                rx.button(
+                    "이번 달",
+                    size="1",
+                    variant=rx.cond(DriverState.record_filter == "month", "solid", "soft"),
+                    on_click=DriverState.set_record_filter("month"),
+                ),
+                spacing="2",
+                flex_wrap="wrap",
+            ),
+            rx.cond(
+                DriverState.recent_collection_count > 0,
                 rx.foreach(
-                    DriverState.today_collections,
+                    DriverState.recent_collections,
                     lambda c: rx.hstack(
+                        rx.text(c["collect_date"], font_size="11px", color="#6b7280", width="72px"),
                         rx.text(c["school_name"], font_size="13px", flex="1"),
                         rx.badge(c["item_type"], size="1"),
                         rx.text(
@@ -865,9 +894,16 @@ def _schedule_section() -> rx.Component:
                         align="center",
                     ),
                 ),
-                spacing="1",
-                width="100%",
+                rx.text(
+                    "조회 기간 내 수거 기록 없음",
+                    font_size="13px",
+                    color="#9ca3af",
+                    text_align="center",
+                    padding_y="8px",
+                ),
             ),
+            spacing="2",
+            width="100%",
         ),
 
         # ── 음성인식 결과 표시 ──
