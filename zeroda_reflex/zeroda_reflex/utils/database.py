@@ -4296,3 +4296,50 @@ def meal_get_settlement(site_name: str, year: int, month: int) -> dict:
 def meal_get_esg(site_name: str, year: int, month: int = 0) -> dict:
     """급식담당자 ESG 보고서 (school_get_esg 래퍼)"""
     return school_get_esg(site_name, year, month)
+
+
+def save_meal_schedule_drafts(site_name: str, dates: list) -> int:
+    """급식담당자 식단 저장 시 수거일정 초안 자동생성
+
+    customer_info에서 vendor 조회 후 schedules 테이블에 draft INSERT.
+    중복(vendor+month+schools 기준) 체크 후 삽입.
+    Returns: 삽입된 건수
+    """
+    if not site_name or not dates:
+        return 0
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT vendor FROM customer_info WHERE name = ? LIMIT 1", (site_name,)
+        ).fetchone()
+        if not row:
+            return 0
+        vendor = str(dict(row).get("vendor", "") or "")
+        if not vendor:
+            return 0
+        schools_json = json.dumps([site_name], ensure_ascii=False)
+        count = 0
+        for date_str in dates:
+            if not date_str:
+                continue
+            # 중복 체크
+            existing = conn.execute(
+                "SELECT id FROM schedules WHERE vendor=? AND month=? AND schools=? LIMIT 1",
+                (vendor, date_str, schools_json),
+            ).fetchone()
+            if existing:
+                continue
+            conn.execute(
+                "INSERT INTO schedules (vendor, month, weekdays, schools, items, driver, registered_by) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (vendor, date_str, json.dumps(["급식"]), schools_json,
+                 json.dumps(["음식물"]), "", "meal_draft"),
+            )
+            count += 1
+        conn.commit()
+        return count
+    except Exception as e:
+        logger.warning(f"save_meal_schedule_drafts: {e}")
+        return 0
+    finally:
+        conn.close()

@@ -17,6 +17,7 @@ from zeroda_reflex.utils.database import (
     meal_get_menus_by_month, meal_get_collected_dates,
     meal_get_school_student_count,
     meal_get_monthly_trend, meal_get_seasonal_compare,
+    save_meal_schedule_drafts,
 )
 
 
@@ -46,6 +47,8 @@ class MealState(AuthState):
     mf_menu: str = ""
     mf_calories: str = "0"
     mf_servings: str = "0"
+    # 수정1: 영양정보 9항목
+    mf_nutrition: dict = {}
 
     # ══════════════════════════════
     #  탭2: 스마트잔반분석
@@ -66,6 +69,12 @@ class MealState(AuthState):
     ai_recommend_result: list[dict] = []  # 추천식단 결과
     ai_loading: bool = False          # 분석 진행중 플래그
     ai_error: str = ""                # 에러 메시지
+    # 수정5: AI 잔반 원인 분석
+    ai_cause_result: str = ""
+    ai_cause_loading: bool = False
+    # 수정10: AI 일별 특이사항
+    ai_daily_remarks: dict = {}
+    ai_daily_loading: bool = False
 
     # ══════════════════════════════
     #  탭4: 수거현황
@@ -204,6 +213,215 @@ class MealState(AuthState):
         return len(self.seasonal_compare) > 0
 
     # ══════════════════════════════
+    #  수정3: 등급 분포 파이차트
+    # ══════════════════════════════
+    @rx.var
+    def grade_distribution(self) -> list[dict]:
+        """등급 분포 — 파이차트용"""
+        counts = {"A": 0, "B": 0, "C": 0, "D": 0}
+        for r in self.analysis_rows:
+            g = str(r.get("grade", "-"))
+            if g in counts:
+                counts[g] += 1
+        colors = {"A": "#22c55e", "B": "#3b82f6", "C": "#f97316", "D": "#ef4444"}
+        result = []
+        for g, cnt in counts.items():
+            if cnt > 0:
+                result.append({"name": f"{g}등급", "value": cnt, "fill": colors[g]})
+        return result
+
+    @rx.var
+    def has_grade_distribution(self) -> bool:
+        return len(self.grade_distribution) > 0
+
+    # ══════════════════════════════
+    #  수정4: 일별 1인당 잔반 라인차트
+    # ══════════════════════════════
+    @rx.var
+    def daily_waste_chart(self) -> list[dict]:
+        """일별 1인당 잔반 추이 (라인차트용)"""
+        result = []
+        for r in self.analysis_rows:
+            date_str = str(r.get("meal_date", ""))
+            date_short = date_str[5:10] if len(date_str) >= 10 else date_str
+            wpp = float(r.get("waste_per_person", 0) or 0)
+            if wpp > 0:
+                result.append({"date": date_short, "waste_per_person": wpp})
+        return result
+
+    @rx.var
+    def has_daily_chart(self) -> bool:
+        return len(self.daily_waste_chart) > 0
+
+    # ══════════════════════════════
+    #  수정5: AI 원인 분석
+    # ══════════════════════════════
+    @rx.var
+    def has_ai_cause_result(self) -> bool:
+        return len(self.ai_cause_result) > 0
+
+    # ══════════════════════════════
+    #  수정6: 메뉴 조합 효과 분석
+    # ══════════════════════════════
+    @rx.var
+    def menu_combo_analysis(self) -> list[dict]:
+        """메뉴 2개 조합 효과 분석 — 잔반 적은 상위 10 조합"""
+        import json as _j
+        from collections import defaultdict
+        import itertools
+        combo_map: dict = defaultdict(lambda: {"total": 0.0, "count": 0})
+        for r in self.analysis_rows:
+            wpp = float(r.get("waste_per_person", 0) or 0)
+            if wpp <= 0:
+                continue
+            menus_raw = r.get("menu_items", "[]")
+            try:
+                menus = _j.loads(menus_raw) if isinstance(menus_raw, str) else menus_raw
+            except Exception:
+                continue
+            if not isinstance(menus, list) or len(menus) < 2:
+                continue
+            for a, b in itertools.combinations([str(m).strip() for m in menus if str(m).strip()], 2):
+                key = tuple(sorted([a, b]))
+                combo_map[key]["total"] += wpp
+                combo_map[key]["count"] += 1
+        result = []
+        for key, v in combo_map.items():
+            if v["count"] >= 2:
+                avg = round(v["total"] / v["count"], 1)
+                result.append({
+                    "combo": f"{key[0]} + {key[1]}",
+                    "avg_waste_pp": str(avg),
+                    "count": str(v["count"]),
+                    "avg_num": avg,
+                })
+        result.sort(key=lambda x: x["avg_num"])
+        return result[:10]
+
+    @rx.var
+    def has_combo_analysis(self) -> bool:
+        return len(self.menu_combo_analysis) > 0
+
+    # ══════════════════════════════
+    #  수정7: 이상치 탐지 Z-Score
+    # ══════════════════════════════
+    @rx.var
+    def anomaly_dates(self) -> list[dict]:
+        """Z-Score |z|>2 이상치 날짜"""
+        import math as _math
+        vals = [float(r.get("waste_per_person", 0) or 0) for r in self.analysis_rows
+                if float(r.get("waste_per_person", 0) or 0) > 0]
+        if len(vals) < 3:
+            return []
+        avg = sum(vals) / len(vals)
+        variance = sum((v - avg) ** 2 for v in vals) / len(vals)
+        std = _math.sqrt(variance) if variance > 0 else 0
+        if std == 0:
+            return []
+        result = []
+        for r in self.analysis_rows:
+            wpp = float(r.get("waste_per_person", 0) or 0)
+            if wpp <= 0:
+                continue
+            z = (wpp - avg) / std
+            if abs(z) > 2:
+                anomaly_type = "급증" if z > 0 else "급감"
+                result.append({
+                    "date": str(r.get("meal_date", "")),
+                    "waste_per_person": str(r.get("waste_per_person", "")),
+                    "type": anomaly_type,
+                    "z_score": str(round(z, 2)),
+                })
+        return result
+
+    @rx.var
+    def has_anomaly(self) -> bool:
+        return len(self.anomaly_dates) > 0
+
+    # ══════════════════════════════
+    #  수정10: AI 일별 특이사항
+    # ══════════════════════════════
+    @rx.var
+    def has_ai_daily_remarks(self) -> bool:
+        return bool(self.ai_daily_remarks)
+
+    # ══════════════════════════════
+    #  수정13: 전체 메뉴 통계
+    # ══════════════════════════════
+    @rx.var
+    def all_menu_stats(self) -> list[dict]:
+        """전체 메뉴별 통계 — count desc"""
+        import json as _j
+        from collections import defaultdict
+        menu_map: dict = defaultdict(lambda: {"total": 0.0, "count": 0})
+        for r in self.analysis_rows:
+            wpp = float(r.get("waste_per_person", 0) or 0)
+            menus_raw = r.get("menu_items", "[]")
+            try:
+                menus = _j.loads(menus_raw) if isinstance(menus_raw, str) else menus_raw
+            except Exception:
+                continue
+            if not isinstance(menus, list):
+                continue
+            for m in menus:
+                name = str(m).strip()
+                if not name:
+                    continue
+                menu_map[name]["total"] += wpp if wpp > 0 else 0
+                menu_map[name]["count"] += 1
+        result = []
+        for name, v in menu_map.items():
+            avg = round(v["total"] / v["count"], 1) if v["count"] > 0 else 0.0
+            result.append({
+                "menu": name,
+                "count": str(v["count"]),
+                "avg_waste_pp": str(avg),
+                "count_num": v["count"],
+            })
+        result.sort(key=lambda x: x["count_num"], reverse=True)
+        return result
+
+    @rx.var
+    def has_all_menu_stats(self) -> bool:
+        return len(self.all_menu_stats) > 0
+
+    # ══════════════════════════════
+    #  수정14: 배식인원 효율 분석
+    # ══════════════════════════════
+    @rx.var
+    def servings_analysis(self) -> list[dict]:
+        """배식인원 구간별 평균 1인당 잔반"""
+        buckets = [
+            ("~100명", 0, 100),
+            ("100~200명", 100, 200),
+            ("200~300명", 200, 300),
+            ("300~400명", 300, 400),
+            ("400명+", 400, 999999),
+        ]
+        data: dict = {b[0]: {"total": 0.0, "count": 0} for b in buckets}
+        for r in self.analysis_rows:
+            srv = int(r.get("servings", 0) or 0)
+            wpp = float(r.get("waste_per_person", 0) or 0)
+            if srv <= 0 or wpp <= 0:
+                continue
+            for label, lo, hi in buckets:
+                if lo < srv <= hi:
+                    data[label]["total"] += wpp
+                    data[label]["count"] += 1
+                    break
+        result = []
+        for label, lo, hi in buckets:
+            d = data[label]
+            if d["count"] > 0:
+                avg = round(d["total"] / d["count"], 1)
+                result.append({"range": label, "avg_waste_pp": avg, "count": d["count"]})
+        return result
+
+    @rx.var
+    def has_servings_analysis(self) -> bool:
+        return len(self.servings_analysis) > 0
+
+    # ══════════════════════════════
     #  초기화
     # ══════════════════════════════
 
@@ -258,9 +476,16 @@ class MealState(AuthState):
     #  탭1: 식단등록
     # ══════════════════════════════
 
+    def load_default_servings(self):
+        """customer_info.student_count → mf_servings 기본값 (수정11)"""
+        cnt = meal_get_school_student_count(self.site_name)
+        if cnt > 0 and (self.mf_servings == "0" or not self.mf_servings):
+            self.mf_servings = str(cnt)
+
     def load_menus(self):
         ym = f"{self.selected_year}-{self.selected_month.zfill(2)}"
         self.menu_rows = meal_get_menus(self.site_name, ym)
+        self.load_default_servings()
 
     def set_mf_date(self, v: str):
         self.mf_date = v
@@ -273,6 +498,10 @@ class MealState(AuthState):
 
     def set_mf_servings(self, v: str):
         self.mf_servings = v
+
+    def set_mf_nut(self, key: str, value: str = ""):
+        """영양정보 항목 업데이트 (수정1)"""
+        self.mf_nutrition = {**self.mf_nutrition, key: value}
 
     def save_menu(self):
         if not self.mf_date or not self.mf_menu:
@@ -303,17 +532,22 @@ class MealState(AuthState):
             self.msg_ok = False
             return
 
+        import json as _json_sn
+        nutrition_json = _json_sn.dumps(self.mf_nutrition, ensure_ascii=False)
         ok = meal_save_menu(
             self.site_name, self.mf_date, "중식",
-            menu_json, cal, srv,
+            menu_json, cal, srv, nutrition_json,
         )
         if ok:
-            self.msg = f"{self.mf_date} 식단 저장 완료"
+            draft_n = save_meal_schedule_drafts(self.site_name, [self.mf_date])
+            draft_msg = f" (수거일정 초안 {draft_n}건 생성)" if draft_n > 0 else ""
+            self.msg = f"{self.mf_date} 식단 저장 완료{draft_msg}"
             self.msg_ok = True
             self.mf_date = ""
             self.mf_menu = ""
             self.mf_calories = "0"
             self.mf_servings = "0"
+            self.mf_nutrition = {}
             self.load_menus()
         else:
             self.msg = "저장 실패"
@@ -653,6 +887,16 @@ class MealState(AuthState):
         else:
             self.msg = f"완료: {ok_count}건 성공, {fail_count}건 실패"
             self.msg_ok = ok_count > 0
+        # 수정2: 수거일정 초안 생성
+        if ok_count > 0:
+            saved_dates = [
+                str(r.get(date_col, "")).strip()[:10]
+                for r in rows
+                if str(r.get(date_col, "")).strip()
+            ]
+            draft_n = save_meal_schedule_drafts(self.site_name, saved_dates)
+            if draft_n > 0:
+                self.msg += f" (수거일정 초안 {draft_n}건 생성)"
         self.load_menus()
         self.load_meal_calendar()
 
@@ -778,7 +1022,7 @@ class MealState(AuthState):
     async def run_ai_comprehensive(self):
         """AI 종합 잔반분석 실행 (비동기)"""
         from zeroda_reflex.utils.ai_service import (
-            build_comprehensive_prompt, call_claude_api,
+            _build_comprehensive_prompt as _build_prompt, call_claude_api,
         )
         if not self.analysis_rows:
             self.ai_error = "분석할 데이터가 없습니다. 먼저 잔반 데이터를 로드하세요."
@@ -789,8 +1033,11 @@ class MealState(AuthState):
         self.ai_comprehensive_result = ""
         yield  # UI 업데이트 (로딩 표시)
 
-        prompt = build_comprehensive_prompt(
+        # 수정9: 강화된 프롬프트 (이상치+조합 포함)
+        prompt = _build_prompt(
             self.site_name, self.analysis_rows, self.cost_data,
+            anomaly_dates=list(self.anomaly_dates),
+            combo_analysis=list(self.menu_combo_analysis),
         )
         result = call_claude_api(prompt, self.ai_api_key)
 
@@ -837,6 +1084,136 @@ class MealState(AuthState):
                 # JSON 파싱 실패 시 원문 텍스트를 종합분석 결과에 표시
                 self.ai_comprehensive_result = result
 
+    async def run_ai_cause_analysis(self):
+        """AI 잔반 원인 분석 (수정5)"""
+        from zeroda_reflex.utils.ai_service import call_claude_api
+        if not self.analysis_rows:
+            self.ai_error = "분석할 데이터가 없습니다."
+            return
+        self.ai_cause_loading = True
+        self.ai_error = ""
+        self.ai_cause_result = ""
+        yield
+
+        bad_menus = "\n".join(
+            f"- {r['menu']} ({r['avg_waste_pp']}g/인, {r['count']}회)"
+            for r in self.worst_menus[:10]
+        ) or "- 데이터 없음"
+        wd_text = "\n".join(
+            f"- {r['weekday']}: {r['avg_pp']}g/인"
+            for r in self.weekday_pattern
+        ) or "- 데이터 없음"
+        avg_wpp = self.analysis_summary.get("avg_waste_pp", "0")
+        prompt = f"""당신은 단체급식 잔반 원인 분석 전문가입니다.
+아래 데이터를 기반으로 잔반 발생 원인을 심층 분석하세요.
+
+## 기관: {self.site_name}
+## 평균 1인당 잔반: {avg_wpp}g
+
+## 잔반 많은 메뉴 TOP10
+{bad_menus}
+
+## 요일별 패턴
+{wd_text}
+
+## 분석 항목
+1. **주요 원인 분석**: 메뉴/계절/요일/조리법 등 측면별 원인
+2. **메뉴별 기피 원인**: 잔반 많은 메뉴의 학생 기피 이유
+3. **패턴 분석**: 잔반 증가 패턴과 상관관계
+4. **즉시 개선 방안**: 3가지 구체적 실행 방안
+
+마크다운 형식으로 한국어로 작성하세요."""
+
+        result = call_claude_api(prompt, self.ai_api_key)
+        self.ai_cause_loading = False
+        if result.startswith("[ERROR]"):
+            self.ai_error = result.replace("[ERROR] ", "")
+        else:
+            self.ai_cause_result = result
+
+    def save_ai_recommendations(self):
+        """AI 추천식단 일괄등록 (수정8)"""
+        import json as _j
+        from datetime import datetime as _dt, timedelta as _td
+        if not self.ai_recommend_result:
+            self.msg = "저장할 추천식단이 없습니다."
+            self.msg_ok = False
+            return
+        # 다음 월요일부터 시작
+        today = _dt.now()
+        days_to_mon = (7 - today.weekday()) % 7
+        if days_to_mon == 0:
+            days_to_mon = 7
+        start = today + _td(days=days_to_mon)
+
+        ok_count = 0
+        saved_dates = []
+        for idx, r in enumerate(self.ai_recommend_result):
+            date_str = (start + _td(days=idx)).strftime("%Y-%m-%d")
+            menu_val = r.get("menu", "")
+            if isinstance(menu_val, list):
+                menu_json = _j.dumps(menu_val, ensure_ascii=False)
+            else:
+                menu_list = [m.strip() for m in str(menu_val).split(",") if m.strip()]
+                menu_json = _j.dumps(menu_list, ensure_ascii=False)
+
+            ok = meal_save_menu(
+                self.site_name, date_str, "중식",
+                menu_json, 0, 0,
+            )
+            if ok:
+                ok_count += 1
+                saved_dates.append(date_str)
+
+        draft_n = save_meal_schedule_drafts(self.site_name, saved_dates)
+        self.msg = f"AI 추천식단 {ok_count}건 등록 완료 (수거일정 초안 {draft_n}건 생성)"
+        self.msg_ok = ok_count > 0
+        self.load_meal_calendar()
+
+    async def generate_daily_remarks(self):
+        """AI 일별 특이사항 생성 (수정10)"""
+        from zeroda_reflex.utils.ai_service import call_claude_api
+        import json as _j
+        if not self.analysis_rows:
+            self.ai_error = "분석할 데이터가 없습니다."
+            return
+        self.ai_daily_loading = True
+        self.ai_error = ""
+        yield
+
+        data_json = _j.dumps([
+            {"date": r.get("meal_date", ""),
+             "waste_pp": r.get("waste_per_person", ""),
+             "grade": r.get("grade", ""),
+             "menu": r.get("menu_items", "")}
+            for r in self.analysis_rows
+        ], ensure_ascii=False)
+
+        prompt = f"""아래 급식 잔반 데이터의 각 날짜별 특이사항을 한 문장으로 코멘트하세요.
+기관: {self.site_name}
+데이터: {data_json}
+
+반드시 아래 JSON 형식으로만 답변하세요:
+{{"YYYY-MM-DD": "코멘트", "YYYY-MM-DD": "코멘트"}}
+
+한국어로 답변하세요."""
+
+        result = call_claude_api(prompt, self.ai_api_key)
+        self.ai_daily_loading = False
+        if result.startswith("[ERROR]"):
+            self.ai_error = result.replace("[ERROR] ", "")
+            return
+
+        import re as _re
+        m = _re.search(r'\{[^{}]*\}', result, _re.DOTALL)
+        if m:
+            try:
+                parsed = _j.loads(m.group())
+                if isinstance(parsed, dict):
+                    self.ai_daily_remarks = {str(k): str(v) for k, v in parsed.items()}
+            except Exception:
+                self.ai_daily_remarks = {}
+
     def download_ai_pdf(self):
         """AI 월말명세서 PDF 다운로드"""
         from zeroda_reflex.utils.pdf_export import build_ai_meal_statement_pdf
@@ -854,6 +1231,7 @@ class MealState(AuthState):
             ai_comment=self.ai_comprehensive_result[:2000] if self.ai_comprehensive_result else "",
             cost_savings=self.cost_data,
             weekday_pattern=self.weekday_pattern,
+            daily_remarks=self.ai_daily_remarks,
         )
         if pdf_bytes:
             return rx.download(
