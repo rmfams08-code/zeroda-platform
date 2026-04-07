@@ -14,7 +14,12 @@ from zeroda_reflex.utils.database import (
     get_today_collections, save_collection,
     get_driver_checkout_log, save_driver_checkout,
     delete_collection,
+    get_driver_schedule_schools,
+    get_today_processing, save_processing_confirm,
+    save_photo_record, get_photo_records_today,
+    save_customer_gps,
 )
+import os
 
 # ── 안전점검 체크리스트 (기존 settings.py에서 가져옴) ──
 SAFETY_CHECKLIST = {
@@ -86,13 +91,43 @@ class DriverState(AuthState):
     fail_memo: str = ""
     safety_save_msg: str = ""
 
+    # ── 수거일정 ──
+    schedule_date: str = ""          # 선택된 날짜 (YYYY-MM-DD)
+    schedule_schools: list[dict] = []  # 배정 학교 목록
+    schedule_loading: bool = False
+
     # ── 수거 ──
     assigned_schools: list[str] = []
     selected_school: str = ""
     collection_weight: str = ""
     collection_item_type: str = "음식물"
     today_collections: list[dict] = []
+    collection_rows: list[dict] = []   # 다중행: [{"date":"YYYY-MM-DD","item":"음식물","weight":""}]
+    collection_unit_price: str = ""
+    collection_time: str = ""
+    collection_memo: str = ""
     collection_save_msg: str = ""
+
+    # ── GPS ──
+    gps_msg: str = ""
+
+    # ── 음성입력 ──
+    voice_active: bool = False
+    voice_result: str = ""
+
+    # ── 스쿨존 ──
+    schoolzone_enabled: bool = False
+
+    # ── 사진 ──
+    photo_upload_msg: str = ""
+    today_photos: list[dict] = []
+
+    # ── 계근표(처리확인) ──
+    proc_weight: str = ""
+    proc_location: str = ""
+    proc_memo: str = ""
+    proc_save_msg: str = ""
+    today_processing: list[dict] = []
 
     # ── 퇴근 ──
     is_checked_out: bool = False
@@ -137,7 +172,13 @@ class DriverState(AuthState):
         self._load_safety_status()
         self._load_schools()
         self._load_today_collections()
+        self._load_today_photos()
+        self._load_today_processing()
         self._load_checkout_status()
+        # 수거일정 초기 로드 (오늘 날짜)
+        if not self.schedule_date:
+            self.schedule_date = self.today_str
+        self._load_schedule()
 
     def _load_weather(self):
         """기상청 API로 오늘 날씨 로드"""
@@ -166,6 +207,53 @@ class DriverState(AuthState):
         if self.safety_done_today and checks:
             ct = str(checks[0].get("created_at", ""))
             self.safety_saved_time = ct[11:16] if len(ct) >= 16 else ""
+
+    # ── 수거일정 핸들러 ──
+
+    def _load_schedule(self):
+        """선택 날짜의 수거일정 로드"""
+        self.schedule_schools = get_driver_schedule_schools(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            sel_date=self.schedule_date,
+        )
+
+    def set_schedule_date(self, value: str):
+        """일정 날짜 변경"""
+        self.schedule_date = value
+        self._load_schedule()
+
+    def set_schedule_today(self):
+        """오늘 날짜로 리셋"""
+        self.schedule_date = self.today_str
+        self._load_schedule()
+
+    @rx.var
+    def schedule_date_display(self) -> str:
+        """선택 날짜 표시용 (예: 2026-04-06 (월)요일)"""
+        try:
+            d = date.fromisoformat(self.schedule_date)
+            wds = ["월", "화", "수", "목", "금", "토", "일"]
+            return f"{self.schedule_date} ({wds[d.weekday()]}요일)"
+        except Exception:
+            return self.schedule_date
+
+    @rx.var
+    def schedule_total(self) -> int:
+        """일정 학교 수"""
+        return len(self.schedule_schools)
+
+    @rx.var
+    def schedule_done_schools(self) -> list[str]:
+        """일정 중 수거 완료된 학교"""
+        done = set(self.collected_schools)
+        return [s["school_name"] for s in self.schedule_schools if s["school_name"] in done]
+
+    @rx.var
+    def schedule_remaining_schools(self) -> list[str]:
+        """일정 중 미수거 학교"""
+        done = set(self.collected_schools)
+        return [s["school_name"] for s in self.schedule_schools if s["school_name"] not in done]
 
     def _load_schools(self):
         """배정된 학교 목록 로드"""
@@ -251,16 +339,88 @@ class DriverState(AuthState):
     # ── 수거입력 핸들러 ──
 
     def set_selected_school(self, value: str):
-        """거래처 선택"""
+        """거래처 선택 → 다중행 초기화"""
         self.selected_school = value
+        self.collection_rows = [
+            {"date": self.today_str, "item": self.collection_item_type, "weight": ""}
+        ]
 
     def set_collection_weight(self, value: str):
-        """수거량 입력"""
+        """수거량 입력 (단일행 호환)"""
         self.collection_weight = value
+
+    # ── 다중행 핸들러 ──
+
+    def add_collection_row(self):
+        """행 추가"""
+        from datetime import timedelta
+        existing_dates = {r["date"] for r in self.collection_rows}
+        new_date = self.today_str
+        for d in range(1, 31):
+            candidate = (date.today() - timedelta(days=d)).strftime("%Y-%m-%d")
+            if candidate not in existing_dates:
+                new_date = candidate
+                break
+        self.collection_rows = self.collection_rows + [
+            {"date": new_date, "item": "음식물", "weight": ""}
+        ]
+
+    def remove_collection_row(self, idx: int):
+        """행 삭제"""
+        if len(self.collection_rows) > 1:
+            rows = list(self.collection_rows)
+            rows.pop(idx)
+            self.collection_rows = rows
+
+    def set_row_date(self, idx_val: list):
+        """행 날짜 변경 [idx, value]"""
+        idx, val = int(idx_val[0]), str(idx_val[1])
+        rows = list(self.collection_rows)
+        if 0 <= idx < len(rows):
+            rows[idx] = {**rows[idx], "date": val}
+            self.collection_rows = rows
+
+    def set_row_item(self, idx_val: list):
+        """행 품목 변경 [idx, value]"""
+        idx, val = int(idx_val[0]), str(idx_val[1])
+        rows = list(self.collection_rows)
+        if 0 <= idx < len(rows):
+            rows[idx] = {**rows[idx], "item": val}
+            self.collection_rows = rows
+
+    def set_row_weight(self, idx_val: list):
+        """행 수거량 변경 [idx, value]"""
+        idx, val = int(idx_val[0]), str(idx_val[1])
+        rows = list(self.collection_rows)
+        if 0 <= idx < len(rows):
+            rows[idx] = {**rows[idx], "weight": val}
+            self.collection_rows = rows
 
     def set_collection_item_type(self, value: str):
         """품목 선택"""
         self.collection_item_type = value
+
+    def set_collection_unit_price(self, value: str):
+        """단가 입력"""
+        self.collection_unit_price = value
+
+    def set_collection_time(self, value: str):
+        """수거시간 입력"""
+        self.collection_time = value
+
+    def set_collection_memo(self, value: str):
+        """메모 입력"""
+        self.collection_memo = value
+
+    @rx.var
+    def estimated_amount(self) -> str:
+        """예상금액 자동계산"""
+        try:
+            w = float(self.collection_weight)
+            p = float(self.collection_unit_price)
+            return f"{int(w * p):,}원"
+        except (ValueError, TypeError):
+            return "-"
 
     @rx.var
     def today_total_weight(self) -> float:
@@ -278,42 +438,113 @@ class DriverState(AuthState):
         """오늘 수거 건수"""
         return len(self.today_collections)
 
-    def save_collection_entry(self):
-        """수거 데이터 저장"""
-        self.collection_save_msg = ""
+    def _validate_collection(self) -> float:
+        """수거 입력 공통 검증. 유효하면 weight 반환, 실패 시 -1"""
         if not self.selected_school:
             self.collection_save_msg = "거래처를 선택하세요."
-            return
+            return -1
         try:
             w = float(self.collection_weight)
         except (ValueError, TypeError):
             self.collection_save_msg = "수거량을 올바르게 입력하세요."
-            return
-        # ── 수거량 범위 검증 (0~9999kg) ──
-        if w < 0:
-            self.collection_save_msg = "수거량은 0 이상이어야 합니다."
-            return
-        if w > 9999:
-            self.collection_save_msg = "수거량이 너무 큽니다. (최대 9,999kg)"
-            return
+            return -1
         if w <= 0:
             self.collection_save_msg = "수거량은 0보다 커야 합니다."
-            return
+            return -1
+        if w > 9999:
+            self.collection_save_msg = "수거량이 너무 큽니다. (최대 9,999kg)"
+            return -1
+        return w
 
-        ok = save_collection(
-            vendor=self.user_vendor,
-            driver=self.user_name,
-            school_name=self.selected_school,
-            collect_date=self.today_str,
-            item_type=self.collection_item_type,
-            weight=w,
-        )
-        if ok:
-            self.collection_save_msg = f"✅ {self.selected_school} {w}kg 저장 완료"
+    def _do_save_collection(self, status: str):
+        """수거 데이터 저장 (draft / submitted) — 다중행 지원"""
+        self.collection_save_msg = ""
+        if not self.selected_school:
+            self.collection_save_msg = "거래처를 선택하세요."
+            return
+        # 단가 파싱
+        try:
+            up = float(self.collection_unit_price) if self.collection_unit_price else 0
+        except (ValueError, TypeError):
+            up = 0
+        ct = self.collection_time if self.collection_time else datetime.now().strftime("%H:%M")
+        label = "임시저장" if status == "draft" else "본사전송"
+
+        # 다중행이 있으면 다중행 저장, 없으면 단일행
+        rows_to_save = self.collection_rows if self.collection_rows else []
+        if not rows_to_save:
+            # 단일행 폴백
+            w = self._validate_collection()
+            if w < 0:
+                return
+            rows_to_save = [{"date": self.today_str, "item": self.collection_item_type, "weight": str(w)}]
+
+        # ── 학교 타입 확인 (토요일→금요일 변환용) ──
+        cust_rows = db_get("customer_info", {"vendor": self.user_vendor})
+        cust_type_map = {}
+        for cr in cust_rows:
+            cust_type_map[cr.get("name", "")] = cr.get("cust_type", cr.get("\uad6c\ubd84", ""))
+
+        sat_converted = False
+        saved = 0
+        for row in rows_to_save:
+            try:
+                w = float(row.get("weight", 0))
+            except (ValueError, TypeError):
+                continue
+            if w <= 0:
+                continue
+            rd = str(row.get("date", self.today_str))
+            ri = str(row.get("item", "음식물"))
+
+            # ── 토요일→금요일 자동 변환 (학교만) ──
+            try:
+                from datetime import timedelta as _td
+                rd_date = date.fromisoformat(rd)
+                ct = cust_type_map.get(self.selected_school, "")
+                if rd_date.weekday() == 5 and ct in ("학교", "school", ""):
+                    rd_date = rd_date - _td(days=1)
+                    rd = rd_date.strftime("%Y-%m-%d")
+                    sat_converted = True
+            except Exception:
+                pass
+            ok = save_collection(
+                vendor=self.user_vendor,
+                driver=self.user_name,
+                school_name=self.selected_school,
+                collect_date=rd,
+                item_type=ri,
+                weight=w,
+                status=status,
+                unit_price=up,
+                memo=self.collection_memo,
+                collect_time=ct,
+            )
+            if ok:
+                saved += 1
+
+        if saved > 0:
+            msg = f"✅ {self.selected_school} {saved}건 {label} 완료"
+            if sat_converted:
+                msg += " (토요일→금요일 자동변환)"
+            self.collection_save_msg = msg
             self.collection_weight = ""
+            self.collection_unit_price = ""
+            self.collection_memo = ""
+            self.collection_rows = [
+                {"date": self.today_str, "item": self.collection_item_type, "weight": ""}
+            ]
             self._load_today_collections()
         else:
             self.collection_save_msg = "저장 중 오류가 발생했습니다."
+
+    def save_collection_entry(self):
+        """수거완료·본사전송 (submitted)"""
+        self._do_save_collection("submitted")
+
+    def save_collection_draft(self):
+        """임시저장 (draft)"""
+        self._do_save_collection("draft")
 
     # ── 수거 완료/미완료 거래처 추적 ──
 
@@ -363,6 +594,164 @@ class DriverState(AuthState):
             self._load_today_collections()
         else:
             self.collection_save_msg = "삭제 실패"
+
+    # ── 음성입력 핸들러 ──
+
+    def handle_voice_result(self, text: str):
+        """음성인식 결과 처리 — 숫자 추출하여 수거량에 반영"""
+        self.voice_active = False
+        if not text:
+            self.voice_result = "음성을 인식하지 못했습니다."
+            return
+        self.voice_result = f"🎤 인식: {text}"
+        # 숫자 추출 시도
+        import re
+        nums = re.findall(r"[\d]+\.?[\d]*", text)
+        if nums:
+            weight_str = nums[0]
+            # 다중행이 있으면 첫 번째 빈 행에 넣기
+            if self.collection_rows:
+                rows = list(self.collection_rows)
+                for i, row in enumerate(rows):
+                    if not row.get("weight"):
+                        rows[i] = {**rows[i], "weight": weight_str}
+                        self.collection_rows = rows
+                        self.voice_result = f"🎤 {weight_str}kg 입력됨"
+                        return
+            self.collection_weight = weight_str
+            self.voice_result = f"🎤 {weight_str}kg 입력됨"
+
+    # ── GPS 핸들러 ──
+
+    def save_gps_location(self, coords: str):
+        """GPS 좌표 저장 (JS에서 'lat,lng' 문자열로 전달)"""
+        self.gps_msg = ""
+        if not self.selected_school:
+            self.gps_msg = "거래처를 선택하세요."
+            return
+        try:
+            parts = coords.split(",")
+            lat = float(parts[0])
+            lng = float(parts[1])
+        except (ValueError, IndexError):
+            self.gps_msg = "위치 정보를 가져올 수 없습니다."
+            return
+        ok = save_customer_gps(
+            vendor=self.user_vendor,
+            name=self.selected_school,
+            lat=lat, lng=lng,
+        )
+        if ok:
+            self.gps_msg = f"📍 위치 저장: {self.selected_school} ({lat:.5f}, {lng:.5f})"
+        else:
+            self.gps_msg = "위치 저장 실패"
+
+    # ── 스쿨존 핸들러 ──
+
+    def toggle_schoolzone(self, value: bool):
+        """스쿨존 알림 토글"""
+        self.schoolzone_enabled = value
+
+    # ── 사진 핸들러 ──
+
+    def _load_today_photos(self):
+        """오늘 사진 기록 로드"""
+        self.today_photos = get_photo_records_today(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            collect_date=self.today_str,
+        )
+
+    @rx.var
+    def today_photo_count(self) -> int:
+        return len(self.today_photos)
+
+    async def handle_photo_upload(self, files: list[rx.UploadFile]):
+        """수거 사진 업로드 (최대 3장)"""
+        self.photo_upload_msg = ""
+        if not self.selected_school:
+            self.photo_upload_msg = "거래처를 먼저 선택하세요."
+            return
+
+        upload_dir = os.path.join("uploaded_files", "photos", self.today_str)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        saved = 0
+        for file in files[:3]:
+            upload_data = await file.read()
+            fname = f"{self.user_vendor}_{self.selected_school}_{datetime.now().strftime('%H%M%S')}_{saved}.jpg"
+            fpath = os.path.join(upload_dir, fname)
+            with open(fpath, "wb") as f:
+                f.write(upload_data)
+            save_photo_record(
+                vendor=self.user_vendor,
+                driver=self.user_name,
+                school_name=self.selected_school,
+                photo_type="collection",
+                photo_url=fpath,
+                collect_date=self.today_str,
+            )
+            saved += 1
+
+        if saved > 0:
+            self.photo_upload_msg = f"📸 사진 {saved}장 저장 완료"
+            self._load_today_photos()
+        else:
+            self.photo_upload_msg = "사진 업로드 실패"
+
+    # ── 계근표(처리확인) 핸들러 ──
+
+    def _load_today_processing(self):
+        """오늘 처리확인 기록 로드"""
+        self.today_processing = get_today_processing(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            confirm_date=self.today_str,
+        )
+
+    def set_proc_weight(self, value: str):
+        self.proc_weight = value
+
+    def set_proc_location(self, value: str):
+        self.proc_location = value
+
+    def set_proc_memo(self, value: str):
+        self.proc_memo = value
+
+    @rx.var
+    def today_proc_count(self) -> int:
+        return len(self.today_processing)
+
+    def save_processing(self):
+        """처리확인 저장"""
+        self.proc_save_msg = ""
+        try:
+            w = float(self.proc_weight)
+        except (ValueError, TypeError):
+            self.proc_save_msg = "처리량을 입력하세요."
+            return
+        if w <= 0:
+            self.proc_save_msg = "처리량은 0보다 커야 합니다."
+            return
+        if not self.proc_location.strip():
+            self.proc_save_msg = "처리장명을 입력하세요."
+            return
+
+        ok = save_processing_confirm(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            total_weight=w,
+            location_name=self.proc_location.strip(),
+            memo=self.proc_memo,
+        )
+        if ok:
+            self.proc_save_msg = f"✅ 처리확인 완료 ({w}kg @ {self.proc_location})"
+            self.proc_weight = ""
+            self.proc_location = ""
+            self.proc_memo = ""
+            self._load_today_processing()
+        else:
+            self.proc_save_msg = "저장 실패. 다시 시도해주세요."
 
     # ── 퇴근 핸들러 ──
 

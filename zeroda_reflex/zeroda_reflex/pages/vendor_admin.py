@@ -18,15 +18,17 @@ from zeroda_reflex.components.shared import (
 YEAR_OPTIONS = get_year_options()
 # MONTH_OPTIONS → auth_state에서 import
 WEEKDAYS_FILTER = ["전체", "월", "화", "수", "목", "금", "토"]
-SCHED_SUBTABS = ["조회", "등록"]
-SETTLE_SUBTABS = ["정산현황", "월말정산", "지출내역"]
-SETTLE_TYPE_FILTERS = ["전체", "학교", "기타", "기타2(부가세포함)"]
+SCHED_SUBTABS = ["조회", "등록", "NEIS연동", "급식일정승인"]
+NEIS_OFFSET_OPTIONS = ["당일", "다음날"]
+NEIS_ITEM_OPTIONS = ["음식물", "음식물,재활용", "음식물,재활용,일반"]
+SETTLE_SUBTABS = ["정산현황", "명세서발송", "월말정산", "지출내역"]
+SETTLE_TYPE_FILTERS = ["전체", "학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
 SCHED_WEEKDAYS = ["월", "화", "수", "목", "금", "토"]
 SCHED_ITEMS = ["음식물", "재활용", "일반"]
 SCHED_ITEM_FILTERS = ["전체", "음식물", "재활용", "일반"]
 CUST_SUBTABS = ["목록", "등록수정"]
-CUST_TYPE_OPTIONS = ["학교", "기타", "기타2(부가세포함)"]
-CUST_TYPE_FILTERS = ["전체", "학교", "기타", "기타2(부가세포함)"]
+CUST_TYPE_OPTIONS = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
+CUST_TYPE_FILTERS = ["전체", "학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
 SAFETY_SUBTABS = ["안전교육", "차량안전점검", "사고신고", "일일안전점검"]
 SETTINGS_SUBTABS = ["업장관리", "업체정보", "계정설정"]
 SAFETY_CHECKLIST_LABELS = [
@@ -53,8 +55,10 @@ TABS = [
     ("일정관리",   "calendar"),
     ("정산관리",   "credit_card"),
     ("안전관리",   "shield_check"),
+    ("수거분석",   "trending_up"),
     ("설정",       "settings"),
 ]
+ANALYTICS_SUBTABS = ["종합현황", "일별요일별", "거래처기사별", "기상분석"]
 
 
 # ══════════════════════════════════════════════
@@ -1245,6 +1249,211 @@ def _sched_card(sched: dict) -> rx.Component:
     )
 
 
+def _neis_meal_badge(d: str) -> rx.Component:
+    return rx.badge(d, size="1", color_scheme="blue", variant="soft")
+
+
+def _sched_neis_panel() -> rx.Component:
+    """수거일정 - NEIS 연동 서브탭"""
+    label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    return rx.vstack(
+        _section_header("link", "NEIS 급식일정 연동"),
+        rx.hstack(
+            rx.vstack(
+                rx.text("조회 월 (YYYY-MM)", **label_st),
+                rx.input(
+                    value=VendorState.neis_month,
+                    on_change=VendorState.set_neis_month,
+                    placeholder="2026-04", size="2",
+                ),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("학교 (NEIS 코드 등록)", **label_st),
+                rx.select(
+                    VendorState.neis_school_options,
+                    value=VendorState.neis_school_sel,
+                    on_change=VendorState.set_neis_school_sel,
+                    placeholder="학교 선택", size="2", width="200px",
+                ),
+                spacing="1",
+            ),
+            rx.button(
+                "🔍 NEIS 급식일 조회",
+                size="2", color_scheme="blue",
+                on_click=VendorState.fetch_neis_meals,
+            ),
+            spacing="3", align="end", flex_wrap="wrap",
+        ),
+        rx.text(
+            f"NEIS 코드 등록 학교: {VendorState.neis_school_count}개",
+            font_size="11px", color="#94a3b8",
+        ),
+        rx.cond(
+            VendorState.neis_msg != "",
+            rx.text(VendorState.neis_msg, font_size="12px", color="#64748b"),
+        ),
+
+        # 조회 결과
+        rx.cond(
+            VendorState.has_neis_meals,
+            rx.vstack(
+                rx.text(
+                    f"급식일 {VendorState.neis_meal_count}일",
+                    font_size="13px", font_weight="700",
+                ),
+                rx.flex(
+                    rx.foreach(VendorState.neis_meal_dates, _neis_meal_badge),
+                    gap="6px", flex_wrap="wrap",
+                ),
+                _section_header("calendar_plus", "수거일정 생성 옵션"),
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("수거시점", **label_st),
+                        rx.select(
+                            NEIS_OFFSET_OPTIONS,
+                            value=VendorState.neis_collect_offset,
+                            on_change=VendorState.set_neis_collect_offset,
+                            size="2", width="110px",
+                        ),
+                        spacing="1",
+                    ),
+                    rx.vstack(
+                        rx.text("품목", **label_st),
+                        rx.select(
+                            NEIS_ITEM_OPTIONS,
+                            value=VendorState.neis_item_type,
+                            on_change=VendorState.set_neis_item_type,
+                            size="2", width="200px",
+                        ),
+                        spacing="1",
+                    ),
+                    rx.vstack(
+                        rx.text("기사", **label_st),
+                        rx.select(
+                            VendorState.sched_driver_options,
+                            value=VendorState.neis_driver,
+                            on_change=VendorState.set_neis_driver,
+                            size="2", width="140px",
+                        ),
+                        spacing="1",
+                    ),
+                    spacing="3", align="end", flex_wrap="wrap",
+                ),
+                rx.button(
+                    "🗓️ 수거일정 생성",
+                    size="2", color_scheme="green",
+                    on_click=VendorState.create_neis_schedules,
+                ),
+                spacing="3", width="100%", align="start",
+            ),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
+def _meal_apv_school_card(grp: dict) -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                rx.icon("school", size=16, color="#3b82f6"),
+                rx.text(grp["school"], font_size="13px", font_weight="700"),
+                rx.badge(
+                    f"{grp['count']}건 대기",
+                    size="1", color_scheme="orange", variant="soft",
+                ),
+                spacing="2", align="center",
+            ),
+            rx.hstack(
+                rx.button(
+                    "✅ 전체 승인",
+                    size="1", color_scheme="green",
+                    on_click=VendorState.approve_school_meals(grp["school"]),
+                ),
+                rx.button(
+                    "❌ 반려",
+                    size="1", color_scheme="red", variant="soft",
+                    on_click=VendorState.reject_school_meals(grp["school"]),
+                ),
+                spacing="2",
+            ),
+            spacing="2", align="start",
+        ),
+        padding="10px", border="1px solid #e2e8f0", border_radius="8px",
+        bg="#ffffff", width="100%",
+    )
+
+
+def _sched_meal_approval_panel() -> rx.Component:
+    """수거일정 - 급식일정 승인 서브탭"""
+    label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    return rx.vstack(
+        _section_header("clipboard_check", "급식일정 승인"),
+        rx.hstack(
+            rx.vstack(
+                rx.text("조회 월 (YYYY-MM)", **label_st),
+                rx.input(
+                    value=VendorState.meal_apv_month,
+                    on_change=VendorState.set_meal_apv_month,
+                    placeholder="2026-04", size="2",
+                ),
+                spacing="1",
+            ),
+            rx.button(
+                "조회",
+                size="2", color_scheme="blue",
+                on_click=VendorState.load_meal_approvals,
+            ),
+            rx.spacer(),
+            rx.badge(
+                f"⏳ 승인대기 {VendorState.meal_pending_count}건",
+                size="2", color_scheme="orange", variant="soft",
+            ),
+            rx.badge(
+                f"✅ 승인완료 {VendorState.meal_approved_count}건",
+                size="2", color_scheme="green", variant="soft",
+            ),
+            spacing="3", align="end", width="100%", flex_wrap="wrap",
+        ),
+        rx.hstack(
+            rx.vstack(
+                rx.text("수거시점", **label_st),
+                rx.select(
+                    ["유지", "당일", "다음날"],
+                    value=VendorState.meal_apv_offset,
+                    on_change=VendorState.set_meal_apv_offset,
+                    size="2", width="110px",
+                ),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("기사 배정", **label_st),
+                rx.select(
+                    VendorState.sched_driver_options,
+                    value=VendorState.meal_apv_driver,
+                    on_change=VendorState.set_meal_apv_driver,
+                    size="2", width="140px",
+                ),
+                spacing="1",
+            ),
+            spacing="3", align="end",
+        ),
+        rx.cond(
+            VendorState.meal_apv_msg != "",
+            rx.text(VendorState.meal_apv_msg, font_size="12px", color="#64748b"),
+        ),
+        rx.cond(
+            VendorState.meal_pending_count > 0,
+            rx.vstack(
+                rx.foreach(VendorState.meal_draft_school_groups, _meal_apv_school_card),
+                spacing="2", width="100%",
+            ),
+            _empty_state("승인 대기 중인 급식일정이 없습니다."),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
 def _sched_view_panel() -> rx.Component:
     return rx.vstack(
         rx.hstack(
@@ -1488,7 +1697,15 @@ def _schedule_tab() -> rx.Component:
         rx.cond(
             VendorState.sched_active_subtab == "조회",
             _sched_view_panel(),
-            _sched_form_panel(),
+            rx.cond(
+                VendorState.sched_active_subtab == "등록",
+                _sched_form_panel(),
+                rx.cond(
+                    VendorState.sched_active_subtab == "NEIS연동",
+                    _sched_neis_panel(),
+                    _sched_meal_approval_panel(),
+                ),
+            ),
         ),
         spacing="4", width="100%", align="start",
     )
@@ -1626,6 +1843,243 @@ def _settle_summary_panel() -> rx.Component:
             ),
             _empty_state("해당 월 정산 데이터가 없습니다."),
         ),
+        spacing="4", width="100%", align="start",
+    )
+
+
+def _stmt_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["collect_date"], style={"font_size": "12px"}),
+        rx.table.cell(row["item_type"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['weight']}kg", style={"font_size": "12px"}),
+        rx.table.cell(f"{row['unit_price']}원", style={"font_size": "12px"}),
+        rx.table.cell(f"{row['amount']}원", style={"font_size": "12px"}),
+        rx.table.cell(row["driver"], style={"font_size": "12px"}),
+    )
+
+
+def _stmt_send_panel() -> rx.Component:
+    """명세서발송 서브탭"""
+    field_label = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    return rx.vstack(
+        # ── 조회 조건 ──
+        rx.hstack(
+            rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
+                      on_change=VendorState.set_selected_year, size="2", width="95px"),
+            rx.text("년", font_size="13px", color="#64748b"),
+            rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
+                      on_change=VendorState.set_selected_month, size="2", width="72px"),
+            rx.text("월", font_size="13px", color="#64748b"),
+            rx.select(
+                CUST_TYPE_OPTIONS,
+                value=VendorState.stmt_cust_type,
+                on_change=VendorState.set_stmt_cust_type,
+                size="2", width="140px",
+                placeholder="유형",
+            ),
+            rx.select(
+                VendorState.stmt_cust_list,
+                value=VendorState.stmt_cust_sel,
+                on_change=VendorState.set_stmt_cust_sel,
+                size="2", width="180px",
+                placeholder="거래처",
+            ),
+            rx.button(
+                "조회",
+                size="2", color_scheme="blue",
+                on_click=VendorState.load_statement_data,
+            ),
+            spacing="2", align="center", flex_wrap="wrap",
+        ),
+        rx.cond(
+            VendorState.stmt_load_msg != "",
+            rx.text(VendorState.stmt_load_msg, font_size="11px", color="#64748b"),
+        ),
+
+        # ── 수거 데이터 테이블 ──
+        _section_header("list_checks", "수거 데이터"),
+        rx.cond(
+            VendorState.stmt_rows.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("날짜"),
+                            _table_header("품목"),
+                            _table_header("수거량"),
+                            _table_header("단가"),
+                            _table_header("금액"),
+                            _table_header("기사"),
+                        ),
+                    ),
+                    rx.table.body(
+                        rx.foreach(VendorState.stmt_rows, _stmt_row),
+                    ),
+                    width="100%",
+                ),
+            ),
+            _empty_state("거래처를 선택하고 [조회]를 누르세요."),
+        ),
+
+        # ── 정산 금액 ──
+        rx.box(
+            rx.vstack(
+                rx.hstack(
+                    rx.text("총 수거량", font_size="12px", color="#64748b"),
+                    rx.text(f"{VendorState.stmt_total_weight} kg", font_size="13px", font_weight="600"),
+                    spacing="3",
+                ),
+                rx.hstack(
+                    rx.text("공급가액", font_size="12px", color="#64748b"),
+                    rx.text(f"{VendorState.stmt_total_amount} 원", font_size="13px", font_weight="600"),
+                    spacing="3",
+                ),
+                rx.hstack(
+                    rx.text("월정액", font_size="12px", color="#64748b"),
+                    rx.text(f"{VendorState.stmt_fixed_fee} 원", font_size="13px", font_weight="600"),
+                    spacing="3",
+                ),
+                rx.hstack(
+                    rx.text("부가세", font_size="12px", color="#64748b"),
+                    rx.text(f"{VendorState.stmt_vat} 원", font_size="13px", font_weight="600"),
+                    spacing="3",
+                ),
+                rx.hstack(
+                    rx.text("합계", font_size="13px", color="#0f172a", font_weight="700"),
+                    rx.text(f"{VendorState.stmt_grand_total} 원", font_size="14px", font_weight="800", color="#3b82f6"),
+                    spacing="3",
+                ),
+                rx.text(
+                    f"세금분류: {VendorState.stmt_tax_type}",
+                    font_size="11px", color="#94a3b8",
+                ),
+                spacing="2", align="start",
+            ),
+            padding="12px", border="1px solid #e2e8f0", border_radius="8px",
+            bg="#f8fafc", width="100%",
+        ),
+
+        # ── 미수금 ──
+        _section_header("alert_circle", "미수금 (선택사항)"),
+        rx.hstack(
+            rx.vstack(
+                rx.text("미납금액(원)", **field_label),
+                rx.input(
+                    value=VendorState.overdue_amount,
+                    on_change=VendorState.set_overdue_amount,
+                    placeholder="0", size="2",
+                ),
+                spacing="1", flex="1",
+            ),
+            rx.vstack(
+                rx.text("미납개월", **field_label),
+                rx.input(
+                    value=VendorState.overdue_months,
+                    on_change=VendorState.set_overdue_months,
+                    placeholder="예: 2025-12, 2026-01", size="2",
+                ),
+                spacing="1", flex="1",
+            ),
+            rx.vstack(
+                rx.text("비고", **field_label),
+                rx.input(
+                    value=VendorState.overdue_memo,
+                    on_change=VendorState.set_overdue_memo,
+                    placeholder="메모", size="2",
+                ),
+                spacing="1", flex="2",
+            ),
+            spacing="2", width="100%", align="end",
+        ),
+
+        # ── 수급자 정보 ──
+        _section_header("user", "수급자 정보 (자동입력 + 편집)"),
+        rx.grid(
+            rx.vstack(
+                rx.text("수신 이메일", **field_label),
+                rx.input(value=VendorState.rcv_email, on_change=VendorState.set_rcv_email,
+                         placeholder="email@example.com", size="2"),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("대표자", **field_label),
+                rx.input(value=VendorState.rcv_rep, on_change=VendorState.set_rcv_rep, size="2"),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("사업자번호", **field_label),
+                rx.input(value=VendorState.rcv_biz_no, on_change=VendorState.set_rcv_biz_no, size="2"),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("전화", **field_label),
+                rx.input(value=VendorState.rcv_phone, on_change=VendorState.set_rcv_phone, size="2"),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("주소", **field_label),
+                rx.input(value=VendorState.rcv_address, on_change=VendorState.set_rcv_address, size="2"),
+                spacing="1",
+            ),
+            columns="2", spacing="3", width="100%",
+        ),
+
+        # ── 이메일 내용 편집 ──
+        _section_header("mail", "이메일 내용"),
+        rx.vstack(
+            rx.text("제목", **field_label),
+            rx.input(
+                value=VendorState.stmt_email_subject,
+                on_change=VendorState.set_stmt_email_subject,
+                size="2", width="100%",
+            ),
+            rx.text("본문", **field_label),
+            rx.text_area(
+                value=VendorState.stmt_email_body,
+                on_change=VendorState.set_stmt_email_body,
+                rows="10", width="100%",
+            ),
+            spacing="2", width="100%",
+        ),
+
+        # ── 액션 버튼 ──
+        rx.hstack(
+            rx.button(
+                "PDF 다운로드",
+                size="2", color_scheme="blue", variant="soft",
+                on_click=VendorState.download_stmt_detail_pdf,
+            ),
+            rx.button(
+                "이메일 발송",
+                size="2", color_scheme="green",
+                on_click=VendorState.send_stmt_detail_email,
+                loading=VendorState.email_sending,
+            ),
+            rx.button(
+                "상세SMS",
+                size="2", color_scheme="orange", variant="soft",
+                on_click=VendorState.send_stmt_detail_sms,
+                loading=VendorState.detail_sms_sending,
+            ),
+            spacing="2", flex_wrap="wrap",
+        ),
+        rx.cond(
+            VendorState.email_msg != "",
+            rx.text(
+                VendorState.email_msg,
+                font_size="11px",
+                color=rx.cond(VendorState.email_ok, "#22c55e", "#ef4444"),
+            ),
+        ),
+        rx.cond(
+            VendorState.detail_sms_msg != "",
+            rx.text(
+                VendorState.detail_sms_msg,
+                font_size="11px",
+                color=rx.cond(VendorState.detail_sms_ok, "#22c55e", "#ef4444"),
+            ),
+        ),
+
         spacing="4", width="100%", align="start",
     )
 
@@ -1878,9 +2332,13 @@ def _settlement_tab() -> rx.Component:
             VendorState.settle_active_subtab == "정산현황",
             _settle_summary_panel(),
             rx.cond(
-                VendorState.settle_active_subtab == "월말정산",
-                _settle_monthly_panel(),
-                _settle_expense_panel(),
+                VendorState.settle_active_subtab == "명세서발송",
+                _stmt_send_panel(),
+                rx.cond(
+                    VendorState.settle_active_subtab == "월말정산",
+                    _settle_monthly_panel(),
+                    _settle_expense_panel(),
+                ),
             ),
         ),
         spacing="4", width="100%", align="start",
@@ -2728,6 +3186,397 @@ def _settings_account_panel() -> rx.Component:
     )
 
 
+# ══════════════════════════════════════════════
+#  탭7: 수거분석 (P1 보강)
+# ══════════════════════════════════════════════
+
+def _analytics_subtab_btn(label: str) -> rx.Component:
+    is_active = VendorState.analytics_sub_tab == label
+    return rx.button(
+        label,
+        on_click=VendorState.set_analytics_subtab(label),
+        size="2",
+        variant=rx.cond(is_active, "solid", "outline"),
+        color_scheme=rx.cond(is_active, "blue", "gray"),
+    )
+
+
+def _an_kpi(title: str, value, suffix: str = "kg") -> rx.Component:
+    return rx.box(
+        rx.vstack(
+            rx.text(title, font_size="11px", color="#64748b", font_weight="600"),
+            rx.text(
+                value,
+                font_size="18px", font_weight="800", color="#0f172a",
+            ),
+            rx.text(suffix, font_size="10px", color="#94a3b8"),
+            spacing="1", align="start",
+        ),
+        padding="12px", border="1px solid #e2e8f0", border_radius="10px",
+        bg="#ffffff", flex="1", min_width="120px",
+    )
+
+
+def _an_item_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["item_type"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['weight']} kg", style={"font_size": "12px"}),
+        rx.table.cell(f"{row['ratio']}%", style={"font_size": "12px"}),
+    )
+
+
+def _an_anomaly_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["collect_date"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['total_kg']} kg", style={"font_size": "12px"}),
+        rx.table.cell(row["z_score"], style={"font_size": "12px", "color": "#ef4444"}),
+    )
+
+
+def _an_daily_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["date"], style={"font_size": "12px"}),
+        rx.table.cell(row["food_kg"], style={"font_size": "12px"}),
+        rx.table.cell(row["recycle_kg"], style={"font_size": "12px"}),
+        rx.table.cell(row["general_kg"], style={"font_size": "12px"}),
+        rx.table.cell(row["total"], style={"font_size": "12px", "font_weight": "600"}),
+    )
+
+
+def _an_weekday_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["weekday"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['avg_kg']} kg", style={"font_size": "12px"}),
+        rx.table.cell(f"{row['total_kg']} kg", style={"font_size": "12px"}),
+        rx.table.cell(row["count"], style={"font_size": "12px"}),
+    )
+
+
+def _an_season_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["season"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['total_kg']} kg", style={"font_size": "12px"}),
+        rx.table.cell(f"{row['avg_daily_kg']} kg", style={"font_size": "12px"}),
+    )
+
+
+def _an_school_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["school_name"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['total_kg']} kg", style={"font_size": "12px", "font_weight": "600"}),
+        rx.table.cell(row["food_kg"], style={"font_size": "12px"}),
+        rx.table.cell(row["recycle_kg"], style={"font_size": "12px"}),
+        rx.table.cell(row["count"], style={"font_size": "12px"}),
+    )
+
+
+def _an_driver_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["driver"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['total_kg']} kg", style={"font_size": "12px", "font_weight": "600"}),
+        rx.table.cell(row["count"], style={"font_size": "12px"}),
+        rx.table.cell(row["schools"], style={"font_size": "12px"}),
+    )
+
+
+def _an_temp_bin_row(row: dict) -> rx.Component:
+    return rx.table.row(
+        rx.table.cell(row["temp_range"], style={"font_size": "12px"}),
+        rx.table.cell(f"{row['avg_kg']} kg", style={"font_size": "12px"}),
+        rx.table.cell(row["count"], style={"font_size": "12px"}),
+    )
+
+
+def _an_summary_panel() -> rx.Component:
+    return rx.vstack(
+        rx.hstack(
+            rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
+                      on_change=VendorState.set_selected_year, size="2", width="95px"),
+            rx.text("년", font_size="13px", color="#64748b"),
+            rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
+                      on_change=VendorState.set_selected_month, size="2", width="72px"),
+            rx.text("월", font_size="13px", color="#64748b"),
+            rx.button(
+                "🔄 분석 실행",
+                size="2", color_scheme="blue",
+                on_click=VendorState.load_analytics,
+            ),
+            spacing="2", align="center",
+        ),
+        rx.cond(
+            VendorState.an_load_msg != "",
+            rx.text(VendorState.an_load_msg, font_size="11px", color="#64748b"),
+        ),
+        # KPI 행 1
+        rx.flex(
+            _an_kpi("총 수거량", VendorState.an_total_kg, "kg"),
+            _an_kpi("일평균", VendorState.an_avg_daily, "kg/일"),
+            _an_kpi("수거일수", VendorState.an_collection_days, "일"),
+            _an_kpi("거래처수", VendorState.an_school_count_str, "개"),
+            gap="12px", flex_wrap="wrap", width="100%",
+        ),
+        # KPI 행 2
+        rx.flex(
+            _an_kpi("음식물", VendorState.an_food_kg, "kg"),
+            _an_kpi("재활용", VendorState.an_recycle_kg, "kg"),
+            _an_kpi("일반", VendorState.an_general_kg, "kg"),
+            _an_kpi("Top 거래처", VendorState.an_top_school, f"{VendorState.an_top_school_kg} kg"),
+            gap="12px", flex_wrap="wrap", width="100%",
+        ),
+        rx.text(
+            f"전월대비: {VendorState.an_mom_change}",
+            font_size="13px", color="#3b82f6", font_weight="700",
+        ),
+        # 품목별 표
+        _section_header("pie_chart", "품목별"),
+        rx.cond(
+            VendorState.an_by_item.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("품목"),
+                            _table_header("수거량"),
+                            _table_header("비율"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_by_item, _an_item_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("데이터 없음"),
+        ),
+        # 이상치 탐지
+        _section_header("alert_triangle", "이상치 탐지", VendorState.an_anomaly_count),
+        rx.cond(
+            VendorState.an_anomaly_count > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("날짜"),
+                            _table_header("수거량"),
+                            _table_header("Z-Score"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_anomaly_rows, _an_anomaly_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("이상치 없음 (Z-Score |z|>2.0 기준)"),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
+def _an_daily_panel() -> rx.Component:
+    return rx.vstack(
+        _section_header("calendar_days", "일별 수거량"),
+        rx.cond(
+            VendorState.an_daily_rows.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("날짜"),
+                            _table_header("음식물"),
+                            _table_header("재활용"),
+                            _table_header("일반"),
+                            _table_header("합계"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_daily_rows, _an_daily_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("데이터 없음 (종합현황에서 [분석 실행])"),
+        ),
+        _section_header("calendar", "요일별 평균"),
+        rx.cond(
+            VendorState.an_weekday_rows.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("요일"),
+                            _table_header("평균"),
+                            _table_header("합계"),
+                            _table_header("건수"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_weekday_rows, _an_weekday_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("데이터 없음"),
+        ),
+        _section_header("snowflake", "계절별 분포"),
+        rx.cond(
+            VendorState.an_season_rows.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("계절"),
+                            _table_header("총수거량"),
+                            _table_header("일평균"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_season_rows, _an_season_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("데이터 없음"),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
+def _an_school_driver_panel() -> rx.Component:
+    return rx.vstack(
+        _section_header("building_2", "거래처별 Top 20"),
+        rx.cond(
+            VendorState.an_by_school.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("거래처"),
+                            _table_header("합계"),
+                            _table_header("음식물"),
+                            _table_header("재활용"),
+                            _table_header("건수"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_by_school, _an_school_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("데이터 없음 (종합현황에서 [분석 실행])"),
+        ),
+        _section_header("user", "기사별 실적"),
+        rx.cond(
+            VendorState.an_by_driver.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("기사"),
+                            _table_header("합계"),
+                            _table_header("건수"),
+                            _table_header("담당거래처"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_by_driver, _an_driver_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("데이터 없음"),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
+def _an_weather_panel() -> rx.Component:
+    label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    return rx.vstack(
+        _section_header("cloud_sun", "기상 상관분석 (기상청 ASOS)"),
+        rx.hstack(
+            rx.vstack(
+                rx.text("시작일", **label_st),
+                rx.input(
+                    type="date",
+                    value=VendorState.an_weather_start,
+                    on_change=VendorState.set_an_weather_start,
+                    size="2",
+                ),
+                spacing="1",
+            ),
+            rx.vstack(
+                rx.text("종료일", **label_st),
+                rx.input(
+                    type="date",
+                    value=VendorState.an_weather_end,
+                    on_change=VendorState.set_an_weather_end,
+                    size="2",
+                ),
+                spacing="1",
+            ),
+            rx.button(
+                "분석 실행",
+                size="2", color_scheme="blue",
+                on_click=VendorState.run_weather_analysis,
+                loading=VendorState.an_weather_running,
+            ),
+            spacing="3", align="end", flex_wrap="wrap",
+        ),
+        rx.cond(
+            VendorState.an_weather_msg != "",
+            rx.text(VendorState.an_weather_msg, font_size="12px", color="#64748b"),
+        ),
+        # 상관계수 KPI
+        rx.flex(
+            _an_kpi("기온 (r)", VendorState.an_weather_temp_corr, "°C"),
+            _an_kpi("강수 (r)", VendorState.an_weather_rain_corr, "mm"),
+            _an_kpi("습도 (r)", VendorState.an_weather_humidity_corr, "%"),
+            _an_kpi("풍속 (r)", VendorState.an_weather_wind_corr, "m/s"),
+            gap="12px", flex_wrap="wrap", width="100%",
+        ),
+        # 우천 vs 맑음
+        _section_header("cloud_rain", "우천 vs 맑음"),
+        rx.flex(
+            _an_kpi("우천 평균", VendorState.an_weather_rainy_avg, "kg/일"),
+            _an_kpi("맑은날 평균", VendorState.an_weather_clear_avg, "kg/일"),
+            _an_kpi("차이", VendorState.an_weather_diff_pct, "%"),
+            gap="12px", flex_wrap="wrap", width="100%",
+        ),
+        # 온도 구간별
+        _section_header("thermometer", "온도 구간별"),
+        rx.cond(
+            VendorState.an_weather_temp_bins.length() > 0,
+            _table_box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            _table_header("구간"),
+                            _table_header("평균 수거량"),
+                            _table_header("일수"),
+                        ),
+                    ),
+                    rx.table.body(rx.foreach(VendorState.an_weather_temp_bins, _an_temp_bin_row)),
+                    width="100%",
+                ),
+            ),
+            _empty_state("분석 실행 후 표시됩니다"),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
+def _analytics_tab() -> rx.Component:
+    return rx.vstack(
+        _section_header("trending_up", "수거 분석"),
+        rx.hstack(
+            *[_analytics_subtab_btn(label) for label in ANALYTICS_SUBTABS],
+            spacing="2", flex_wrap="wrap",
+        ),
+        rx.cond(
+            VendorState.analytics_sub_tab == "종합현황",
+            _an_summary_panel(),
+            rx.cond(
+                VendorState.analytics_sub_tab == "일별요일별",
+                _an_daily_panel(),
+                rx.cond(
+                    VendorState.analytics_sub_tab == "거래처기사별",
+                    _an_school_driver_panel(),
+                    _an_weather_panel(),
+                ),
+            ),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
 def _settings_tab() -> rx.Component:
     return rx.vstack(
         _section_header("settings", "설정"),
@@ -2790,7 +3639,11 @@ def _tab_content() -> rx.Component:
                         rx.cond(
                             VendorState.active_tab == "안전관리",
                             _safety_tab(),
-                            _settings_tab(),
+                            rx.cond(
+                                VendorState.active_tab == "수거분석",
+                                _analytics_tab(),
+                                _settings_tab(),
+                            ),
                         ),
                     ),
                 ),

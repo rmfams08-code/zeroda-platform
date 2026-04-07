@@ -88,6 +88,54 @@ def _weather_section() -> rx.Component:
     )
 
 
+def _schoolzone_section() -> rx.Component:
+    """스쿨존 알림 토글"""
+    return rx.box(
+        rx.hstack(
+            rx.text("🚸", font_size="20px"),
+            rx.vstack(
+                rx.text("스쿨존 알림", font_weight="600", font_size="14px"),
+                rx.text(
+                    "스쿨존 구역 진입 시 서행 알림",
+                    font_size="12px",
+                    color="#64748b",
+                ),
+                spacing="0",
+                flex="1",
+            ),
+            rx.switch(
+                checked=DriverState.schoolzone_enabled,
+                on_change=DriverState.toggle_schoolzone,
+            ),
+            align="center",
+            spacing="3",
+            width="100%",
+        ),
+        rx.cond(
+            DriverState.schoolzone_enabled,
+            rx.box(
+                rx.text(
+                    "🚨 스쿨존 진입 시 속도를 30km/h 이하로 줄이세요!",
+                    font_size="13px",
+                    font_weight="600",
+                    color="#dc2626",
+                ),
+                bg="#fef2f2",
+                border="1px solid #fecaca",
+                border_radius="8px",
+                padding="8px 12px",
+                margin_top="8px",
+                width="100%",
+            ),
+        ),
+        bg="white",
+        border_radius="12px",
+        padding="12px 16px",
+        box_shadow="0 2px 8px rgba(0,0,0,0.06)",
+        width="100%",
+    )
+
+
 def _safety_check_item(item_id: str, item_text: str) -> rx.Component:
     """개별 안전점검 항목"""
     return rx.hstack(
@@ -247,6 +295,175 @@ def _safety_section() -> rx.Component:
     )
 
 
+def _schedule_school_card(s: dict) -> rx.Component:
+    """일정 학교 카드 (완료/미완료 표시 + 지도 링크)"""
+    school_name = s["school_name"]
+    items_text = s["items"]
+    address = s["address"]
+    is_done = DriverState.collected_schools.contains(school_name)
+    return rx.vstack(
+        rx.hstack(
+            rx.cond(
+                is_done,
+                rx.icon("circle_check", color="#16a34a", size=16),
+                rx.icon("circle", color="#d1d5db", size=16),
+            ),
+            rx.vstack(
+                rx.hstack(
+                    rx.text(s["icon"], font_size="14px"),
+                    rx.text(
+                        school_name,
+                        font_size="14px",
+                        font_weight="600",
+                        color=rx.cond(is_done, "#16a34a", "#374151"),
+                    ),
+                    spacing="1",
+                    align="center",
+                ),
+                rx.text(
+                    items_text,
+                    font_size="12px",
+                    color="#64748b",
+                ),
+                spacing="0",
+                flex="1",
+            ),
+            rx.cond(
+                is_done,
+                rx.badge("완료", color_scheme="green", size="1"),
+                rx.badge("미수거", color_scheme="gray", variant="outline", size="1"),
+            ),
+            width="100%",
+            align="center",
+            spacing="3",
+        ),
+        # ── 지도 네비게이션 링크 ──
+        rx.cond(
+            address != "",
+            rx.hstack(
+                rx.link(
+                    rx.badge("🗺️카카오", color_scheme="yellow", size="1"),
+                    href="https://map.kakao.com/link/search/" + address,
+                    is_external=True,
+                ),
+                rx.link(
+                    rx.badge("🚗T맵", color_scheme="blue", size="1"),
+                    href="https://tmap.life/search?name=" + address,
+                    is_external=True,
+                ),
+                rx.link(
+                    rx.badge("🟢네이버", color_scheme="green", size="1"),
+                    href="https://map.naver.com/v5/search/" + address,
+                    is_external=True,
+                ),
+                spacing="2",
+                width="100%",
+            ),
+        ),
+        width="100%",
+        padding="10px 12px",
+        bg=rx.cond(is_done, "#f0fdf4", "white"),
+        border=rx.cond(is_done, "1px solid #bbf7d0", "1px solid #e5e7eb"),
+        border_radius="8px",
+        spacing="2",
+    )
+
+
+def _schedule_section() -> rx.Component:
+    """수거일정 섹션 — 날짜 선택 → 배정 학교 목록"""
+    return rx.vstack(
+        # 헤더
+        rx.hstack(
+            rx.icon("calendar", size=20, color="#1a73e8"),
+            rx.text("수거일정", font_weight="700", font_size="16px"),
+            rx.spacer(),
+            rx.badge(
+                DriverState.schedule_total.to(str) + "개 거래처",
+                color_scheme="blue",
+                size="1",
+            ),
+        ),
+
+        # 날짜 선택
+        rx.hstack(
+            rx.input(
+                value=DriverState.schedule_date,
+                on_change=DriverState.set_schedule_date,
+                type="date",
+                flex="1",
+                size="2",
+            ),
+            rx.button(
+                "오늘",
+                on_click=DriverState.set_schedule_today,
+                size="2",
+                variant="outline",
+            ),
+            width="100%",
+            spacing="2",
+        ),
+
+        # 선택 날짜 표시
+        rx.text(
+            DriverState.schedule_date_display,
+            font_size="13px",
+            color="#64748b",
+        ),
+
+        # 일정이 있을 때
+        rx.cond(
+            DriverState.schedule_total > 0,
+            rx.vstack(
+                # 진행 요약
+                rx.hstack(
+                    rx.text(
+                        "완료 " + DriverState.schedule_done_schools.length().to(str)
+                        + " / 전체 " + DriverState.schedule_total.to(str),
+                        font_size="13px",
+                        font_weight="600",
+                        color="#374151",
+                    ),
+                    rx.spacer(),
+                    rx.cond(
+                        DriverState.schedule_remaining_schools.length() == 0,
+                        rx.badge("전체 완료", color_scheme="green", size="1"),
+                        rx.badge("진행 중", color_scheme="orange", size="1"),
+                    ),
+                    width="100%",
+                ),
+                # 학교 카드 목록
+                rx.foreach(
+                    DriverState.schedule_schools,
+                    _schedule_school_card,
+                ),
+                spacing="2",
+                width="100%",
+            ),
+            # 일정 없을 때
+            rx.box(
+                rx.text(
+                    "해당 날짜에 수거 일정이 없습니다.",
+                    font_size="13px",
+                    color="#64748b",
+                    text_align="center",
+                ),
+                bg="#f8fafc",
+                border="1px dashed #d1d5db",
+                border_radius="8px",
+                padding="20px",
+                width="100%",
+            ),
+        ),
+
+        spacing="3",
+        width="100%",
+        bg="white",
+        border_radius="12px",
+        padding="16px",
+        box_shadow="0 2px 8px rgba(0,0,0,0.06)",
+    )
+
+
 def _collection_section() -> rx.Component:
     """수거입력 섹션 — 진행률 + 완료/미완료 거래처 + 삭제 기능"""
     return rx.vstack(
@@ -314,34 +531,230 @@ def _collection_section() -> rx.Component:
             width="100%",
         ),
 
-        # ── 품목 선택 ──
-        rx.text("품목", font_size="13px", font_weight="600", color="#374151"),
-        rx.radio_group(
-            ["음식물", "재활용", "일반"],
-            value=DriverState.collection_item_type,
-            on_change=DriverState.set_collection_item_type,
-            direction="row",
-            spacing="4",
+        # ── 음성입력 ──
+        rx.hstack(
+            rx.button(
+                "🎤 음성으로 수거량 입력",
+                size="1",
+                variant="outline",
+                color_scheme="purple",
+                on_click=rx.call_script(
+                    "new Promise((resolve) => {"
+                    "  try {"
+                    "    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
+                    "    if (!SR) { resolve('지원안됨'); return; }"
+                    "    const r = new SR();"
+                    "    r.lang = 'ko-KR'; r.maxAlternatives = 1;"
+                    "    r.onresult = (e) => resolve(e.results[0][0].transcript);"
+                    "    r.onerror = () => resolve('');"
+                    "    r.onend = () => {};"
+                    "    r.start();"
+                    "  } catch(e) { resolve('지원안됨'); }"
+                    "})",
+                    callback=DriverState.handle_voice_result,
+                ),
+            ),
+            rx.cond(
+                DriverState.voice_result != "",
+                rx.text(DriverState.voice_result, font_size="11px", color="#7c3aed"),
+            ),
+            width="100%",
+            spacing="2",
+            align="center",
         ),
 
-        # ── 수거량 입력 ──
-        rx.text("수거량 (kg)", font_size="13px", font_weight="600", color="#374151"),
+        # ── GPS 위치 저장 ──
+        rx.hstack(
+            rx.button(
+                "📍 현재 위치 저장",
+                size="1",
+                variant="outline",
+                on_click=rx.call_script(
+                    "new Promise((resolve) => {"
+                    "  navigator.geolocation.getCurrentPosition("
+                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+                    "    () => resolve('0,0')"
+                    "  );"
+                    "})",
+                    callback=DriverState.save_gps_location,
+                ),
+            ),
+            rx.cond(
+                DriverState.gps_msg != "",
+                rx.text(DriverState.gps_msg, font_size="11px", color="#64748b"),
+            ),
+            width="100%",
+            spacing="2",
+            align="center",
+        ),
+
+        # ── 날짜별 다중행 수거입력 ──
+        rx.hstack(
+            rx.text("날짜별 수거량", font_size="13px", font_weight="600", color="#374151"),
+            rx.spacer(),
+            rx.button(
+                "＋ 날짜 추가",
+                on_click=DriverState.add_collection_row,
+                size="1",
+                variant="outline",
+            ),
+            width="100%",
+        ),
+        rx.foreach(
+            DriverState.collection_rows,
+            lambda row, idx: rx.hstack(
+                rx.input(
+                    value=row["date"],
+                    on_change=lambda v: DriverState.set_row_date([idx, v]),
+                    type="date",
+                    size="2",
+                    width="120px",
+                ),
+                rx.select(
+                    ["음식물", "재활용", "일반"],
+                    value=row["item"],
+                    on_change=lambda v: DriverState.set_row_item([idx, v]),
+                    size="2",
+                    width="90px",
+                ),
+                rx.input(
+                    placeholder="kg",
+                    value=row["weight"],
+                    on_change=lambda v: DriverState.set_row_weight([idx, v]),
+                    type="number",
+                    input_mode="decimal",
+                    size="2",
+                    flex="1",
+                ),
+                rx.cond(
+                    idx > 0,
+                    rx.icon_button(
+                        rx.icon("trash_2", size=14),
+                        size="1",
+                        variant="ghost",
+                        color_scheme="red",
+                        on_click=DriverState.remove_collection_row(idx),
+                    ),
+                    rx.box(width="28px"),
+                ),
+                width="100%",
+                spacing="2",
+                align="center",
+            ),
+        ),
+
+        # ── 단가 + 예상금액 ──
+        rx.hstack(
+            rx.vstack(
+                rx.text("단가 (원/kg)", font_size="13px", font_weight="600", color="#374151"),
+                rx.input(
+                    placeholder="예: 120",
+                    value=DriverState.collection_unit_price,
+                    on_change=DriverState.set_collection_unit_price,
+                    type="number",
+                    input_mode="decimal",
+                    width="100%",
+                    size="3",
+                ),
+                spacing="1",
+                flex="1",
+            ),
+            rx.vstack(
+                rx.text("예상금액", font_size="13px", font_weight="600", color="#374151"),
+                rx.box(
+                    rx.text(
+                        DriverState.estimated_amount,
+                        font_size="16px",
+                        font_weight="700",
+                        color="#1a73e8",
+                    ),
+                    bg="#eff6ff",
+                    border_radius="8px",
+                    padding="8px 12px",
+                    width="100%",
+                    text_align="center",
+                ),
+                spacing="1",
+                flex="1",
+            ),
+            width="100%",
+            spacing="3",
+        ),
+
+        # ── 수거시간 ──
+        rx.text("수거시간", font_size="13px", font_weight="600", color="#374151"),
         rx.input(
-            placeholder="예: 52.5",
-            value=DriverState.collection_weight,
-            on_change=DriverState.set_collection_weight,
-            type="number",
+            value=DriverState.collection_time,
+            on_change=DriverState.set_collection_time,
+            type="time",
             width="100%",
             size="3",
         ),
 
-        # ── 저장 버튼 ──
-        rx.button(
-            "📥 수거 저장",
-            on_click=DriverState.save_collection_entry,
+        # ── 메모 ──
+        rx.text("메모", font_size="13px", font_weight="600", color="#374151"),
+        rx.text_area(
+            placeholder="수거 관련 메모 (선택)",
+            value=DriverState.collection_memo,
+            on_change=DriverState.set_collection_memo,
             width="100%",
-            size="3",
-            color_scheme="blue",
+            rows="2",
+        ),
+
+        # ── 사진 촬영/첨부 (최대 3장) ──
+        rx.text("수거 사진 (최대 3장)", font_size="13px", font_weight="600", color="#374151"),
+        rx.upload(
+            rx.button("📷 사진 선택/촬영", size="2", variant="outline", width="100%"),
+            id="collection_photo",
+            accept={"image/*": [".jpg", ".jpeg", ".png"]},
+            max_files=3,
+            multiple=True,
+        ),
+        rx.button(
+            "📤 사진 업로드",
+            on_click=DriverState.handle_photo_upload(rx.upload_files(upload_id="collection_photo")),
+            size="2",
+            variant="outline",
+            width="100%",
+        ),
+        rx.cond(
+            DriverState.photo_upload_msg != "",
+            rx.text(
+                DriverState.photo_upload_msg,
+                font_size="12px",
+                color=rx.cond(
+                    DriverState.photo_upload_msg.contains("완료"), "#16a34a", "#dc2626",
+                ),
+            ),
+        ),
+        rx.cond(
+            DriverState.today_photo_count > 0,
+            rx.text(
+                "오늘 사진 " + DriverState.today_photo_count.to(str) + "장 등록됨",
+                font_size="12px",
+                color="#64748b",
+            ),
+        ),
+
+        # ── 저장 버튼 2개: 임시저장 / 수거완료 ──
+        rx.hstack(
+            rx.button(
+                "📋 임시저장",
+                on_click=DriverState.save_collection_draft,
+                flex="1",
+                size="3",
+                variant="outline",
+                color_scheme="gray",
+            ),
+            rx.button(
+                "✅ 수거완료·본사전송",
+                on_click=DriverState.save_collection_entry,
+                flex="1",
+                size="3",
+                color_scheme="blue",
+            ),
+            width="100%",
+            spacing="2",
         ),
 
         # ── 저장/삭제 메시지 ──
@@ -369,6 +782,11 @@ def _collection_section() -> rx.Component:
                         rx.text(c["school_name"], font_size="13px", flex="1"),
                         rx.badge(c["item_type"], size="1"),
                         rx.text(f'{c["weight"]}kg', font_size="13px", font_weight="600"),
+                        rx.cond(
+                            c["status"] == "draft",
+                            rx.badge("📋임시", color_scheme="gray", variant="outline", size="1"),
+                            rx.badge("✅전송", color_scheme="green", size="1"),
+                        ),
                         rx.icon_button(
                             rx.icon("trash_2", size=14),
                             size="1",
@@ -376,6 +794,129 @@ def _collection_section() -> rx.Component:
                             color_scheme="red",
                             on_click=DriverState.delete_collection_entry(c["rowid"]),
                         ),
+                        width="100%",
+                        padding_y="4px",
+                        border_bottom="1px solid #f1f5f9",
+                        align="center",
+                    ),
+                ),
+                width="100%",
+                spacing="1",
+            ),
+        ),
+
+        spacing="3",
+        width="100%",
+        bg="white",
+        border_radius="12px",
+        padding="16px",
+        box_shadow="0 2px 8px rgba(0,0,0,0.06)",
+    )
+
+
+def _processing_section() -> rx.Component:
+    """계근표(처리확인) 섹션"""
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("scale", size=20, color="#1a73e8"),
+            rx.text("처리확인 (계근표)", font_weight="700", font_size="16px"),
+            rx.spacer(),
+            rx.cond(
+                DriverState.today_proc_count > 0,
+                rx.badge(
+                    "오늘 " + DriverState.today_proc_count.to(str) + "건",
+                    color_scheme="blue",
+                    size="1",
+                ),
+            ),
+        ),
+        rx.text(
+            "처리장 도착 후 계근표 처리량을 입력하세요.",
+            font_size="12px",
+            color="#64748b",
+        ),
+
+        # ── 처리량 + 처리장명 ──
+        rx.hstack(
+            rx.vstack(
+                rx.text("처리량 (kg)", font_size="13px", font_weight="600", color="#374151"),
+                rx.input(
+                    placeholder="예: 500",
+                    value=DriverState.proc_weight,
+                    on_change=DriverState.set_proc_weight,
+                    type="number",
+                    input_mode="decimal",
+                    width="100%",
+                    size="3",
+                ),
+                spacing="1",
+                flex="1",
+            ),
+            rx.vstack(
+                rx.text("처리장명", font_size="13px", font_weight="600", color="#374151"),
+                rx.input(
+                    placeholder="예: ○○자원순환센터",
+                    value=DriverState.proc_location,
+                    on_change=DriverState.set_proc_location,
+                    width="100%",
+                    size="3",
+                ),
+                spacing="1",
+                flex="1",
+            ),
+            width="100%",
+            spacing="3",
+        ),
+
+        # ── 메모 ──
+        rx.text("메모 (선택)", font_size="13px", font_weight="600", color="#374151"),
+        rx.input(
+            placeholder="특이사항",
+            value=DriverState.proc_memo,
+            on_change=DriverState.set_proc_memo,
+            width="100%",
+            size="3",
+        ),
+
+        # ── 전송 버튼 ──
+        rx.button(
+            "📤 처리확인 전송",
+            on_click=DriverState.save_processing,
+            width="100%",
+            size="3",
+            color_scheme="blue",
+        ),
+
+        # ── 메시지 ──
+        rx.cond(
+            DriverState.proc_save_msg != "",
+            rx.text(
+                DriverState.proc_save_msg,
+                font_size="13px",
+                color=rx.cond(
+                    DriverState.proc_save_msg.contains("완료"),
+                    "#16a34a",
+                    "#dc2626",
+                ),
+            ),
+        ),
+
+        # ── 오늘 처리 이력 ──
+        rx.cond(
+            DriverState.today_proc_count > 0,
+            rx.vstack(
+                rx.text("오늘 처리확인 이력", font_size="13px", font_weight="600", color="#374151"),
+                rx.foreach(
+                    DriverState.today_processing,
+                    lambda p: rx.hstack(
+                        rx.text(p["confirm_time"], font_size="13px", color="#64748b"),
+                        rx.text(p["location_name"], font_size="13px", flex="1"),
+                        rx.text(
+                            p["total_weight"].to(str) + "kg",
+                            font_size="13px",
+                            font_weight="600",
+                        ),
+                        rx.badge("📤전송", color_scheme="blue", size="1"),
                         width="100%",
                         padding_y="4px",
                         border_bottom="1px solid #f1f5f9",
@@ -460,8 +1001,11 @@ def driver_page() -> rx.Component:
         rx.vstack(
             _header(),
             _weather_section(),
+            _schoolzone_section(),
             _safety_section(),
+            _schedule_section(),
             _collection_section(),
+            _processing_section(),
             _checkout_section(),
 
             # 로그아웃

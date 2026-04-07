@@ -246,18 +246,28 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
 
 def save_collection(
     vendor: str, driver: str, school_name: str,
-    collect_date: str, item_type: str, weight: float
+    collect_date: str, item_type: str, weight: float,
+    status: str = "submitted",
+    unit_price: float = 0, memo: str = "", collect_time: str = "",
 ) -> bool:
-    """수거 데이터 저장"""
-    return db_insert("real_collection", {
+    """수거 데이터 저장 (status: draft / submitted)"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data = {
         "vendor": vendor,
         "driver": driver,
         "school_name": school_name,
         "collect_date": collect_date,
         "item_type": item_type,
         "weight": weight,
-        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    })
+        "unit_price": unit_price,
+        "amount": round(weight * unit_price, 0),
+        "collect_time": collect_time,
+        "memo": memo,
+        "status": status,
+        "submitted_at": now if status == "submitted" else "",
+        "created_at": now,
+    }
+    return db_insert("real_collection", data)
 
 
 def delete_collection(rowid: int) -> bool:
@@ -272,6 +282,111 @@ def delete_collection(rowid: int) -> bool:
         return False
     finally:
         conn.close()
+
+
+def update_collection_row(
+    row_id: int, weight: float, unit_price: float,
+    item_type: str = "", memo: str = "",
+) -> bool:
+    """수거 기록 수정 (P1 복원 — HQ 편집용).
+
+    weight/unit_price 변경 시 amount 자동 재계산.
+    item_type/memo 는 빈 문자열이면 미변경.
+    """
+    conn = get_db()
+    try:
+        cur_row = conn.execute(
+            "SELECT item_type, memo FROM real_collection WHERE id=?", (row_id,),
+        ).fetchone()
+        if not cur_row:
+            return False
+        cur_d = dict(cur_row)
+        new_item = item_type if item_type else cur_d.get("item_type", "")
+        new_memo = memo if memo else cur_d.get("memo", "")
+        new_amount = round(float(weight or 0) * float(unit_price or 0), 0)
+        conn.execute(
+            "UPDATE real_collection SET weight=?, unit_price=?, amount=?, "
+            "item_type=?, memo=? WHERE id=?",
+            (float(weight or 0), float(unit_price or 0), new_amount,
+             new_item, new_memo, row_id),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"수거 수정 실패: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def bulk_insert_collections(rows: list[dict], uploader: str = "admin") -> tuple[int, int]:
+    """CSV/Excel 업로드로 real_collection 일괄 등록 (P1 복원).
+
+    각 row 는 다음 키 사용 (한글/영문 둘 다 지원하지 않으므로 매핑 후 호출):
+        vendor, school_name, collect_date, item_type, weight, unit_price, driver, memo
+
+    중복 체크: 동일 (vendor, school_name, collect_date, item_type, driver) 가
+    이미 존재하면 건너뜀 → 'skipped' 카운트 (실패 카운트 별도).
+    Returns: (등록건수, 실패+중복건수)
+    """
+    from datetime import datetime as _dt
+    if not rows:
+        return 0, 0
+    conn = get_db()
+    success = 0
+    fail = 0
+    try:
+        now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        for r in rows:
+            try:
+                vendor = str(r.get("vendor", "") or "").strip()
+                school = str(r.get("school_name", "") or "").strip()
+                cdate  = str(r.get("collect_date", "") or "").strip()[:10]
+                item   = str(r.get("item_type", "음식물") or "음식물").strip()
+                drv    = str(r.get("driver", "") or "").strip()
+                memo   = str(r.get("memo", "") or "").strip()
+                try:
+                    w = float(r.get("weight", 0) or 0)
+                except (ValueError, TypeError):
+                    w = 0.0
+                try:
+                    up = float(r.get("unit_price", 0) or 0)
+                except (ValueError, TypeError):
+                    up = 0.0
+
+                if not vendor or not school or not cdate:
+                    fail += 1
+                    continue
+
+                # 중복 체크
+                dup = conn.execute(
+                    "SELECT id FROM real_collection WHERE vendor=? AND school_name=? "
+                    "AND collect_date=? AND item_type=? AND driver=? LIMIT 1",
+                    (vendor, school, cdate, item, drv),
+                ).fetchone()
+                if dup:
+                    fail += 1
+                    continue
+
+                conn.execute(
+                    "INSERT INTO real_collection "
+                    "(vendor, school_name, collect_date, item_type, weight, "
+                    "unit_price, amount, driver, memo, status, submitted_at, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        vendor, school, cdate, item, w, up,
+                        round(w * up, 0), drv, memo, "confirmed",
+                        now, now,
+                    ),
+                )
+                success += 1
+            except Exception as e:
+                logger.warning(f"bulk_insert_collections row 실패: {e}")
+                fail += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return success, fail
 
 
 def get_driver_checkout_log(vendor: str, driver: str, checkout_date: str) -> list[dict]:
@@ -299,6 +414,139 @@ def save_driver_checkout(vendor: str, driver: str, checkout_date: str) -> bool:
         "checkout_time": datetime.now().strftime("%H:%M:%S"),
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     })
+
+
+# ── 계근표(처리확인) ──
+
+def get_today_processing(vendor: str, driver: str, confirm_date: str) -> list[dict]:
+    """오늘 처리확인 기록 조회"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT rowid, * FROM processing_confirm "
+            "WHERE vendor=? AND driver=? AND confirm_date=? "
+            "ORDER BY created_at DESC",
+            (vendor, driver, confirm_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning(f"get_today_processing error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def save_processing_confirm(
+    vendor: str, driver: str,
+    total_weight: float, location_name: str, memo: str = "",
+) -> bool:
+    """계근표 처리확인 저장"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return db_insert("processing_confirm", {
+        "vendor": vendor,
+        "driver": driver,
+        "confirm_date": datetime.now().strftime("%Y-%m-%d"),
+        "confirm_time": datetime.now().strftime("%H:%M:%S"),
+        "total_weight": total_weight,
+        "location_name": location_name,
+        "memo": memo,
+        "status": "submitted",
+        "created_at": now,
+    })
+
+
+# ── GPS 위치 저장 ──
+
+def save_customer_gps(vendor: str, name: str, lat: float, lng: float) -> bool:
+    """거래처 GPS 좌표 업데이트"""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE customer_info SET latitude=?, longitude=? WHERE vendor=? AND name=?",
+            (lat, lng, vendor, name),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"save_customer_gps error: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+# ── 사진 기록 ──
+
+def save_photo_record(
+    vendor: str, driver: str, school_name: str,
+    photo_type: str, photo_url: str, collect_date: str,
+    memo: str = "",
+) -> bool:
+    """사진 메타데이터를 photo_records 테이블에 저장"""
+    return db_insert("photo_records", {
+        "vendor": vendor,
+        "driver": driver,
+        "school_name": school_name,
+        "photo_type": photo_type,
+        "photo_url": photo_url,
+        "collect_date": collect_date,
+        "memo": memo,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+
+def get_photo_records_today(
+    vendor: str, driver: str, collect_date: str
+) -> list[dict]:
+    """오늘 사진 기록 조회"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM photo_records "
+            "WHERE vendor=? AND driver=? AND collect_date=? "
+            "ORDER BY created_at DESC",
+            (vendor, driver, collect_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning(f"get_photo_records_today error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_photo_records_all(
+    vendor: str = "",
+    photo_type: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 200,
+) -> list[dict]:
+    """본사관리자용 현장사진 조회 (필터 + LIMIT)"""
+    conn = get_db()
+    try:
+        sql = "SELECT * FROM photo_records WHERE 1=1"
+        params: list = []
+        if vendor:
+            sql += " AND vendor=?"
+            params.append(vendor)
+        if photo_type:
+            sql += " AND photo_type=?"
+            params.append(photo_type)
+        if date_from:
+            sql += " AND collect_date>=?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND collect_date<=?"
+            params.append(date_to)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(int(limit))
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning(f"get_photo_records_all error: {e}")
+        return []
+    finally:
+        conn.close()
 
 
 # ── 업체관리자 대시보드 관련 ──
@@ -770,6 +1018,130 @@ def get_schedules(vendor: str, month: str = None) -> list[dict]:
         return result
     except Exception as e:
         logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
+def get_driver_schedule_schools(
+    vendor: str, driver: str, sel_date: str
+) -> list[dict]:
+    """기사 수거일정: 선택 날짜에 배정된 학교 목록 반환.
+
+    schedules 테이블(요일 기반) + meal_schedules 테이블(급식일정 필터)을
+    조합하여, 해당 날짜에 실제 수거해야 할 학교 리스트를 돌려준다.
+
+    Returns:
+        [{"school_name": "...", "items": "음식물, 재활용", "vendor": "..."}]
+    """
+    import json as _json
+    from datetime import date as _date
+
+    conn = get_db()
+    try:
+        # ── 선택일 파싱 ──
+        try:
+            d = _date.fromisoformat(sel_date)
+        except (ValueError, TypeError):
+            return []
+        weekday_map = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금", 5: "토", 6: "일"}
+        sel_wd = weekday_map[d.weekday()]
+        sel_month = sel_date[:7]  # YYYY-MM
+
+        # ── schedules 조회 (해당 월) ──
+        rows = conn.execute(
+            "SELECT * FROM schedules WHERE vendor=? AND month LIKE ?",
+            (vendor, f"{sel_month}%"),
+        ).fetchall()
+
+        # ── meal_schedules 조회 (해당 월, 급식일정 필터용) ──
+        ms_rows = conn.execute(
+            "SELECT school_name, collect_date, status FROM meal_schedules "
+            "WHERE school_name IN "
+            "(SELECT name FROM customer_info WHERE vendor=?) "
+            "AND meal_date LIKE ?",
+            (vendor, f"{sel_month}%"),
+        ).fetchall()
+
+        meal_managed = set()
+        meal_approved_dates: dict[str, set] = {}
+        for ms in ms_rows:
+            ms_d = dict(ms)
+            sn = ms_d.get("school_name", "")
+            if sn:
+                meal_managed.add(sn)
+                if ms_d.get("status") == "approved":
+                    cd = str(ms_d.get("collect_date", ""))
+                    if cd:
+                        meal_approved_dates.setdefault(sn, set()).add(cd)
+
+        # ── 거래처 정보 조회 (주소 + 유형) ──
+        addr_rows = conn.execute(
+            "SELECT name, address, cust_type FROM customer_info WHERE vendor=?",
+            (vendor,),
+        ).fetchall()
+        addr_map = {}
+        type_map = {}
+        for ar in addr_rows:
+            ard = dict(ar)
+            nm = ard.get("name", "")
+            addr_map[nm] = str(ard.get("address", ard.get("\uc8fc\uc18c", "")) or "")
+            ct = str(ard.get("cust_type", ard.get("\uad6c\ubd84", "")) or "")
+            type_map[nm] = ct
+
+        # ── 학교 필터링 ──
+        result: list[dict] = []
+        seen: set[str] = set()
+
+        for r in rows:
+            rd = dict(r)
+            # 기사 매칭
+            rd_driver = str(rd.get("driver", "")).strip()
+            if rd_driver and rd_driver != driver:
+                continue
+            # 요일 매칭
+            try:
+                wds = _json.loads(rd["weekdays"]) if isinstance(rd.get("weekdays"), str) else (rd.get("weekdays") or [])
+            except Exception:
+                wds = []
+            if sel_wd not in wds:
+                continue
+            # 학교 파싱
+            try:
+                schools = _json.loads(rd["schools"]) if isinstance(rd.get("schools"), str) else (rd.get("schools") or [])
+            except Exception:
+                schools = []
+            # 품목 파싱
+            try:
+                items = _json.loads(rd["items"]) if isinstance(rd.get("items"), str) else (rd.get("items") or [])
+            except Exception:
+                items = []
+
+            for sch in schools:
+                if sch in seen:
+                    continue
+                # 식단기반 필터
+                if sch in meal_managed:
+                    approved = meal_approved_dates.get(sch, set())
+                    if sel_date not in approved:
+                        continue
+                seen.add(sch)
+                ct = type_map.get(sch, "")
+                # 아이콘 매핑
+                icon_map = {"학교": "🏫", "기업": "🏢", "관공서": "🏛️", "일반업장": "🍽️"}
+                icon = icon_map.get(ct, "🏫")
+                result.append({
+                    "school_name": sch,
+                    "items": ", ".join(items) if items else "-",
+                    "vendor": rd.get("vendor", ""),
+                    "address": addr_map.get(sch, ""),
+                    "cust_type": ct,
+                    "icon": icon,
+                })
+
+        return result
+    except Exception as e:
+        logger.warning(f"get_driver_schedule_schools error: {e}")
         return []
     finally:
         conn.close()
@@ -1963,6 +2335,170 @@ def save_neis_meal_schedule(
     })
 
 
+# ── 급식일정 승인 워크플로우 (P1 복원) ──
+
+def get_meal_schedules(
+    vendor: str = "", status: str = "", year_month: str = ""
+) -> list[dict]:
+    """meal_schedules 조회 (본사관리자 — 승인 워크플로우용)
+
+    status 가 비어있으면 전체, 'draft'/'approved'/'cancelled' 필터 가능.
+    year_month 는 meal_date 기준 YYYY-MM.
+    """
+    conn = get_db()
+    try:
+        clauses: list = []
+        params: list = []
+        if vendor:
+            clauses.append("vendor = ?")
+            params.append(vendor)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if year_month:
+            clauses.append("meal_date LIKE ?")
+            params.append(f"{year_month}%")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = conn.execute(
+            f"SELECT * FROM meal_schedules{where} "
+            f"ORDER BY meal_date ASC, school_name ASC LIMIT 1000",
+            params,
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            result.append({
+                "id":           str(d.get("id", "") or ""),
+                "vendor":       str(d.get("vendor", "") or ""),
+                "school_name":  str(d.get("school_name", "") or ""),
+                "meal_date":    str(d.get("meal_date", "") or ""),
+                "collect_date": str(d.get("collect_date", "") or ""),
+                "item_type":    str(d.get("item_type", "") or ""),
+                "status":       str(d.get("status", "") or ""),
+                "uploaded_by":  str(d.get("uploaded_by", "") or ""),
+                "approved_by":  str(d.get("approved_by", "") or ""),
+                "note":         str(d.get("note", "") or ""),
+            })
+        return result
+    except Exception as e:
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
+def approve_meal_schedules(
+    ids: list, approved_by: str = "admin",
+    driver: str = "", collect_offset: int = 0,
+) -> tuple[int, int]:
+    """급식일정 승인 → meal_schedules.status='approved' + schedules 자동 생성
+
+    Returns (성공건수, 실패건수)
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    if not ids:
+        return 0, 0
+    conn = get_db()
+    success = 0
+    fail = 0
+    try:
+        for raw_id in ids:
+            try:
+                row = conn.execute(
+                    "SELECT * FROM meal_schedules WHERE id=?", (raw_id,),
+                ).fetchone()
+                if not row:
+                    fail += 1
+                    continue
+                d = dict(row)
+                meal_date = str(d.get("meal_date", ""))
+                # collect_date 재계산 (offset 반영)
+                try:
+                    base = _dt.strptime(meal_date, "%Y-%m-%d")
+                    new_collect = (base + _td(days=int(collect_offset))).strftime("%Y-%m-%d")
+                except Exception:
+                    new_collect = str(d.get("collect_date", meal_date))
+
+                now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute(
+                    "UPDATE meal_schedules SET status='approved', "
+                    "approved_by=?, collect_date=?, updated_at=? WHERE id=?",
+                    (approved_by, new_collect, now, raw_id),
+                )
+
+                # schedules 테이블에 자동 반영 (driver 지정 시 덮어쓰기)
+                drv = driver or ""
+                conn.execute(
+                    "INSERT INTO schedules "
+                    "(vendor, month, weekdays, schools, items, driver, "
+                    "created_at, registered_by) VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        str(d.get("vendor", "")),
+                        new_collect,
+                        json.dumps(["급식"]),
+                        json.dumps([str(d.get("school_name", ""))]),
+                        json.dumps([str(d.get("item_type", "음식물"))]),
+                        drv,
+                        now,
+                        f"meal_approve:{approved_by}",
+                    ),
+                )
+                success += 1
+            except Exception as e:
+                logger.warning(f"approve_meal_schedules row 실패: {e}")
+                fail += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return success, fail
+
+
+def cancel_meal_schedules(ids: list, note: str = "") -> tuple[int, int]:
+    """급식일정 반려 → status='cancelled'"""
+    from datetime import datetime as _dt
+    if not ids:
+        return 0, 0
+    conn = get_db()
+    success = 0
+    fail = 0
+    try:
+        now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        for raw_id in ids:
+            try:
+                conn.execute(
+                    "UPDATE meal_schedules SET status='cancelled', "
+                    "note=?, updated_at=? WHERE id=?",
+                    (note, now, raw_id),
+                )
+                success += 1
+            except Exception as e:
+                logger.warning(f"cancel_meal_schedules 실패: {e}")
+                fail += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return success, fail
+
+
+def check_schedule_duplicate(vendor: str, month_key: str, schools_json: str) -> bool:
+    """schedules 중복 체크 (vendor + month + schools 기준).
+
+    True 반환 시 '이미 등록된 일정' 의미.
+    """
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM schedules WHERE vendor=? AND month=? AND schools=? LIMIT 1",
+            (vendor, month_key, schools_json),
+        ).fetchone()
+        return row is not None
+    except Exception as e:
+        logger.warning(f'check_schedule_duplicate 실패: {str(e)}')
+        return False
+    finally:
+        conn.close()
+
+
 # ══════════════════════════════════════════
 #  본사관리자 — 섹션E: 정산관리 + 탄소감축
 # ══════════════════════════════════════════
@@ -2112,6 +2648,97 @@ def get_carbon_data(year: int, month: int = 0) -> dict:
 # ══════════════════════════════════════════
 #  본사관리자 — 섹션F: 안전관리 + 폐기물분석
 # ══════════════════════════════════════════
+
+def get_hq_safety_checklist(vendor: str = "") -> list[dict]:
+    """안전점검 결과 조회 (HQ용 래퍼) — vendor 미지정 시 전체"""
+    conn = get_db()
+    try:
+        if vendor:
+            rows = conn.execute(
+                "SELECT * FROM safety_checklist WHERE vendor=? "
+                "ORDER BY check_date DESC LIMIT 300",
+                (vendor,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM safety_checklist "
+                "ORDER BY check_date DESC LIMIT 300"
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            result.append({
+                "check_date": str(d.get("check_date", "") or ""),
+                "vendor":     str(d.get("vendor", "") or ""),
+                "driver":     str(d.get("driver", "") or ""),
+                "vehicle_no": str(d.get("vehicle_no", "") or ""),
+                "total_ok":   str(d.get("total_ok", 0) or 0),
+                "total_fail": str(d.get("total_fail", 0) or 0),
+                "inspector":  str(d.get("inspector", "") or ""),
+                "memo":       str(d.get("memo", "") or ""),
+            })
+        return result
+    except Exception as e:
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
+def get_hq_daily_checks(vendor: str = "", year_month: str = "") -> list[dict]:
+    """일일안전점검 이력 조회 (HQ용 래퍼) — vendor / year_month 모두 선택적"""
+    conn = get_db()
+    try:
+        clauses = []
+        params: list = []
+        if vendor:
+            clauses.append("vendor=?")
+            params.append(vendor)
+        if year_month:
+            clauses.append("check_date LIKE ?")
+            params.append(f"{year_month}%")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = conn.execute(
+            f"SELECT * FROM daily_safety_checks{where} ORDER BY check_date DESC LIMIT 500",
+            params,
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            result.append({
+                "check_date": str(d.get("check_date", "") or ""),
+                "vendor":     str(d.get("vendor", "") or ""),
+                "driver":     str(d.get("driver", "") or ""),
+                "vehicle_no": str(d.get("vehicle_no", "") or ""),
+                "category":   str(d.get("category", "") or ""),
+                "total_ok":   str(d.get("total_ok", 0) or 0),
+                "total_fail": str(d.get("total_fail", 0) or 0),
+                "fail_memo":  str(d.get("fail_memo", "") or ""),
+            })
+        return result
+    except Exception as e:
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
+def update_accident_status(accident_id: int, new_status: str) -> bool:
+    """사고 보고 상태 변경 (처리중 / 완료)"""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE accident_reports SET status=? WHERE id=?",
+            (new_status, int(accident_id)),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return False
+    finally:
+        conn.close()
+
 
 def get_hq_safety_education(vendor: str = "") -> list[dict]:
     """안전교육 이력 조회"""

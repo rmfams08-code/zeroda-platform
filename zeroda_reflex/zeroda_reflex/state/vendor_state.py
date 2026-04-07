@@ -2,6 +2,7 @@
 # 업체관리자 대시보드 상태 관리
 import reflex as rx
 import logging
+import json
 from datetime import datetime
 from zeroda_reflex.state.auth_state import AuthState
 
@@ -88,6 +89,26 @@ class VendorState(AuthState):
     sched_save_msg: str = ""
     sched_save_ok: bool = False
 
+    # ── [수거일정 - NEIS 연동] (P1 보강) ──
+    neis_month: str = ""                    # YYYY-MM
+    neis_school_list: list[dict] = []       # NEIS 코드 등록 학교
+    neis_school_sel: str = ""               # 선택된 학교
+    neis_meal_dates: list[str] = []         # 급식일 목록
+    neis_meal_count: int = 0
+    neis_collect_offset: str = "당일"       # "당일"/"다음날"
+    neis_item_type: str = "음식물"          # 콤마 구분
+    neis_driver: str = "(미배정)"
+    neis_msg: str = ""
+
+    # ── [수거일정 - 급식일정 승인] (P1 보강) ──
+    meal_apv_month: str = ""                # YYYY-MM
+    meal_draft_rows: list[dict] = []
+    meal_approved_count: int = 0
+    meal_pending_count: int = 0
+    meal_apv_driver: str = "(미배정)"
+    meal_apv_offset: str = "유지"           # 유지/당일/다음날
+    meal_apv_msg: str = ""
+
     # ── [정산관리] 탭 ──
     item_breakdown: list[dict] = []
     settlement_data: list[dict] = []
@@ -102,6 +123,42 @@ class VendorState(AuthState):
     exp_memo: str = ""
     exp_save_msg: str = ""
     exp_save_ok: bool = False
+
+    # ── [거래명세서 발송] (P1 보강) ──
+    stmt_cust_type: str = "학교"
+    stmt_cust_sel: str = ""
+    stmt_cust_list: list[str] = []
+    stmt_rows: list[dict] = []
+    stmt_total_weight: float = 0.0
+    stmt_total_amount: float = 0.0
+    stmt_vat: float = 0.0
+    stmt_grand_total: float = 0.0
+    stmt_fixed_fee: float = 0.0
+    stmt_tax_type: str = ""               # tax_free / fixed_fee / fixed_fee_vat / vat_10
+    stmt_load_msg: str = ""
+
+    # 수급자 정보 (자동 채우기 + 편집 가능)
+    rcv_email: str = ""
+    rcv_rep: str = ""
+    rcv_biz_no: str = ""
+    rcv_phone: str = ""
+    rcv_address: str = ""
+    rcv_biz_type: str = ""
+    rcv_biz_item: str = ""
+
+    # 미수금
+    overdue_amount: str = "0"
+    overdue_months: str = ""
+    overdue_memo: str = ""
+
+    # 이메일 편집
+    stmt_email_subject: str = ""
+    stmt_email_body: str = ""
+
+    # 상세 SMS
+    detail_sms_sending: bool = False
+    detail_sms_msg: str = ""
+    detail_sms_ok: bool = False
 
     # ── [이메일 발송] (Phase 6) ──
     email_to: str = ""          # 수신 이메일 주소
@@ -164,6 +221,51 @@ class VendorState(AuthState):
     acc_desc: str = ""
     acc_action: str = ""
     acc_save_msg: str = ""
+
+    # ── [수거분석] 탭 (P1 보강) ──
+    analytics_sub_tab: str = "종합현황"
+
+    # 종합현황 KPI
+    an_total_kg: str = "0"
+    an_avg_daily: str = "0"
+    an_collection_days: str = "0"
+    an_school_count_str: str = "0"
+    an_food_kg: str = "0"
+    an_recycle_kg: str = "0"
+    an_general_kg: str = "0"
+    an_top_school: str = "-"
+    an_top_school_kg: str = "0"
+    an_mom_change: str = "-"
+
+    # 품목별 / 추세 / 이상치
+    an_by_item: list[dict] = []
+    an_anomaly_rows: list[dict] = []
+    an_anomaly_count: int = 0
+
+    # 일별/요일별/계절별
+    an_daily_rows: list[dict] = []
+    an_weekday_rows: list[dict] = []
+    an_season_rows: list[dict] = []
+
+    # 거래처/기사별
+    an_by_school: list[dict] = []
+    an_by_driver: list[dict] = []
+
+    # 기상분석
+    an_weather_start: str = ""
+    an_weather_end: str = ""
+    an_weather_temp_corr: str = "-"
+    an_weather_rain_corr: str = "-"
+    an_weather_humidity_corr: str = "-"
+    an_weather_wind_corr: str = "-"
+    an_weather_rainy_avg: str = "0"
+    an_weather_clear_avg: str = "0"
+    an_weather_diff_pct: str = "0"
+    an_weather_temp_bins: list[dict] = []
+    an_weather_msg: str = ""
+    an_weather_running: bool = False
+
+    an_load_msg: str = ""
 
     # ── [설정] 탭 ──
     settings_old_pw: str = ""
@@ -281,6 +383,11 @@ class VendorState(AuthState):
     def cust_is_school_type(self) -> bool:
         """학교 구분 — NEIS 코드 필드 표시 여부"""
         return self.cust_type == "학교"
+
+    @rx.var
+    def cust_is_tax_free_type(self) -> bool:
+        """면세 거래처 구분 — 학교/기타1(면세사업장)"""
+        return self.cust_type == "학교" or self.cust_type == "기타1(면세사업장)"
 
     @rx.var
     def cust_save_has_msg(self) -> bool:
@@ -586,6 +693,320 @@ class VendorState(AuthState):
     def set_settle_filter_type(self, t: str):
         self.settle_filter_type = t
 
+    # ════════════════════════════════════════════
+    #  거래명세서 발송 (P1 보강)
+    # ════════════════════════════════════════════
+
+    def _get_tax_type(self, cust_type: str) -> str:
+        """거래처 유형 → 세금 분류"""
+        if cust_type in ['학교', '기타1(면세사업장)']:
+            return 'tax_free'
+        elif cust_type == '기타':
+            return 'fixed_fee'
+        elif cust_type == '기타2(부가세포함)':
+            return 'fixed_fee_vat'
+        else:  # 기업, 관공서, 일반업장
+            return 'vat_10'
+
+    def set_stmt_cust_type(self, v: str):
+        self.stmt_cust_type = v
+        self.stmt_cust_sel = ""
+        self.stmt_rows = []
+        self._reload_stmt_cust_list()
+
+    def set_stmt_cust_sel(self, v: str):
+        self.stmt_cust_sel = v
+
+    def _reload_stmt_cust_list(self):
+        """선택된 유형의 거래처 목록 재구성"""
+        try:
+            from zeroda_reflex.utils.database import get_customers_by_vendor
+            customers = get_customers_by_vendor(self.user_vendor) or []
+            if self.stmt_cust_type == '전체':
+                self.stmt_cust_list = [c.get('name', '') for c in customers if c.get('name')]
+            else:
+                self.stmt_cust_list = [
+                    c.get('name', '') for c in customers
+                    if c.get('cust_type', '') == self.stmt_cust_type and c.get('name')
+                ]
+        except Exception as e:
+            self.stmt_cust_list = []
+            self.stmt_load_msg = f"거래처 목록 로드 실패: {e}"
+
+    def load_stmt_customers(self):
+        """명세서 발송 서브탭 진입 시 호출"""
+        self._reload_stmt_cust_list()
+
+    def load_statement_data(self):
+        """선택 거래처의 거래명세서 데이터 로드"""
+        try:
+            from zeroda_reflex.utils.database import (
+                get_customers_by_vendor, get_monthly_collections, get_vendor_info,
+            )
+            year = int(self.selected_year) if self.selected_year else datetime.now().year
+            month = int(self.selected_month) if self.selected_month else datetime.now().month
+            vendor = self.user_vendor
+
+            customers = get_customers_by_vendor(vendor) or []
+            self._reload_stmt_cust_list()
+
+            if not self.stmt_cust_sel or self.stmt_cust_sel not in self.stmt_cust_list:
+                self.stmt_load_msg = "거래처를 선택하세요."
+                return
+
+            # 수거 데이터
+            all_rows = get_monthly_collections(vendor, year, month) or []
+            rows = [dict(r) for r in all_rows if r.get('school_name') == self.stmt_cust_sel]
+
+            # 거래처 정보
+            cust_info = next((c for c in customers if c.get('name') == self.stmt_cust_sel), {}) or {}
+            price_map = {
+                '음식물': float(cust_info.get('price_food', 0) or 0),
+                '재활용': float(cust_info.get('price_recycle', 0) or 0),
+                '일반': float(cust_info.get('price_general', 0) or 0),
+            }
+            for row in rows:
+                item = row.get('item_type', '음식물')
+                up = price_map.get(item, 0)
+                if up > 0:
+                    row['unit_price'] = up
+                    row['amount'] = round(float(row.get('weight', 0) or 0) * up)
+                else:
+                    row['unit_price'] = float(row.get('unit_price', 0) or 0)
+                    row['amount'] = float(row.get('amount', 0) or 0)
+            self.stmt_rows = rows
+
+            # 세금 분류
+            self.stmt_tax_type = self._get_tax_type(self.stmt_cust_type)
+            self.stmt_total_weight = round(sum(float(r.get('weight', 0) or 0) for r in rows), 1)
+            self.stmt_total_amount = round(sum(float(r.get('amount', 0) or 0) for r in rows))
+            self.stmt_fixed_fee = float(cust_info.get('fixed_monthly_fee', 0) or 0)
+
+            if self.stmt_tax_type == 'tax_free':
+                self.stmt_vat = 0
+                self.stmt_grand_total = self.stmt_total_amount
+            elif self.stmt_tax_type == 'fixed_fee':
+                self.stmt_vat = 0
+                self.stmt_grand_total = self.stmt_fixed_fee
+            elif self.stmt_tax_type == 'fixed_fee_vat':
+                self.stmt_vat = round(self.stmt_fixed_fee * 0.1)
+                self.stmt_grand_total = self.stmt_fixed_fee + self.stmt_vat
+            else:  # vat_10
+                self.stmt_vat = round(self.stmt_total_amount * 0.1)
+                self.stmt_grand_total = self.stmt_total_amount + self.stmt_vat
+
+            # 수급자 정보 자동 채우기
+            self.rcv_rep = cust_info.get('rep_name', '') or ''
+            self.rcv_biz_no = cust_info.get('biz_no', '') or ''
+            self.rcv_phone = cust_info.get('contact', cust_info.get('phone', '')) or ''
+            self.rcv_address = cust_info.get('address', '') or ''
+            self.rcv_email = cust_info.get('email', '') or ''
+            self.rcv_biz_type = cust_info.get('biz_type', '') or ''
+            self.rcv_biz_item = cust_info.get('biz_item', '') or ''
+
+            self._build_email_template()
+            self.stmt_load_msg = f"{len(rows)}건 로드 완료"
+        except Exception as e:
+            self.stmt_load_msg = f"로드 실패: {e}"
+
+    def _build_email_template(self):
+        """이메일 제목/본문 자동 생성"""
+        try:
+            from zeroda_reflex.utils.database import get_vendor_info
+            vinfo = get_vendor_info(self.user_vendor) or {}
+        except Exception:
+            vinfo = {}
+        biz_name = vinfo.get('biz_name', self.user_vendor) or self.user_vendor
+        contact = vinfo.get('contact', '') or ''
+
+        self.stmt_email_subject = (
+            f"[{biz_name}] {self.selected_year}년 {self.selected_month}월 "
+            f"거래명세서 - {self.stmt_cust_sel}"
+        )
+
+        overdue_body = ""
+        try:
+            od_amt = float(self.overdue_amount or 0)
+        except Exception:
+            od_amt = 0.0
+        if od_amt > 0:
+            memo_line = f"비고: {self.overdue_memo}\n" if self.overdue_memo else ""
+            overdue_body = (
+                f"\n※ 미납 안내\n"
+                f"미납금액: {int(od_amt):,}원\n"
+                f"미납개월: {self.overdue_months or '확인 필요'}\n"
+                f"{memo_line}"
+                f"조속한 납부 부탁드립니다.\n"
+            )
+
+        self.stmt_email_body = (
+            f"{self.stmt_cust_sel} 담당자님께,\n\n"
+            f"안녕하세요. {biz_name} 입니다.\n\n"
+            f"{self.selected_year}년 {self.selected_month}월 거래명세서를 첨부하여 발송드립니다.\n"
+            f"확인 후 문의사항이 있으시면 연락 주시기 바랍니다.\n"
+            f"{overdue_body}\n"
+            f"감사합니다.\n"
+            f"{biz_name} 드림\n"
+            f"연락처: {contact}"
+        )
+
+    # ── 입력 핸들러 ──
+    def set_overdue_amount(self, v: str):
+        self.overdue_amount = v
+    def set_overdue_months(self, v: str):
+        self.overdue_months = v
+    def set_overdue_memo(self, v: str):
+        self.overdue_memo = v
+    def set_rcv_email(self, v: str):
+        self.rcv_email = v
+    def set_rcv_rep(self, v: str):
+        self.rcv_rep = v
+    def set_rcv_biz_no(self, v: str):
+        self.rcv_biz_no = v
+    def set_rcv_phone(self, v: str):
+        self.rcv_phone = v
+    def set_rcv_address(self, v: str):
+        self.rcv_address = v
+    def set_stmt_email_subject(self, v: str):
+        self.stmt_email_subject = v
+    def set_stmt_email_body(self, v: str):
+        self.stmt_email_body = v
+
+    def download_stmt_detail_pdf(self):
+        """선택 거래처 거래명세서 PDF 다운로드 (명세서발송 서브탭)"""
+        if not self.stmt_cust_sel or not self.stmt_rows:
+            return None
+        try:
+            from zeroda_reflex.utils.pdf_export import build_statement_pdf
+            from zeroda_reflex.utils.database import get_vendor_info
+            y = int(self.selected_year)
+            m = int(self.selected_month)
+            vinfo = get_vendor_info(self.user_vendor) or {}
+            biz_info = {
+                "biz_no": self.rcv_biz_no,
+                "representative": self.rcv_rep,
+                "address": self.rcv_address,
+            }
+            pdf_bytes = build_statement_pdf(
+                self.user_vendor, self.stmt_cust_sel, y, m,
+                self.stmt_rows, biz_info, vinfo,
+                self.stmt_cust_type, self.stmt_fixed_fee,
+            )
+            if not pdf_bytes:
+                return None
+            return rx.download(
+                data=pdf_bytes,
+                filename=f"거래명세서_{self.stmt_cust_sel}_{y}-{str(m).zfill(2)}.pdf",
+            )
+        except Exception:
+            return None
+
+    async def send_stmt_detail_email(self):
+        """거래명세서 발송 — 편집된 제목/본문 + PDF 첨부"""
+        from zeroda_reflex.utils.pdf_export import build_statement_pdf
+        from zeroda_reflex.utils.email_service import send_email_with_pdf
+        from zeroda_reflex.utils.database import get_vendor_info
+
+        if not self.rcv_email or "@" not in self.rcv_email:
+            self.email_msg = "유효한 수신 이메일을 입력하세요."
+            self.email_ok = False
+            return
+        if not self.stmt_cust_sel or not self.stmt_rows:
+            self.email_msg = "거래처를 먼저 조회하세요."
+            self.email_ok = False
+            return
+
+        self.email_sending = True
+        self.email_msg = ""
+        yield
+
+        try:
+            y = int(self.selected_year)
+            m = int(self.selected_month)
+        except (ValueError, TypeError):
+            self.email_msg = "연/월을 선택하세요."
+            self.email_ok = False
+            self.email_sending = False
+            return
+
+        try:
+            vinfo = get_vendor_info(self.user_vendor) or {}
+            biz_info = {
+                "biz_no": self.rcv_biz_no,
+                "representative": self.rcv_rep,
+                "address": self.rcv_address,
+            }
+            pdf_bytes = build_statement_pdf(
+                self.user_vendor, self.stmt_cust_sel, y, m,
+                self.stmt_rows, biz_info, vinfo,
+                self.stmt_cust_type, self.stmt_fixed_fee,
+            )
+            if not pdf_bytes:
+                self.email_msg = "PDF 생성 실패"
+                self.email_ok = False
+                self.email_sending = False
+                return
+
+            filename = f"거래명세서_{self.stmt_cust_sel}_{y}-{str(m).zfill(2)}.pdf"
+            ok, msg = send_email_with_pdf(
+                self.rcv_email, self.stmt_email_subject, self.stmt_email_body,
+                pdf_bytes, filename,
+            )
+            self.email_ok = ok
+            self.email_msg = msg
+        except Exception as e:
+            self.email_ok = False
+            self.email_msg = f"발송 실패: {e}"
+        finally:
+            self.email_sending = False
+
+    async def send_stmt_detail_sms(self):
+        """상세 SMS — 거래명세서 요약 + 미수금 포함"""
+        from zeroda_reflex.utils.sms_service import (
+            send_statement_sms as _send_sms,
+        )
+        from zeroda_reflex.utils.database import get_vendor_info
+
+        if not self.rcv_phone:
+            self.detail_sms_msg = "수신 전화번호를 입력하세요."
+            self.detail_sms_ok = False
+            return
+
+        self.detail_sms_sending = True
+        self.detail_sms_msg = ""
+        yield
+
+        try:
+            try:
+                od_amt = float(self.overdue_amount or 0)
+            except Exception:
+                od_amt = 0.0
+            overdue_line = f"\n[미납] {int(od_amt):,}원" if od_amt > 0 else ""
+            text = (
+                f"[{self.user_vendor}]\n"
+                f"{self.selected_year}년 {self.selected_month}월 거래명세서\n"
+                f"거래처: {self.stmt_cust_sel}\n"
+                f"수거량: {self.stmt_total_weight}kg\n"
+                f"공급가액: {int(self.stmt_total_amount):,}원\n"
+                f"부가세: {int(self.stmt_vat):,}원\n"
+                f"합계: {int(self.stmt_grand_total):,}원"
+                f"{overdue_line}"
+            )
+            vinfo = get_vendor_info(self.user_vendor) or {}
+            ok, msg = _send_sms(
+                to_phone=self.rcv_phone,
+                message=text,
+                vendor_name=self.user_vendor,
+                vendor_contact=vinfo.get("contact", ""),
+            )
+            self.detail_sms_ok = ok
+            self.detail_sms_msg = msg
+        except Exception as e:
+            self.detail_sms_ok = False
+            self.detail_sms_msg = f"발송 실패: {e}"
+        finally:
+            self.detail_sms_sending = False
+
     def set_exp_name(self, v: str):
         self.exp_name = v
 
@@ -607,6 +1028,233 @@ class VendorState(AuthState):
     def set_sched_subtab(self, subtab: str):
         self.sched_active_subtab = subtab
         self.sched_save_msg = ""
+        if subtab == "NEIS연동":
+            self.load_neis_schools()
+        elif subtab == "급식일정승인":
+            self.load_meal_approvals()
+
+    # ════════════════════════════════════════════
+    #  NEIS 급식일정 연동 (P1 보강)
+    # ════════════════════════════════════════════
+
+    def set_neis_month(self, m: str):
+        self.neis_month = m
+
+    def set_neis_school_sel(self, s: str):
+        self.neis_school_sel = s
+
+    def set_neis_collect_offset(self, v: str):
+        self.neis_collect_offset = v
+
+    def set_neis_item_type(self, v: str):
+        self.neis_item_type = v
+
+    def set_neis_driver(self, v: str):
+        self.neis_driver = v
+
+    def load_neis_schools(self):
+        """NEIS 코드 등록된 거래처(학교) 로드"""
+        try:
+            from zeroda_reflex.utils.database import get_customers_by_vendor
+            customers = get_customers_by_vendor(self.user_vendor) or []
+            self.neis_school_list = [
+                {
+                    "name": c.get("name", ""),
+                    "neis_edu_code": str(c.get("neis_edu_code", "") or ""),
+                    "neis_school_code": str(c.get("neis_school_code", "") or ""),
+                }
+                for c in customers
+                if c.get("neis_edu_code") and c.get("neis_school_code")
+            ]
+            if not self.neis_month:
+                self.neis_month = datetime.now().strftime("%Y-%m")
+        except Exception as e:
+            self.neis_school_list = []
+            self.neis_msg = f"❌ 학교 로드 실패: {e}"
+
+    @rx.var
+    def neis_school_options(self) -> list[str]:
+        return [s.get("name", "") for s in self.neis_school_list if s.get("name")]
+
+    @rx.var
+    def neis_school_count(self) -> int:
+        return len(self.neis_school_list)
+
+    @rx.var
+    def has_neis_meals(self) -> bool:
+        return len(self.neis_meal_dates) > 0
+
+    async def fetch_neis_meals(self):
+        """NEIS API로 급식일 조회"""
+        from zeroda_reflex.utils.neis_api import fetch_meal_dates
+        school = next(
+            (s for s in self.neis_school_list if s.get("name") == self.neis_school_sel),
+            None,
+        )
+        if not school:
+            self.neis_msg = "❌ 학교를 선택하세요."
+            return
+        try:
+            ym = self.neis_month or datetime.now().strftime("%Y-%m")
+            year = int(ym[:4])
+            month = int(ym[5:7])
+        except Exception:
+            year = datetime.now().year
+            month = datetime.now().month
+
+        result = fetch_meal_dates(
+            school.get("neis_edu_code", ""),
+            school.get("neis_school_code", ""),
+            year, month,
+        ) or {}
+
+        if result.get("success"):
+            self.neis_meal_dates = result.get("meal_dates", []) or []
+            self.neis_meal_count = len(self.neis_meal_dates)
+            self.neis_msg = f"✅ {self.neis_meal_count}일 급식일 조회 완료"
+        else:
+            self.neis_meal_dates = []
+            self.neis_meal_count = 0
+            self.neis_msg = f"❌ {result.get('message', '조회 실패')}"
+
+    def create_neis_schedules(self):
+        """NEIS 급식일 기반 수거일정 생성"""
+        from datetime import datetime as dt, timedelta
+        from zeroda_reflex.utils.database import save_schedule
+
+        if not self.neis_meal_dates:
+            self.neis_msg = "❌ 급식일 데이터가 없습니다."
+            return
+
+        offset = 1 if self.neis_collect_offset == "다음날" else 0
+        items = [it.strip() for it in self.neis_item_type.split(",") if it.strip()]
+        driver = "" if self.neis_driver == "(미배정)" else self.neis_driver
+        ok, fail = 0, 0
+        weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
+
+        for meal_date in self.neis_meal_dates:
+            try:
+                md = dt.strptime(meal_date, "%Y-%m-%d")
+                collect_date = (md + timedelta(days=offset)).strftime("%Y-%m-%d")
+                cd = dt.strptime(collect_date, "%Y-%m-%d")
+                wd = weekday_names[cd.weekday()]
+                for item in items:
+                    save_schedule({
+                        "vendor": self.user_vendor,
+                        "month": collect_date,
+                        "weekdays": json.dumps([wd], ensure_ascii=False),
+                        "schools": json.dumps([self.neis_school_sel], ensure_ascii=False),
+                        "items": json.dumps([item], ensure_ascii=False),
+                        "driver": driver,
+                        "registered_by": "neis_api",
+                    })
+                ok += 1
+            except Exception:
+                fail += 1
+
+        suffix = f" (실패 {fail}건)" if fail else ""
+        self.neis_msg = f"✅ 수거일정 {ok}건 생성 완료{suffix}"
+        try:
+            self.load_schedules()
+        except Exception:
+            pass
+
+    # ════════════════════════════════════════════
+    #  급식일정 승인 (P1 보강)
+    # ════════════════════════════════════════════
+
+    def set_meal_apv_month(self, v: str):
+        self.meal_apv_month = v
+
+    def set_meal_apv_driver(self, v: str):
+        self.meal_apv_driver = v
+
+    def set_meal_apv_offset(self, v: str):
+        self.meal_apv_offset = v
+
+    def load_meal_approvals(self):
+        """승인 대기 + 승인 완료 카운트 로드"""
+        try:
+            from zeroda_reflex.utils.database import get_meal_schedules
+            ym = self.meal_apv_month or datetime.now().strftime("%Y-%m")
+            self.meal_apv_month = ym
+            drafts = get_meal_schedules(
+                vendor=self.user_vendor, status="draft", year_month=ym,
+            ) or []
+            approved = get_meal_schedules(
+                vendor=self.user_vendor, status="approved", year_month=ym,
+            ) or []
+            self.meal_draft_rows = drafts
+            self.meal_pending_count = len(drafts)
+            self.meal_approved_count = len(approved)
+        except Exception as e:
+            self.meal_draft_rows = []
+            self.meal_pending_count = 0
+            self.meal_approved_count = 0
+            self.meal_apv_msg = f"❌ 로드 실패: {e}"
+
+    @rx.var
+    def meal_draft_school_groups(self) -> list[dict]:
+        """학교별 그룹화 — [{school, count}]"""
+        groups: dict = {}
+        for r in self.meal_draft_rows:
+            sn = r.get("school_name", "")
+            groups[sn] = groups.get(sn, 0) + 1
+        return [{"school": k, "count": v} for k, v in groups.items()]
+
+    def _meal_offset_value(self) -> int:
+        """라벨 → 숫자 (-1 = 유지)"""
+        if self.meal_apv_offset == "유지":
+            return -1
+        if self.meal_apv_offset == "다음날":
+            return 1
+        return 0  # 당일
+
+    def approve_school_meals(self, school_name: str):
+        """학교별 전체 승인"""
+        try:
+            from zeroda_reflex.utils.database import approve_meal_schedules
+            ids = [
+                r.get("id") for r in self.meal_draft_rows
+                if r.get("school_name") == school_name and r.get("id")
+            ]
+            if not ids:
+                self.meal_apv_msg = f"⚠️ {school_name}: 승인할 일정 없음"
+                return
+            offset = self._meal_offset_value()
+            driver = "" if self.meal_apv_driver == "(미배정)" else self.meal_apv_driver
+            success, fail = approve_meal_schedules(
+                ids, approved_by="vendor_admin",
+                driver=driver,
+                collect_offset=(0 if offset < 0 else offset),
+            )
+            self.meal_apv_msg = f"✅ {school_name}: {success}건 승인" + (
+                f" (실패 {fail})" if fail else ""
+            )
+            self.load_meal_approvals()
+            try:
+                self.load_schedules()
+            except Exception:
+                pass
+        except Exception as e:
+            self.meal_apv_msg = f"❌ 승인 실패: {e}"
+
+    def reject_school_meals(self, school_name: str):
+        """학교별 전체 반려"""
+        try:
+            from zeroda_reflex.utils.database import cancel_meal_schedules
+            ids = [
+                r.get("id") for r in self.meal_draft_rows
+                if r.get("school_name") == school_name and r.get("id")
+            ]
+            if not ids:
+                self.meal_apv_msg = f"⚠️ {school_name}: 반려할 일정 없음"
+                return
+            success, fail = cancel_meal_schedules(ids, note="업체관리자 반려")
+            self.meal_apv_msg = f"⚠️ {school_name}: {success}건 반려"
+            self.load_meal_approvals()
+        except Exception as e:
+            self.meal_apv_msg = f"❌ 반려 실패: {e}"
 
     def set_schedule_mode(self, mode: str):
         self.schedule_mode = mode
@@ -1634,6 +2282,378 @@ class VendorState(AuthState):
     # ════════════════════════════════════════════
     #  Excel 다운로드 핸들러
     # ════════════════════════════════════════════
+
+    # ════════════════════════════════════════════
+    #  수거 분석 (P1 보강)
+    # ════════════════════════════════════════════
+
+    def set_analytics_subtab(self, sub: str):
+        self.analytics_sub_tab = sub
+
+    def set_an_weather_start(self, v: str):
+        self.an_weather_start = v
+
+    def set_an_weather_end(self, v: str):
+        self.an_weather_end = v
+
+    def load_analytics(self):
+        """수거 분석 — 종합현황 데이터 로드"""
+        import statistics as _stats
+        from zeroda_reflex.utils.database import get_monthly_collections
+
+        try:
+            year = int(self.selected_year)
+            month = int(self.selected_month)
+        except Exception:
+            self.an_load_msg = "❌ 연/월 선택 오류"
+            return
+
+        vendor = self.user_vendor
+        try:
+            rows = get_monthly_collections(vendor, year, month) or []
+        except Exception as e:
+            self.an_load_msg = f"❌ 데이터 로드 실패: {e}"
+            return
+
+        if not rows:
+            self.an_total_kg = "0"
+            self.an_avg_daily = "0"
+            self.an_collection_days = "0"
+            self.an_school_count_str = "0"
+            self.an_food_kg = "0"
+            self.an_recycle_kg = "0"
+            self.an_general_kg = "0"
+            self.an_top_school = "-"
+            self.an_top_school_kg = "0"
+            self.an_mom_change = "-"
+            self.an_by_item = []
+            self.an_by_school = []
+            self.an_by_driver = []
+            self.an_anomaly_rows = []
+            self.an_anomaly_count = 0
+            self.an_load_msg = "해당 월의 수거 데이터가 없습니다."
+            return
+
+        weights = [float(r.get("weight", 0) or 0) for r in rows]
+        total_w = sum(weights)
+        self.an_total_kg = f"{total_w:,.1f}"
+        dates = sorted(set(r.get("collect_date", "") for r in rows if r.get("collect_date")))
+        self.an_collection_days = str(len(dates))
+        self.an_avg_daily = f"{(total_w / max(len(dates), 1)):,.1f}"
+        schools = sorted(set(r.get("school_name", "") for r in rows if r.get("school_name")))
+        self.an_school_count_str = str(len(schools))
+
+        # 품목별
+        item_totals: dict = {}
+        for r in rows:
+            it = r.get("item_type", "음식물") or "음식물"
+            item_totals[it] = item_totals.get(it, 0) + float(r.get("weight", 0) or 0)
+        self.an_food_kg = f"{item_totals.get('음식물', 0):,.1f}"
+        self.an_recycle_kg = f"{item_totals.get('재활용', 0):,.1f}"
+        self.an_general_kg = f"{item_totals.get('일반', 0):,.1f}"
+        self.an_by_item = [
+            {
+                "item_type": k,
+                "weight": f"{v:,.1f}",
+                "ratio": f"{(v / total_w * 100 if total_w > 0 else 0):.1f}",
+            }
+            for k, v in item_totals.items()
+        ]
+
+        # Top 거래처
+        school_totals: dict = {}
+        for r in rows:
+            sn = r.get("school_name", "") or ""
+            school_totals[sn] = school_totals.get(sn, 0) + float(r.get("weight", 0) or 0)
+        if school_totals:
+            top = max(school_totals, key=lambda k: school_totals[k])
+            self.an_top_school = top
+            self.an_top_school_kg = f"{school_totals[top]:,.1f}"
+
+        # 전월대비
+        prev_m = month - 1
+        prev_y = year
+        if prev_m < 1:
+            prev_m = 12
+            prev_y -= 1
+        try:
+            prev_rows = get_monthly_collections(vendor, prev_y, prev_m) or []
+            prev_total = sum(float(r.get("weight", 0) or 0) for r in prev_rows)
+            if prev_total > 0:
+                change = ((total_w - prev_total) / prev_total) * 100
+                self.an_mom_change = f"{change:+.1f}%"
+            else:
+                self.an_mom_change = "-"
+        except Exception:
+            self.an_mom_change = "-"
+
+        # 이상치 (Z-Score)
+        daily_kg: dict = {}
+        for r in rows:
+            d = r.get("collect_date", "") or ""
+            daily_kg[d] = daily_kg.get(d, 0) + float(r.get("weight", 0) or 0)
+        anomalies = []
+        if len(daily_kg) >= 3:
+            values = list(daily_kg.values())
+            mean_v = _stats.mean(values)
+            try:
+                std_v = _stats.stdev(values)
+            except _stats.StatisticsError:
+                std_v = 0
+            for date, kg in sorted(daily_kg.items()):
+                z = ((kg - mean_v) / std_v) if std_v > 0 else 0
+                if abs(z) > 2.0:
+                    anomalies.append({
+                        "collect_date": date,
+                        "total_kg": f"{kg:,.1f}",
+                        "z_score": f"{z:+.2f}",
+                    })
+        self.an_anomaly_rows = anomalies
+        self.an_anomaly_count = len(anomalies)
+
+        # 거래처별 Top 20
+        sorted_schools = sorted(school_totals.items(), key=lambda x: x[1], reverse=True)[:20]
+        by_school = []
+        for sn, tw in sorted_schools:
+            food = sum(
+                float(r.get("weight", 0) or 0) for r in rows
+                if r.get("school_name") == sn and r.get("item_type") == "음식물"
+            )
+            recy = sum(
+                float(r.get("weight", 0) or 0) for r in rows
+                if r.get("school_name") == sn and r.get("item_type") == "재활용"
+            )
+            cnt = sum(1 for r in rows if r.get("school_name") == sn)
+            by_school.append({
+                "school_name": sn,
+                "total_kg": f"{tw:,.1f}",
+                "food_kg": f"{food:,.1f}",
+                "recycle_kg": f"{recy:,.1f}",
+                "count": str(cnt),
+            })
+        self.an_by_school = by_school
+
+        # 기사별
+        driver_data: dict = {}
+        for r in rows:
+            drv = r.get("driver", "") or "미지정"
+            if drv not in driver_data:
+                driver_data[drv] = {"kg": 0.0, "count": 0, "schools": set()}
+            driver_data[drv]["kg"] += float(r.get("weight", 0) or 0)
+            driver_data[drv]["count"] += 1
+            driver_data[drv]["schools"].add(r.get("school_name", ""))
+        self.an_by_driver = [
+            {
+                "driver": d,
+                "total_kg": f"{v['kg']:,.1f}",
+                "count": str(v["count"]),
+                "schools": str(len(v["schools"])),
+            }
+            for d, v in sorted(driver_data.items(), key=lambda x: x[1]["kg"], reverse=True)
+        ]
+
+        # 일별/요일별/계절별도 같이 채워넣자
+        self.load_analytics_daily()
+
+        self.an_load_msg = f"✅ 분석 완료 ({len(rows)}건)"
+
+    def load_analytics_daily(self):
+        """일별/요일별/계절별 분석 (load_analytics에서 자동 호출됨)"""
+        from datetime import datetime as _dt
+        from zeroda_reflex.utils.database import get_monthly_collections
+
+        try:
+            year = int(self.selected_year)
+            month = int(self.selected_month)
+        except Exception:
+            return
+        vendor = self.user_vendor
+        try:
+            rows = get_monthly_collections(vendor, year, month) or []
+        except Exception:
+            return
+
+        # 일별
+        daily: dict = {}
+        for r in rows:
+            d = r.get("collect_date", "") or ""
+            if d not in daily:
+                daily[d] = {"food": 0.0, "recycle": 0.0, "general": 0.0}
+            it = r.get("item_type", "음식물") or "음식물"
+            key = {"음식물": "food", "재활용": "recycle", "일반": "general"}.get(it, "food")
+            daily[d][key] += float(r.get("weight", 0) or 0)
+        self.an_daily_rows = [
+            {
+                "date": d,
+                "food_kg": f"{v['food']:,.1f}",
+                "recycle_kg": f"{v['recycle']:,.1f}",
+                "general_kg": f"{v['general']:,.1f}",
+                "total": f"{(v['food'] + v['recycle'] + v['general']):,.1f}",
+            }
+            for d, v in sorted(daily.items())
+        ]
+
+        # 요일별
+        WD = ["월", "화", "수", "목", "금", "토", "일"]
+        wd_data: dict = {d: [] for d in WD}
+        for r in rows:
+            try:
+                date = _dt.strptime(r.get("collect_date", ""), "%Y-%m-%d")
+                wd_data[WD[date.weekday()]].append(float(r.get("weight", 0) or 0))
+            except Exception:
+                continue
+        self.an_weekday_rows = [
+            {
+                "weekday": wd,
+                "avg_kg": f"{(sum(vals) / len(vals)):,.1f}" if vals else "0",
+                "total_kg": f"{sum(vals):,.1f}",
+                "count": str(len(vals)),
+            }
+            for wd in WD
+            for vals in [wd_data[wd]]
+            if vals
+        ]
+
+        # 계절별
+        SEASON = {1: "겨울", 2: "겨울", 3: "봄", 4: "봄", 5: "봄", 6: "여름",
+                  7: "여름", 8: "여름", 9: "가을", 10: "가을", 11: "가을", 12: "겨울"}
+        season_data: dict = {}
+        for r in rows:
+            try:
+                m = int(r.get("collect_date", "")[5:7])
+                s = SEASON.get(m, "기타")
+                if s not in season_data:
+                    season_data[s] = {"total": 0.0, "days": set()}
+                season_data[s]["total"] += float(r.get("weight", 0) or 0)
+                season_data[s]["days"].add(r.get("collect_date", ""))
+            except Exception:
+                continue
+        self.an_season_rows = [
+            {
+                "season": s,
+                "total_kg": f"{v['total']:,.1f}",
+                "avg_daily_kg": f"{(v['total'] / max(len(v['days']), 1)):,.1f}",
+            }
+            for s, v in season_data.items()
+        ]
+
+    async def run_weather_analysis(self):
+        """기상 상관분석"""
+        import statistics as _stats
+        from zeroda_reflex.utils.weather_service import fetch_daily_weather
+        from zeroda_reflex.utils.database import get_monthly_collections
+
+        if not self.an_weather_start or not self.an_weather_end:
+            self.an_weather_msg = "❌ 시작일과 종료일을 입력하세요."
+            return
+
+        self.an_weather_running = True
+        self.an_weather_msg = "분석 중..."
+        yield
+
+        try:
+            result = fetch_daily_weather(self.an_weather_start, self.an_weather_end) or {}
+            weather = result.get("data", []) if result.get("success") else []
+            if not weather:
+                self.an_weather_msg = f"❌ {result.get('message', '기상 데이터 없음')}"
+                self.an_weather_running = False
+                return
+
+            # 기간 내 수거 데이터 (월 경계 가능 → 시작/종료월 합본)
+            try:
+                sy, sm = int(self.an_weather_start[:4]), int(self.an_weather_start[5:7])
+                ey, em = int(self.an_weather_end[:4]), int(self.an_weather_end[5:7])
+            except Exception:
+                self.an_weather_msg = "❌ 날짜 형식 오류 (YYYY-MM-DD)"
+                self.an_weather_running = False
+                return
+
+            collected: list = []
+            y, m = sy, sm
+            while (y, m) <= (ey, em):
+                try:
+                    collected.extend(get_monthly_collections(self.user_vendor, y, m) or [])
+                except Exception:
+                    pass
+                m += 1
+                if m > 12:
+                    m = 1
+                    y += 1
+
+            daily_kg: dict = {}
+            for c in collected:
+                d = c.get("collect_date", "") or ""
+                if self.an_weather_start <= d <= self.an_weather_end:
+                    daily_kg[d] = daily_kg.get(d, 0) + float(c.get("weight", 0) or 0)
+
+            merged = []
+            for w in weather:
+                dk = w.get("date", "")
+                if dk in daily_kg:
+                    merged.append({
+                        "total_kg": daily_kg[dk],
+                        "temp_avg": float(w.get("temp_avg", 0) or 0),
+                        "rain": float(w.get("rain", 0) or 0),
+                        "humidity": float(w.get("humidity", 0) or 0),
+                        "wind": float(w.get("wind", 0) or 0),
+                    })
+
+            if len(merged) < 5:
+                self.an_weather_msg = f"⚠️ 데이터 부족 ({len(merged)}일, 최소 5일 필요)"
+                self.an_weather_running = False
+                return
+
+            kgs = [m["total_kg"] for m in merged]
+
+            def pearson(xs, ys):
+                n = len(xs)
+                if n < 3:
+                    return 0
+                mx, my = _stats.mean(xs), _stats.mean(ys)
+                try:
+                    sx, sy_ = _stats.stdev(xs), _stats.stdev(ys)
+                except _stats.StatisticsError:
+                    return 0
+                if sx == 0 or sy_ == 0:
+                    return 0
+                return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / ((n - 1) * sx * sy_)
+
+            self.an_weather_temp_corr = f"{pearson(kgs, [m['temp_avg'] for m in merged]):.3f}"
+            self.an_weather_rain_corr = f"{pearson(kgs, [m['rain'] for m in merged]):.3f}"
+            self.an_weather_humidity_corr = f"{pearson(kgs, [m['humidity'] for m in merged]):.3f}"
+            self.an_weather_wind_corr = f"{pearson(kgs, [m['wind'] for m in merged]):.3f}"
+
+            rainy = [m["total_kg"] for m in merged if m["rain"] > 0.5]
+            clear = [m["total_kg"] for m in merged if m["rain"] <= 0.5]
+            r_avg = _stats.mean(rainy) if rainy else 0
+            c_avg = _stats.mean(clear) if clear else 0
+            self.an_weather_rainy_avg = f"{r_avg:,.1f}"
+            self.an_weather_clear_avg = f"{c_avg:,.1f}"
+            diff = ((r_avg - c_avg) / c_avg * 100) if c_avg > 0 else 0
+            self.an_weather_diff_pct = f"{diff:+.1f}"
+
+            bins = [
+                (-100, 0, "영하"),
+                (0, 10, "0~10°C"),
+                (10, 20, "10~20°C"),
+                (20, 30, "20~30°C"),
+                (30, 50, "30°C+"),
+            ]
+            temp_bins = []
+            for lo, hi, label in bins:
+                subset = [m["total_kg"] for m in merged if lo <= m["temp_avg"] < hi]
+                if subset:
+                    temp_bins.append({
+                        "temp_range": label,
+                        "avg_kg": f"{_stats.mean(subset):,.1f}",
+                        "count": str(len(subset)),
+                    })
+            self.an_weather_temp_bins = temp_bins
+            self.an_weather_msg = f"✅ {len(merged)}일 분석 완료"
+        except Exception as e:
+            self.an_weather_msg = f"❌ 오류: {e}"
+        finally:
+            self.an_weather_running = False
 
     def download_collection_excel(self):
         """수거현황 Excel 다운로드 (업체관리자)"""
