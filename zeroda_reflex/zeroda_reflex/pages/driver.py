@@ -1155,7 +1155,7 @@ def _checkout_section() -> rx.Component:
                 ),
                 rx.button(
                     "🏠 퇴근하기",
-                    on_click=DriverState.do_checkout,
+                    on_click=DriverState.open_checkout_dialog,
                     width="100%",
                     size="3",
                     color_scheme="green",
@@ -1227,6 +1227,104 @@ def _floating_voice_button() -> rx.Component:
     )
 
 
+def _checkout_dialog() -> rx.Component:
+    """퇴근 전 차량점검 다이얼로그"""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title(
+                "🚗 퇴근 전 차량 점검",
+                font_size="18px",
+                font_weight="700",
+            ),
+            rx.text(
+                "모든 항목을 확인하시고 체크해 주세요",
+                font_size="13px",
+                color="#64748b",
+                margin_bottom="12px",
+            ),
+            rx.divider(),
+            # ── 10개 항목 체크박스 ──
+            rx.vstack(
+                rx.foreach(
+                    DriverState.vehicle_check_items,
+                    lambda item, idx: rx.hstack(
+                        rx.checkbox(
+                            checked=item["checked"],
+                            on_change=lambda _: DriverState.toggle_vehicle_check(idx),
+                            size="3",
+                            color_scheme="green",
+                        ),
+                        rx.text(
+                            item["label"],
+                            font_size="14px",
+                            color=rx.cond(item["checked"], "#16a34a", "#374151"),
+                            font_weight=rx.cond(item["checked"], "600", "400"),
+                        ),
+                        align="center",
+                        spacing="3",
+                        width="100%",
+                        padding_y="6px",
+                        border_bottom="1px solid #f1f5f9",
+                    ),
+                ),
+                spacing="0",
+                width="100%",
+                margin_y="8px",
+            ),
+            rx.divider(),
+            # ── 특이사항 입력 ──
+            rx.vstack(
+                rx.text(
+                    "특이사항",
+                    font_size="13px",
+                    font_weight="600",
+                    color="#374151",
+                ),
+                rx.text_area(
+                    placeholder="이상이 있거나 인계할 사항을 적어주세요 (선택)",
+                    value=DriverState.vehicle_check_remark,
+                    on_change=DriverState.set_vehicle_check_remark,
+                    rows="3",
+                    width="100%",
+                    font_size="13px",
+                    border_radius="8px",
+                    border="1px solid #e2e8f0",
+                ),
+                spacing="2",
+                width="100%",
+                margin_top="12px",
+            ),
+            # ── 버튼 ──
+            rx.hstack(
+                rx.button(
+                    "취소",
+                    on_click=DriverState.cancel_checkout,
+                    variant="soft",
+                    color_scheme="gray",
+                    size="3",
+                    flex="1",
+                ),
+                rx.button(
+                    "✅ 확인 후 퇴근",
+                    on_click=DriverState.confirm_checkout,
+                    color_scheme="green",
+                    size="3",
+                    flex="1",
+                    disabled=~DriverState.all_vehicle_items_checked,
+                ),
+                spacing="3",
+                margin_top="16px",
+                width="100%",
+            ),
+            max_width="460px",
+            width="95vw",
+            padding="20px",
+        ),
+        open=DriverState.checkout_dialog_open,
+        on_open_change=DriverState.cancel_checkout,
+    )
+
+
 def driver_page() -> rx.Component:
     """기사 대시보드 메인 페이지"""
     return rx.box(
@@ -1240,6 +1338,7 @@ def driver_page() -> rx.Component:
             _floating_voice_button(),
             _processing_section(),
             _checkout_section(),
+            _checkout_dialog(),
 
             # 로그아웃
             rx.button(
