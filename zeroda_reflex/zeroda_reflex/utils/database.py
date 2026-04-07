@@ -251,13 +251,35 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
         conn.close()
 
 
+def ensure_real_collection_gps_columns() -> None:
+    """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시)"""
+    conn = get_db()
+    for col in ("lat REAL", "lng REAL"):
+        try:
+            conn.execute(f"ALTER TABLE real_collection ADD COLUMN {col}")
+            conn.commit()
+        except Exception as e:
+            # 이미 컨럼이 존재하면 무시
+            print(f"[DB ERROR] ensure_real_collection_gps_columns ({col}): {e}")
+            logger.warning(f"GPS 컨럼 추가 (idempotent): {e}")
+    conn.close()
+
+
+# GPS 컨럼 보장 (모듈 임포트 시 1회 실행)
+try:
+    ensure_real_collection_gps_columns()
+except Exception as _gps_col_err:
+    print(f"[DB ERROR] GPS 컨럼 초기화 실패: {_gps_col_err}")
+
+
 def save_collection(
     vendor: str, driver: str, school_name: str,
     collect_date: str, item_type: str, weight: float,
     status: str = "submitted",
     unit_price: float = 0, memo: str = "", collect_time: str = "",
+    lat: float = None, lng: float = None,
 ) -> bool:
-    """수거 데이터 저장 (status: draft / submitted)"""
+    """수거 데이터 저장 (status: draft / submitted). lat/lng 는 GPS 좌표 (없으면 None)."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     data = {
         "vendor": vendor,
@@ -273,6 +295,8 @@ def save_collection(
         "status": status,
         "submitted_at": now if status == "submitted" else "",
         "created_at": now,
+        "lat": lat,
+        "lng": lng,
     }
     return db_insert("real_collection", data)
 

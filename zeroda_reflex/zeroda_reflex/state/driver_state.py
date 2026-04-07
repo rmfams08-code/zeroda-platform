@@ -109,8 +109,12 @@ class DriverState(AuthState):
     collection_memo: str = ""
     collection_save_msg: str = ""
 
-    # ── GPS ──
+    # ── GPS (거래첫 위치 저장용) ──
     gps_msg: str = ""
+
+    # ── 수거 GPS (수거완료 시 자동 취득) ──
+    collection_lat: float = 0.0
+    collection_lng: float = 0.0
 
     # ── 음성입력 ──
     voice_active: bool = False
@@ -526,6 +530,8 @@ class DriverState(AuthState):
                 unit_price=up,
                 memo=self.collection_memo,
                 collect_time=ct,
+                lat=self.collection_lat if self.collection_lat != 0.0 else None,
+                lng=self.collection_lng if self.collection_lng != 0.0 else None,
             )
             if ok:
                 saved += 1
@@ -546,11 +552,41 @@ class DriverState(AuthState):
             self.collection_save_msg = "저장 중 오류가 발생했습니다."
 
     def save_collection_entry(self):
-        """수거완료·본사전송 (submitted)"""
+        """수거완료·본사전송 (submitted) — GPS 없이 직접 저장"""
+        self.collection_lat = 0.0
+        self.collection_lng = 0.0
         self._do_save_collection("submitted")
 
     def save_collection_draft(self):
-        """임시저장 (draft)"""
+        """임시저장 (draft) — GPS 없이 직접 저장"""
+        self.collection_lat = 0.0
+        self.collection_lng = 0.0
+        self._do_save_collection("draft")
+
+    def save_collection_with_gps(self, coords: str):
+        """GPS 좌표를 받아 수거완료·본사전송 (JS call_script 콜백)"""
+        self.collection_lat = 0.0
+        self.collection_lng = 0.0
+        if coords and coords not in ("0,0", ""):
+            try:
+                parts = coords.split(",")
+                self.collection_lat = float(parts[0])
+                self.collection_lng = float(parts[1])
+            except (ValueError, IndexError):
+                pass
+        self._do_save_collection("submitted")
+
+    def save_draft_with_gps(self, coords: str):
+        """GPS 좌표를 받아 임시저장 (JS call_script 콜백)"""
+        self.collection_lat = 0.0
+        self.collection_lng = 0.0
+        if coords and coords not in ("0,0", ""):
+            try:
+                parts = coords.split(",")
+                self.collection_lat = float(parts[0])
+                self.collection_lng = float(parts[1])
+            except (ValueError, IndexError):
+                pass
         self._do_save_collection("draft")
 
     # ── 수거 완료/미완료 거래처 추적 ──

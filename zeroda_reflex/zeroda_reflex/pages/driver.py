@@ -779,7 +779,17 @@ def _collection_section() -> rx.Component:
         rx.hstack(
             rx.button(
                 "📋 임시저장",
-                on_click=DriverState.save_collection_draft,
+                on_click=rx.call_script(
+                    "new Promise((resolve) => {"
+                    "  if (!navigator.geolocation) { resolve(''); return; }"
+                    "  navigator.geolocation.getCurrentPosition("
+                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+                    "    () => resolve(''),"
+                    "    {timeout: 5000, maximumAge: 60000}"
+                    "  );"
+                    "})",
+                    callback=DriverState.save_draft_with_gps,
+                ),
                 flex="1",
                 size="3",
                 variant="outline",
@@ -787,7 +797,17 @@ def _collection_section() -> rx.Component:
             ),
             rx.button(
                 "✅ 수거완료·본사전송",
-                on_click=DriverState.save_collection_entry,
+                on_click=rx.call_script(
+                    "new Promise((resolve) => {"
+                    "  if (!navigator.geolocation) { resolve(''); return; }"
+                    "  navigator.geolocation.getCurrentPosition("
+                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+                    "    () => resolve(''),"
+                    "    {timeout: 5000, maximumAge: 60000}"
+                    "  );"
+                    "})",
+                    callback=DriverState.save_collection_with_gps,
+                ),
                 flex="1",
                 size="3",
                 color_scheme="blue",
