@@ -214,12 +214,14 @@ def _parse_voice_entries(
                     "school": matched_sn,
                     "weight": weight,
                     "gps_needed": False,
+                    "schedule_matched": True,
                 })
                 continue
 
-        # 직접 포함 여부 (최우선)
+        # 직접 포함 여부 (최우선) — 일정 1순위
         matched = None
         best_score = 0.0
+        is_sched_match = False
         for sn in school_names:
             norm_sn = _normalize_school(sn)
             if (sn in name_text or norm_sn in norm_text
@@ -227,9 +229,10 @@ def _parse_voice_entries(
                     or (norm_text and norm_text in norm_sn)):
                 matched = sn
                 best_score = 1.0
+                is_sched_match = True
                 break
 
-        # 자모+약칭 통합 매칭 (섹션 2+3: 자동약칭·수동별칭 포함 단일 탐색)
+        # 자모+약칭 통합 매칭 (섹션 2+3: 자동약칭·수동별칭 포함 단일 탐색) — 일정 1순위
         if not matched or best_score < 1.0:
             jamo_matched, jamo_score = match_school_by_jamo(
                 norm_text, school_names, min_score=0.50,
@@ -238,6 +241,7 @@ def _parse_voice_entries(
             if jamo_matched and jamo_score > best_score:
                 matched = jamo_matched
                 best_score = jamo_score
+                is_sched_match = True
 
         # fallback: 전체 customer_info에서 탐색 (threshold 0.65, 자동약칭 포함)
         if (not matched or best_score < 0.50) and all_customers:
@@ -249,6 +253,7 @@ def _parse_voice_entries(
             if fb_matched and fb_score > best_score:
                 matched = fb_matched
                 best_score = fb_score
+                is_sched_match = False
 
         if not matched or best_score < 0.50:
             failed.append(chunk)
@@ -259,6 +264,7 @@ def _parse_voice_entries(
             "school": matched,
             "weight": weight,
             "gps_needed": False,
+            "schedule_matched": is_sched_match,
         })
 
     return entries, failed
@@ -355,6 +361,7 @@ class DriverState(AuthState):
     voice_normalized_text: str = ""   # 섹션 1: 정규화된 텍스트 (디버깅용)
     voice_interim: str = ""           # 섹션 5: 실시간 중간 인식 텍스트
     voice_gps_coords: str = ""        # 섹션 6: GPS 좌표 (lat,lng)
+    voice_match_failed: bool = False   # 섹션 2: 매칭 실패 여부 (항상 다이얼로그 표시용)
 
     # ── 스쿨존 ──
     schoolzone_enabled: bool = False
@@ -905,15 +912,17 @@ class DriverState(AuthState):
 
         # 섹션 1: 정규화 텍스트 저장 (다이얼로그에 표시)
         self.voice_normalized_text = normalize_korean_number(text)
-
-        if not entries:
-            self.voice_result = f"🎤 인식: {text}"
-            yield rx.toast.warning("음성에서 입력 항목을 찾지 못했습니다.")
-            return
-
         self.voice_pending_raw = text
         self.voice_pending_entries = entries
         self.voice_pending_failed = failed_chunks
+
+        if not entries:
+            # 섹션 2: 매칭 실패여도 항상 다이얼로그 표시
+            self.voice_match_failed = True
+            self.voice_confirm_open = True
+            return
+
+        self.voice_match_failed = False
         self.voice_confirm_open = True
 
     def confirm_voice_apply(self):
@@ -961,6 +970,7 @@ class DriverState(AuthState):
         self.voice_pending_entries = []
         self.voice_pending_failed = []
         self.voice_pending_raw = ""
+        self.voice_match_failed = False
 
         parts = ["🎤 인식됨: " + ", ".join(applied)] if applied else []
         if failed_msg:
@@ -980,6 +990,7 @@ class DriverState(AuthState):
         self.voice_pending_failed = []
         self.voice_pending_raw = ""
         self.voice_normalized_text = ""
+        self.voice_match_failed = False
 
     def retry_voice_recognition(self):
         """섹션 4: 확인 다이얼로그에서 '다시 말하기' — pending 초기화 후 즉시 재청취"""

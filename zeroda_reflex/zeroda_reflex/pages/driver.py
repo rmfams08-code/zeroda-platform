@@ -648,34 +648,57 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
 
 
 def _voice_confirm_dialog() -> rx.Component:
-    """음성 인식 결과 확인 다이얼로그 — 적용 전 사용자 검토
-    섹션 1: 정규화된 텍스트도 표시 (디버깅용)
+    """음성 인식 결과 확인 다이얼로그 — 항상 표시 (성공/실패 무관)
+    섹션 1: 정규화된 텍스트 표시
+    섹션 2: 매칭 실패 시 실패 안내 + 다시 말하기만 노출
     섹션 4: '다시 말하기' 버튼
-    섹션 6: GPS 기반 매칭 배지
+    섹션 6: GPS·일정기반 배지
     """
     return rx.dialog.root(
         rx.dialog.content(
-            rx.dialog.title("🎤 음성 인식 결과 확인"),
-            rx.dialog.description(
+            # ── 제목 (성공/실패 조건부) ──
+            rx.dialog.title(
+                rx.cond(
+                    DriverState.voice_match_failed,
+                    "🎤 음성 인식 — 매칭 실패",
+                    "🎤 음성 인식 결과 확인",
+                )
+            ),
+            # ── 원본 + 정규화 텍스트 (항상 표시) ──
+            rx.text(
+                "인식: ",
+                rx.text.strong(DriverState.voice_pending_raw),
+                size="2",
+                color="#64748b",
+            ),
+            rx.cond(
+                DriverState.voice_normalized_text != DriverState.voice_pending_raw,
+                rx.text(
+                    "정규화: ",
+                    rx.text.strong(DriverState.voice_normalized_text),
+                    size="2",
+                    color="#7c3aed",
+                ),
+                rx.fragment(),
+            ),
+            rx.divider(),
+            # ── 본문: 실패 안내 vs 성공 목록 ──
+            rx.cond(
+                DriverState.voice_match_failed,
+                # 섹션 2: 매칭 실패 안내
                 rx.vstack(
-                    # ── 원본 + 정규화 텍스트 (섹션 1) ──
+                    rx.badge("매칭 실패", color_scheme="red", size="2"),
                     rx.text(
-                        "원본: ",
-                        rx.text.strong(DriverState.voice_pending_raw),
+                        "거래처·날짜·수거량을 인식하지 못했습니다. 다시 말씀해 주세요.",
                         size="2",
                         color="#64748b",
                     ),
-                    rx.cond(
-                        DriverState.voice_normalized_text != DriverState.voice_pending_raw,
-                        rx.text(
-                            "정규화: ",
-                            rx.text.strong(DriverState.voice_normalized_text),
-                            size="2",
-                            color="#7c3aed",
-                        ),
-                        rx.fragment(),
-                    ),
-                    rx.divider(),
+                    spacing="2",
+                    align="start",
+                    padding_y="8px",
+                ),
+                # 성공: 입력될 항목 목록
+                rx.vstack(
                     rx.heading("입력될 항목", size="3"),
                     rx.foreach(
                         DriverState.voice_pending_entries,
@@ -684,6 +707,17 @@ def _voice_confirm_dialog() -> rx.Component:
                             rx.text(e["school"], weight="bold", size="2"),
                             rx.text(e["date"], size="2", color="#64748b"),
                             rx.text(e["weight"], "kg", size="2", color_scheme="grass"),
+                            # 섹션 1: 일정기반 배지
+                            rx.cond(
+                                e.get("schedule_matched", False),
+                                rx.badge(
+                                    "📅 일정기반",
+                                    color_scheme="blue",
+                                    size="1",
+                                    variant="soft",
+                                ),
+                                rx.fragment(),
+                            ),
                             # 섹션 6: GPS 매칭 배지
                             rx.cond(
                                 e.get("gps_matched", False),
@@ -717,6 +751,7 @@ def _voice_confirm_dialog() -> rx.Component:
                     align="stretch",
                 ),
             ),
+            # ── 버튼 영역 ──
             rx.hstack(
                 rx.dialog.close(
                     rx.button(
@@ -726,18 +761,23 @@ def _voice_confirm_dialog() -> rx.Component:
                         on_click=DriverState.cancel_voice_apply,
                     ),
                 ),
-                # ── 섹션 4: 다시 말하기 버튼 ──
+                # 섹션 4: 다시 말하기 버튼 (항상 노출)
                 rx.button(
                     "🎤 다시 말하기",
                     variant="soft",
                     color_scheme="blue",
                     on_click=DriverState.retry_voice_recognition,
                 ),
-                rx.dialog.close(
-                    rx.button(
-                        "✅ 확인하고 입력",
-                        color_scheme="grass",
-                        on_click=DriverState.confirm_voice_apply,
+                # 확인 버튼: 성공 시만 노출
+                rx.cond(
+                    DriverState.voice_match_failed,
+                    rx.fragment(),
+                    rx.dialog.close(
+                        rx.button(
+                            "✅ 확인하고 입력",
+                            color_scheme="grass",
+                            on_click=DriverState.confirm_voice_apply,
+                        ),
                     ),
                 ),
                 spacing="3",
@@ -793,43 +833,11 @@ def _schedule_section() -> rx.Component:
             color="#64748b",
         ),
 
-        # ── 전역 음성 입력 버튼 ──
-        rx.button(
-            rx.cond(
-                DriverState.voice_active,
-                rx.hstack(
-                    rx.spinner(size="2"),
-                    rx.text("🎤 듣는 중..."),
-                    spacing="2",
-                    align="center",
-                ),
-                rx.text("🎤 음성으로 한꺼번에 입력"),
-            ),
-            on_click=DriverState.start_global_voice,
-            size="3",
-            width="100%",
-            color_scheme="grass",
-            disabled=DriverState.voice_active,
-            style={"min_height": "52px"},
-        ),
         rx.text(
-            "예: '6일 서초고 204, 17일 서초고 200'",
+            "우측 상단 🎤 버튼으로 음성 입력 — 예: '6일 서초고 204, 17일 서초고 200'",
             font_size="11px",
             color="#94a3b8",
             text_align="center",
-        ),
-        # ── 섹션 5: 실시간 interim 텍스트 (JS DOM 직접 업데이트) ──
-        rx.cond(
-            DriverState.voice_active,
-            rx.box(
-                rx.html(
-                    "<span id='voice-interim-text' style='color:#7c3aed;font-size:13px;"
-                    "font-style:italic;'></span>"
-                ),
-                width="100%",
-                text_align="center",
-                min_height="20px",
-            ),
         ),
 
         # 일정이 있을 때
@@ -1165,6 +1173,60 @@ def _checkout_section() -> rx.Component:
     )
 
 
+def _floating_voice_button() -> rx.Component:
+    """플로팅 음성 입력 버튼 — 화면 우측 상단 고정 (섹션 3)
+    - 다이얼로그가 열려 있으면 숨김
+    - 인식 중에는 tomato 색상 + spinner
+    - 실시간 interim 텍스트를 버튼 왼쪽 말풍선으로 표시
+    """
+    return rx.cond(
+        ~DriverState.voice_confirm_open,
+        rx.box(
+            rx.button(
+                rx.cond(
+                    DriverState.voice_active,
+                    rx.spinner(size="3"),
+                    rx.icon("mic", size=24),
+                ),
+                on_click=DriverState.start_global_voice,
+                disabled=DriverState.voice_active,
+                border_radius="50%",
+                color_scheme=rx.cond(DriverState.voice_active, "tomato", "grass"),
+                style={
+                    "width": "56px",
+                    "height": "56px",
+                    "padding": "0",
+                    "box_shadow": "0 4px 16px rgba(0,0,0,0.25)",
+                },
+            ),
+            # 섹션 5: 실시간 interim 말풍선 (JS DOM 직접 업데이트)
+            rx.cond(
+                DriverState.voice_active,
+                rx.box(
+                    rx.html(
+                        "<span id='voice-interim-text' style='color:#7c3aed;font-size:12px;"
+                        "font-style:italic;'></span>"
+                    ),
+                    position="absolute",
+                    right="64px",
+                    top="10px",
+                    background="white",
+                    border_radius="8px",
+                    padding="4px 10px",
+                    box_shadow="0 2px 8px rgba(0,0,0,0.12)",
+                    white_space="nowrap",
+                    max_width="220px",
+                ),
+                rx.fragment(),
+            ),
+            position="fixed",
+            top="16px",
+            right="16px",
+            z_index="1000",
+        ),
+    )
+
+
 def driver_page() -> rx.Component:
     """기사 대시보드 메인 페이지"""
     return rx.box(
@@ -1175,6 +1237,7 @@ def driver_page() -> rx.Component:
             _safety_section(),
             _schedule_section(),
             _voice_confirm_dialog(),
+            _floating_voice_button(),
             _processing_section(),
             _checkout_section(),
 
