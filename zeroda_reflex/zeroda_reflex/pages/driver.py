@@ -560,6 +560,15 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                 rx.cond(
                     DriverState.show_photo_for == s["school_name"],
                     rx.vstack(
+                        rx.text_area(
+                            value=s["photo_remark"].to(str),
+                            placeholder="특이사항 코멘트 (선택) — 예: 음식물 이물질, 용기 파손, 출입 문제 등",
+                            on_change=lambda v: DriverState.set_photo_remark([idx, v]),
+                            size="1",
+                            rows="2",
+                            width="100%",
+                            font_size="12px",
+                        ),
                         rx.upload(
                             rx.button(
                                 "📂 파일 선택 (1장)",

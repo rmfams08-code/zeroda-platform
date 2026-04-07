@@ -429,9 +429,10 @@ class DriverState(AuthState):
                 rows = default_rows
             result.append({
                 **s,
-                "rows":      rows,
-                "save_msg":  ex.get("save_msg", ""),
-                "photo_msg": ex.get("photo_msg", ""),
+                "rows":         rows,
+                "save_msg":     ex.get("save_msg", ""),
+                "photo_msg":    ex.get("photo_msg", ""),
+                "photo_remark": ex.get("photo_remark", ""),
             })
         self.schedule_schools = result
 
@@ -1337,6 +1338,14 @@ class DriverState(AuthState):
                 self.show_photo_for = school
                 self.active_save_school = school
 
+    def set_photo_remark(self, pair: list):
+        """거래처별 특이사항 코멘트 입력 [school_idx, value]"""
+        school_idx, val = int(pair[0]), str(pair[1])
+        schools = list(self.schedule_schools)
+        if 0 <= school_idx < len(schools):
+            schools[school_idx] = {**schools[school_idx], "photo_remark": val}
+            self.schedule_schools = schools
+
     async def handle_card_photo_upload(self, files: list[rx.UploadFile]):
         """카드 내 사진 업로드 (거래처당 1장) — active_save_school 사용"""
         school = self.active_save_school
@@ -1352,6 +1361,17 @@ class DriverState(AuthState):
         fpath = os.path.join(upload_dir, fname)
         with open(fpath, "wb") as f:
             f.write(upload_data)
+
+        # 해당 거래처의 특이사항 코멘트 조회
+        remark = ""
+        schools = list(self.schedule_schools)
+        remark_idx = -1
+        for i, s in enumerate(schools):
+            if s.get("school_name") == school:
+                remark = str(s.get("photo_remark", "") or "")
+                remark_idx = i
+                break
+
         save_photo_record(
             vendor=self.user_vendor,
             driver=self.user_name,
@@ -1359,13 +1379,20 @@ class DriverState(AuthState):
             photo_type="collection",
             photo_url=fpath,
             collect_date=self.today_str,
+            memo=remark,
         )
-        # schedule_schools에서 photo_msg 업데이트
-        schools = list(self.schedule_schools)
-        for i, s in enumerate(schools):
-            if s.get("school_name") == school:
-                schools[i] = {**schools[i], "photo_msg": "📸 저장 완료"}
-                break
+        # photo_msg 업데이트 + photo_remark 초기화
+        if remark_idx >= 0:
+            schools[remark_idx] = {
+                **schools[remark_idx],
+                "photo_msg": "📸 저장 완료",
+                "photo_remark": "",
+            }
+        else:
+            for i, s in enumerate(schools):
+                if s.get("school_name") == school:
+                    schools[i] = {**schools[i], "photo_msg": "📸 저장 완료", "photo_remark": ""}
+                    break
         self.schedule_schools = schools
         self.show_photo_for = ""
         self._load_today_photos()
