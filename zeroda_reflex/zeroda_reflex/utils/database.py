@@ -3,6 +3,7 @@
 # GitHub JSON API + SQLite 이중 구조 유지
 
 import json
+import math
 import sqlite3
 import os
 import hashlib
@@ -485,6 +486,69 @@ def save_customer_gps(vendor: str, name: str, lat: float, lng: float) -> bool:
         return False
     finally:
         conn.close()
+
+
+# ── GPS 유틸 ──
+
+def haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """두 좌표 간 거리 계산 (미터) — Haversine 공식, 외부 라이브러리 없음"""
+    R = 6_371_000  # 지구 반경 (m)
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def get_customers_with_gps(vendor: str) -> list[dict]:
+    """GPS 좌표(latitude/longitude)가 등록된 거래처 목록 반환"""
+    conn = get_db()
+    try:
+        # idempotent: 컬럼이 없으면 추가
+        for col in ("latitude", "longitude"):
+            try:
+                conn.execute(f"ALTER TABLE customer_info ADD COLUMN {col} REAL")
+                conn.commit()
+            except Exception:
+                pass  # 이미 존재하면 무시
+        rows = conn.execute(
+            "SELECT name, latitude, longitude FROM customer_info "
+            "WHERE vendor=? AND latitude IS NOT NULL AND longitude IS NOT NULL "
+            "AND latitude != 0 AND longitude != 0",
+            (vendor,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                result.append({
+                    "name": str(d.get("name", "")),
+                    "lat": float(d.get("latitude", 0)),
+                    "lng": float(d.get("longitude", 0)),
+                })
+            except (ValueError, TypeError):
+                pass
+        return result
+    except Exception as e:
+        print(f"[DB ERROR] get_customers_with_gps: {e}")
+        logger.warning(f"get_customers_with_gps error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_school_icons(vendor: str) -> dict:
+    """거래처명 → 아이콘 매핑 반환 (cust_type 기반)"""
+    rows = db_get("customer_info", {"vendor": vendor})
+    icon_map = {"학교": "🏫", "기업": "🏢", "관공서": "🏛️", "일반업장": "🍽️"}
+    result = {}
+    for r in rows:
+        name = r.get("name", "")
+        if not name:
+            continue
+        ct = str(r.get("cust_type", r.get("구분", "학교")) or "학교")
+        result[name] = icon_map.get(ct, "🏫")
+    return result
 
 
 # ── 사진 기록 ──

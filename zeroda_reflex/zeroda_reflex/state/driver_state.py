@@ -18,6 +18,7 @@ from zeroda_reflex.utils.database import (
     get_today_processing, save_processing_confirm,
     save_photo_record, get_photo_records_today,
     save_customer_gps,
+    get_customers_with_gps, haversine, get_school_icons,
 )
 import os
 
@@ -111,6 +112,9 @@ class DriverState(AuthState):
 
     # ── GPS ──
     gps_msg: str = ""
+
+    # ── 거래처 아이콘 맵 ──
+    school_icon_map: dict[str, str] = {}
 
     # ── 음성입력 ──
     voice_active: bool = False
@@ -258,8 +262,9 @@ class DriverState(AuthState):
         return [s["school_name"] for s in self.schedule_schools if s["school_name"] not in done]
 
     def _load_schools(self):
-        """배정된 학교 목록 로드"""
+        """배정된 학교 목록 + 아이콘 맵 로드"""
         self.assigned_schools = get_schools_by_vendor(self.user_vendor)
+        self.school_icon_map = get_school_icons(self.user_vendor)
         if self.assigned_schools and not self.selected_school:
             self.selected_school = self.assigned_schools[0]
 
@@ -583,6 +588,11 @@ class DriverState(AuthState):
         return int(done * 100 / total)
 
     @rx.var
+    def selected_school_icon(self) -> str:
+        """선택된 거래처의 아이콘 (cust_type 기반, 기본값 🏫)"""
+        return self.school_icon_map.get(self.selected_school, "🏫")
+
+    @rx.var
     def all_collected(self) -> bool:
         """모든 거래처 수거 완료 여부"""
         return (
@@ -605,28 +615,85 @@ class DriverState(AuthState):
     # ── 음성입력 핸들러 ──
 
     def handle_voice_result(self, text: str):
-        """음성인식 결과 처리 — 숫자 추출하여 수거량에 반영"""
+        """음성인식 결과 처리 — 숫자 추출 + 거래처명 매칭"""
+        import re
+        import difflib
+
         self.voice_active = False
         if not text:
             self.voice_result = "음성을 인식하지 못했습니다."
             return
-        self.voice_result = f"🎤 인식: {text}"
-        # 숫자 추출 시도
-        import re
-        nums = re.findall(r"[\d]+\.?[\d]*", text)
-        if nums:
-            weight_str = nums[0]
-            # 다중행이 있으면 첫 번째 빈 행에 넣기
+
+        # ── 1. 숫자(kg) 추출 ──
+        nums = re.findall(r"\d+\.?\d*", text)
+        matched_kg = nums[0] if nums else ""
+
+        if matched_kg:
             if self.collection_rows:
                 rows = list(self.collection_rows)
+                placed = False
                 for i, row in enumerate(rows):
                     if not row.get("weight"):
-                        rows[i] = {**rows[i], "weight": weight_str}
+                        rows[i] = {**rows[i], "weight": matched_kg}
                         self.collection_rows = rows
-                        self.voice_result = f"🎤 {weight_str}kg 입력됨"
-                        return
-            self.collection_weight = weight_str
-            self.voice_result = f"🎤 {weight_str}kg 입력됨"
+                        placed = True
+                        break
+                if not placed:
+                    self.collection_weight = matched_kg
+            else:
+                self.collection_weight = matched_kg
+
+        # ── 2. 거래처명 매칭 (사용자가 이미 선택한 경우 덮지 않음) ──
+        matched_school = ""
+        if not self.selected_school and self.assigned_schools:
+
+            def _norm(s: str) -> str:
+                """약칭 정규화: 초→초등학교, 중→중학교, 고→고등학교"""
+                s = re.sub(r"초(?!등)", "초등학교", s)
+                s = re.sub(r"중(?!학)", "중학교", s)
+                s = re.sub(r"고(?!등)", "고등학교", s)
+                return s
+
+            norm_text = _norm(text)
+            best_score = 0.0
+            best_school = ""
+
+            for school in self.assigned_schools:
+                # 직접 포함 확인 (최우선)
+                if school in text or school in norm_text:
+                    best_school = school
+                    best_score = 1.0
+                    break
+                # difflib 유사도 (threshold 0.6)
+                score = difflib.SequenceMatcher(
+                    None, norm_text, _norm(school)
+                ).ratio()
+                if score > best_score:
+                    best_score = score
+                    best_school = school
+
+            if best_school and best_score >= 0.6:
+                matched_school = best_school
+                self.selected_school = best_school
+                # 거래처 변경 → 다중행 초기화 (weight는 방금 추출한 값 유지)
+                self.collection_rows = [
+                    {
+                        "date": self.today_str,
+                        "item": self.collection_item_type,
+                        "weight": matched_kg,
+                    }
+                ]
+
+        # ── 결과 토스트 ──
+        parts = []
+        if matched_school:
+            parts.append(matched_school)
+        if matched_kg:
+            parts.append(f"{matched_kg}kg")
+        if parts:
+            self.voice_result = "🎤 음성 인식: " + " ".join(parts)
+        else:
+            self.voice_result = f"🎤 인식: {text}"
 
     # ── GPS 핸들러 ──
 
@@ -652,6 +719,48 @@ class DriverState(AuthState):
             self.gps_msg = f"📍 위치 저장: {self.selected_school} ({lat:.5f}, {lng:.5f})"
         else:
             self.gps_msg = "위치 저장 실패"
+
+    def auto_match_school_by_gps(self, coords: str):
+        """GPS 기반 거래처 자동 선택 — 200m 이내 가장 가까운 거래처 선택"""
+        self.gps_msg = ""
+        try:
+            parts = coords.split(",")
+            cur_lat = float(parts[0])
+            cur_lng = float(parts[1])
+        except (ValueError, IndexError):
+            self.gps_msg = "위치 정보를 가져올 수 없습니다."
+            return
+
+        if cur_lat == 0 and cur_lng == 0:
+            self.gps_msg = "위치 권한을 허용해주세요."
+            return
+
+        candidates = get_customers_with_gps(self.user_vendor)
+        if not candidates:
+            self.gps_msg = "GPS 좌표가 등록된 거래처가 없습니다."
+            return
+
+        best_dist = float("inf")
+        best_name = ""
+        for c in candidates:
+            dist = haversine(cur_lat, cur_lng, c["lat"], c["lng"])
+            if dist < best_dist:
+                best_dist = dist
+                best_name = c["name"]
+
+        if best_dist <= 200:
+            self.selected_school = best_name
+            self.collection_rows = [
+                {
+                    "date": self.today_str,
+                    "item": self.collection_item_type,
+                    "weight": "",
+                }
+            ]
+            self.gps_msg = f"📍 자동 선택: {best_name} ({int(best_dist)}m)"
+        else:
+            near_info = f"{best_name} {int(best_dist)}m" if best_name else "-"
+            self.gps_msg = f"근처 거래처 없음 (최근: {near_info})"
 
     # ── 스쿨존 핸들러 ──
 
