@@ -302,6 +302,7 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
     tdata = [[P(h, size=7, align=1, color=colors.white) for h in header]]
 
     # customer_info에서 학교별 품목 단가 조회 (load_customers_from_db 방식)
+    _cust_info = {}  # 기본값 초기화 (import 실패 시 UnboundLocalError 방지)
     try:
         from database.db_manager import load_customers_from_db
         _all_cust = load_customers_from_db(vendor)
