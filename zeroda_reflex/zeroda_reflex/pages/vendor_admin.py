@@ -56,8 +56,10 @@ TABS = [
     ("정산관리",   "credit_card"),
     ("안전관리",   "shield_check"),
     ("수거분석",   "trending_up"),
+    ("현장사진",   "camera"),
     ("설정",       "settings"),
 ]
+PHOTO_TYPE_OPTIONS = ["전체", "수거증빙", "계근표", "차량장비", "사고이슈"]
 ANALYTICS_SUBTABS = ["종합현황", "일별요일별", "거래처기사별", "기상분석"]
 
 
@@ -370,11 +372,92 @@ def _col_record_row(row: dict) -> rx.Component:
             ),
             rx.text(row["driver"], font_size="12px", color="#94a3b8",
                     flex_shrink="0", display=["none", "inline", "inline"]),
+            rx.hstack(
+                rx.button(
+                    rx.icon("pencil", size=13),
+                    on_click=VendorState.open_col_edit(row),
+                    size="1", variant="soft", color_scheme="blue", cursor="pointer",
+                ),
+                rx.button(
+                    rx.icon("trash_2", size=13),
+                    on_click=VendorState.delete_collection_record(row["id"]),
+                    size="1", variant="soft", color_scheme="red", cursor="pointer",
+                ),
+                spacing="1", flex_shrink="0",
+            ),
             width="100%", padding_x="16px", padding_y="10px",
             align="center", gap="12px",
         ),
         border_bottom="1px solid #f1f5f9",
         _hover={"bg": "#f8fafc"},
+    )
+
+
+def _col_edit_form() -> rx.Component:
+    """수거 데이터 인라인 편집 폼 (edit_col_id가 있을 때 표시)"""
+    return rx.cond(
+        VendorState.edit_col_id != "",
+        rx.box(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("pencil", size=14, color="#3b82f6"),
+                    rx.text("수거 데이터 수정", font_size="13px",
+                            font_weight="700", color="#1e293b"),
+                    rx.text(f"ID: {VendorState.edit_col_id}",
+                            font_size="11px", color="#94a3b8"),
+                    spacing="2", align="center",
+                ),
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("수거량(kg)", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.input(
+                            value=VendorState.edit_col_weight,
+                            on_change=VendorState.set_edit_col_weight,
+                            placeholder="0.0", size="2", type="number", width="120px",
+                        ),
+                        spacing="1",
+                    ),
+                    rx.vstack(
+                        rx.text("메모", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.input(
+                            value=VendorState.edit_col_memo,
+                            on_change=VendorState.set_edit_col_memo,
+                            placeholder="메모", size="2", width="200px",
+                        ),
+                        spacing="1",
+                    ),
+                    rx.button(
+                        rx.icon("check", size=14), "수정 저장",
+                        on_click=VendorState.update_collection_record,
+                        size="2", color_scheme="blue", cursor="pointer", gap="4px",
+                    ),
+                    rx.button(
+                        rx.icon("x", size=14),
+                        on_click=VendorState.set_edit_col_id(""),
+                        size="2", color_scheme="gray", variant="soft", cursor="pointer",
+                    ),
+                    spacing="3", align="end", flex_wrap="wrap",
+                ),
+                rx.cond(
+                    VendorState.edit_col_msg != "",
+                    rx.text(
+                        VendorState.edit_col_msg,
+                        font_size="12px",
+                        color=rx.cond(
+                            VendorState.edit_col_msg.contains("✅"),
+                            "#22c55e", "#ef4444",
+                        ),
+                    ),
+                ),
+                spacing="2", align="start",
+            ),
+            padding="12px 16px",
+            bg="#eff6ff",
+            border="1px solid #bfdbfe",
+            border_radius="8px",
+            width="100%",
+        ),
+        rx.box(),
     )
 
 
@@ -432,6 +515,7 @@ def _col_history_panel() -> rx.Component:
             rx.text("건 조회됨", font_size="13px", color="#64748b"),
             spacing="2", align="center",
         ),
+        _col_edit_form(),
         _table_box(
             rx.box(
                 rx.hstack(
@@ -441,6 +525,7 @@ def _col_history_panel() -> rx.Component:
                     rx.text("수거량", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
                     rx.text("기사",   font_size="12px", font_weight="700", color="#64748b",
                             flex_shrink="0", display=["none", "inline", "inline"]),
+                    rx.text("편집",   font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
                     width="100%", padding_x="16px", padding_y="10px", gap="12px",
                 ),
                 bg="#f8fafc", border_bottom="1px solid #e2e8f0",
@@ -451,6 +536,17 @@ def _col_history_panel() -> rx.Component:
                 rx.box(rx.foreach(VendorState.filtered_collections, _col_record_row),
                        max_height="420px", overflow_y="auto"),
                 _empty_state("해당 조건의 수거 데이터가 없습니다."),
+            ),
+        ),
+        rx.cond(
+            VendorState.edit_col_msg != "",
+            rx.text(
+                VendorState.edit_col_msg,
+                font_size="12px",
+                color=rx.cond(
+                    VendorState.edit_col_msg.contains("✅"),
+                    "#22c55e", "#ef4444",
+                ),
             ),
         ),
         spacing="4", width="100%", align="start",
@@ -667,6 +763,16 @@ def _proc_confirm_row(row: dict) -> rx.Component:
 
 def _col_confirm_panel() -> rx.Component:
     return rx.vstack(
+        # ── 오늘 수거 vs 처리 비교 KPI (섹션3) ──
+        rx.flex(
+            _kpi_card("오늘 수거량", VendorState.proc_today_coll_weight,
+                      "kg", "truck", "#38bd94", "rgba(56,189,148,0.12)"),
+            _kpi_card("오늘 처리량", VendorState.proc_today_proc_weight,
+                      "kg", "check_circle", "#3b82f6", "rgba(59,130,246,0.10)"),
+            _kpi_card("차이",        VendorState.proc_today_diff,
+                      "kg", "arrow_right_left", "#f59e0b", "rgba(245,158,11,0.10)"),
+            gap="12px", flex_wrap="wrap", width="100%",
+        ),
         rx.hstack(
             rx.select(
                 PROC_STATUS_OPTIONS,
@@ -1191,6 +1297,11 @@ def _sched_card(sched: dict) -> rx.Component:
                     rx.icon("calendar", size=13, color="#38bd94"),
                     rx.text(sched["month_key"], font_size="13px",
                             font_weight="600", color="#1e293b"),
+                    rx.cond(
+                        sched["is_done"] == "true",
+                        rx.badge("✅ 완료", size="1", color_scheme="green", variant="soft"),
+                        rx.badge("⬜ 미완료", size="1", color_scheme="gray", variant="soft"),
+                    ),
                     spacing="1", align="center",
                 ),
                 rx.cond(
@@ -1715,6 +1826,20 @@ def _schedule_tab() -> rx.Component:
 #  탭5: 정산관리
 # ══════════════════════════════════════════════
 
+def _monthly_settle_detail_row(row: dict) -> rx.Component:
+    """월말정산 상세 — 거래처별 행 (섹션6)"""
+    return rx.table.row(
+        rx.table.cell(rx.text(row["name"], font_size="12px", font_weight="600", color="#1e293b")),
+        rx.table.cell(rx.badge(row["cust_type"], size="1", color_scheme="blue", variant="soft")),
+        rx.table.cell(rx.badge(row["tax_label"], size="1", color_scheme="gray", variant="outline")),
+        rx.table.cell(rx.text(row["weight"] + " kg", font_size="12px", color="#475569")),
+        rx.table.cell(rx.text(row["supply"] + " 원", font_size="12px", color="#475569")),
+        rx.table.cell(rx.text(row["vat"] + " 원", font_size="12px", color="#64748b")),
+        rx.table.cell(rx.text(row["total"] + " 원", font_size="12px", font_weight="700", color="#0f172a")),
+        _hover={"bg": "#f8fafc"},
+    )
+
+
 def _settle_subtab_btn(label: str) -> rx.Component:
     is_active = VendorState.settle_active_subtab == label
     return rx.button(
@@ -2093,7 +2218,13 @@ def _settle_monthly_panel() -> rx.Component:
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
             rx.text("월", font_size="13px", color="#64748b"),
-            spacing="2", align="center",
+            rx.spacer(),
+            rx.button(
+                rx.icon("download", size=14), "Excel",
+                size="1", variant="outline", color_scheme="green",
+                on_click=VendorState.download_settlement_excel,
+            ),
+            spacing="2", align="center", width="100%",
         ),
         rx.hstack(
             *[_settle_type_filter_btn(t) for t in SETTLE_TYPE_FILTERS],
@@ -2121,6 +2252,34 @@ def _settle_monthly_panel() -> rx.Component:
                 ),
             ),
             _empty_state("해당 조건의 정산 데이터가 없습니다."),
+        ),
+        # ── 거래처별 상세 테이블 (섹션6) ──
+        rx.cond(
+            VendorState.monthly_settlement_detail.length() > 0,
+            rx.vstack(
+                _section_header("list_checks", "거래처별 수입 요약"),
+                _table_box(
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                _table_header("거래처"),
+                                _table_header("구분"),
+                                _table_header("세금"),
+                                _table_header("수거량"),
+                                _table_header("공급가"),
+                                _table_header("부가세"),
+                                _table_header("합계"),
+                            ),
+                        ),
+                        rx.table.body(
+                            rx.foreach(VendorState.monthly_settlement_detail,
+                                       _monthly_settle_detail_row),
+                        ),
+                        width="100%",
+                    ),
+                ),
+                spacing="3", width="100%",
+            ),
         ),
         rx.box(height="1px", bg="#e2e8f0", width="100%"),
         rx.flex(
@@ -2815,6 +2974,30 @@ def _safety_acc_panel() -> rx.Component:
 
 
 # ── 일일안전점검 서브패널 ──
+def _driver_compliance_row(row: dict) -> rx.Component:
+    """기사별 이행률 행 (섹션7)"""
+    return rx.box(
+        rx.hstack(
+            rx.text(row["driver"], font_size="13px", font_weight="500",
+                    color="#1e293b", flex="1"),
+            rx.text(row["check_days"] + "일", font_size="12px", color="#475569",
+                    flex_shrink="0", width="70px"),
+            rx.text(row["avg_rate"] + "%", font_size="13px", font_weight="700",
+                    color=rx.cond(
+                        row["avg_rate"].to(float) >= 90,
+                        "#38bd94", rx.cond(row["avg_rate"].to(float) >= 70, "#f59e0b", "#ef4444"),
+                    ),
+                    flex_shrink="0", width="80px"),
+            rx.text(row["total_fail"], font_size="12px",
+                    color=rx.cond(row["total_fail"] == "0", "#94a3b8", "#ef4444"),
+                    flex_shrink="0", width="60px"),
+            width="100%", padding_x="16px", padding_y="10px", gap="10px",
+        ),
+        border_bottom="1px solid #f1f5f9",
+        _hover={"bg": "#f8fafc"},
+    )
+
+
 def _safety_daily_panel() -> rx.Component:
     return rx.vstack(
         _section_header("clipboard_list", "일일안전보건 점검 조회"),
@@ -2846,6 +3029,23 @@ def _safety_daily_panel() -> rx.Component:
         rx.cond(
             VendorState.has_daily_check_items,
             rx.vstack(
+                # ── 섹션9: 불량 경고 callout ──
+                rx.cond(
+                    VendorState.has_daily_fails,
+                    rx.box(
+                        rx.hstack(
+                            rx.icon("triangle_alert", size=15, color="#b45309"),
+                            rx.text(
+                                "⚠️ 불량 항목이 발견되었습니다. 즉시 조치가 필요합니다.",
+                                font_size="13px", font_weight="600", color="#92400e",
+                            ),
+                            spacing="2", align="center",
+                        ),
+                        padding="10px 14px",
+                        bg="#fef3c7", border="1px solid #fde68a",
+                        border_radius="8px", width="100%",
+                    ),
+                ),
                 rx.flex(
                     _kpi_card("점검 건수", VendorState.daily_check_count,
                               "건", "clipboard_list", "#38bd94", "#f0fdf4"),
@@ -2872,6 +3072,32 @@ def _safety_daily_panel() -> rx.Component:
                     ),
                     rx.box(rx.foreach(VendorState.daily_check_items, _daily_row),
                            max_height="320px", overflow_y="auto"),
+                ),
+                # ── 섹션7: 기사별 이행률 요약 ──
+                rx.cond(
+                    VendorState.has_driver_compliance,
+                    rx.vstack(
+                        _section_header("user_check", "기사별 이행률 요약"),
+                        _table_box(
+                            rx.box(
+                                rx.hstack(
+                                    rx.text("기사",     font_size="12px", font_weight="700", color="#64748b", flex="1"),
+                                    rx.text("점검일수", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="70px"),
+                                    rx.text("평균이행률", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="80px"),
+                                    rx.text("총불량",   font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="60px"),
+                                    width="100%", padding_x="16px", padding_y="10px", gap="10px",
+                                ),
+                                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                                border_radius="12px 12px 0 0",
+                            ),
+                            rx.box(
+                                rx.foreach(VendorState.daily_driver_compliance,
+                                           _driver_compliance_row),
+                                max_height="240px", overflow_y="auto",
+                            ),
+                        ),
+                        spacing="3", width="100%",
+                    ),
                 ),
                 spacing="4", width="100%",
             ),
@@ -3577,6 +3803,122 @@ def _analytics_tab() -> rx.Component:
     )
 
 
+def _photo_card(photo: dict) -> rx.Component:
+    """현장사진 카드 (섹션1)"""
+    type_color = {
+        "collection": "green",
+        "processing":  "blue",
+        "vehicle":     "orange",
+        "accident":    "red",
+    }
+    col = type_color.get(photo.get("photo_type", ""), "gray")
+    return rx.box(
+        rx.vstack(
+            rx.cond(
+                photo["photo_url"] != "",
+                rx.image(
+                    src=photo["photo_url"],
+                    width="100%", height="160px",
+                    object_fit="cover", border_radius="8px",
+                ),
+                rx.box(
+                    rx.icon("image", size=32, color="#cbd5e1"),
+                    width="100%", height="160px",
+                    display="flex", align_items="center",
+                    justify_content="center",
+                    bg="#f1f5f9", border_radius="8px",
+                ),
+            ),
+            rx.vstack(
+                rx.hstack(
+                    rx.badge(photo["photo_type"], size="1",
+                             color_scheme=col, variant="soft"),
+                    rx.text(photo["created_at"], font_size="11px", color="#94a3b8"),
+                    spacing="2",
+                ),
+                rx.text(photo["school_name"], font_size="13px",
+                        font_weight="600", color="#1e293b"),
+                rx.cond(
+                    photo["driver"] != "",
+                    rx.hstack(
+                        rx.icon("user", size=11, color="#94a3b8"),
+                        rx.text(photo["driver"], font_size="11px", color="#64748b"),
+                        spacing="1", align="center",
+                    ),
+                    rx.box(height="0"),
+                ),
+                rx.cond(
+                    photo["memo"] != "",
+                    rx.text(photo["memo"], font_size="11px", color="#64748b",
+                            overflow="hidden", text_overflow="ellipsis",
+                            white_space="nowrap"),
+                    rx.box(height="0"),
+                ),
+                spacing="1", align="start", width="100%",
+            ),
+            spacing="2", width="100%",
+        ),
+        padding="12px",
+        bg="white",
+        border="1px solid #e2e8f0",
+        border_radius="12px",
+        box_shadow="0 1px 4px rgba(0,0,0,0.04)",
+    )
+
+
+def _photo_tab() -> rx.Component:
+    """현장사진 탭 (P2 섹션1)"""
+    return rx.vstack(
+        _section_header("camera", "현장사진"),
+        rx.hstack(
+            rx.select(
+                PHOTO_TYPE_OPTIONS,
+                value=VendorState.photo_type_filter,
+                on_change=VendorState.set_photo_type_filter,
+                size="2", width="120px",
+                placeholder="종류",
+            ),
+            rx.input(
+                placeholder="시작일 (YYYY-MM-DD)",
+                value=VendorState.photo_date_from,
+                on_change=VendorState.set_photo_date_from,
+                size="2", width="150px",
+            ),
+            rx.input(
+                placeholder="종료일 (YYYY-MM-DD)",
+                value=VendorState.photo_date_to,
+                on_change=VendorState.set_photo_date_to,
+                size="2", width="150px",
+            ),
+            rx.button(
+                rx.icon("search", size=14), "조회",
+                on_click=VendorState.load_photos,
+                size="2", color_scheme="green", cursor="pointer", gap="6px",
+            ),
+            spacing="2", align="center", flex_wrap="wrap",
+        ),
+        rx.hstack(
+            rx.icon("camera", size=14, color="#64748b"),
+            rx.text(
+                "총 " + VendorState.photo_rows.length().to(str) + "장",
+                font_size="13px", color="#64748b",
+            ),
+            spacing="1", align="center",
+        ),
+        rx.cond(
+            VendorState.photo_rows.length() > 0,
+            rx.grid(
+                rx.foreach(VendorState.photo_rows, _photo_card),
+                columns="3",
+                spacing="3",
+                width="100%",
+            ),
+            _empty_state("현장사진 기록이 없습니다. 기사 앱에서 사진을 등록하면 여기에 표시됩니다."),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
 def _settings_tab() -> rx.Component:
     return rx.vstack(
         _section_header("settings", "설정"),
@@ -3642,7 +3984,11 @@ def _tab_content() -> rx.Component:
                             rx.cond(
                                 VendorState.active_tab == "수거분석",
                                 _analytics_tab(),
-                                _settings_tab(),
+                                rx.cond(
+                                    VendorState.active_tab == "현장사진",
+                                    _photo_tab(),
+                                    _settings_tab(),
+                                ),
                             ),
                         ),
                     ),

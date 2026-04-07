@@ -267,6 +267,32 @@ class VendorState(AuthState):
 
     an_load_msg: str = ""
 
+    # ── [현장사진] 탭 (P2 섹션1) ──
+    photo_type_filter: str = "전체"
+    photo_date_from: str = ""
+    photo_date_to: str = ""
+    photo_rows: list[dict] = []
+
+    # ── [수거데이터] 편집/삭제 (P2 섹션2) ──
+    edit_col_id: str = ""
+    edit_col_weight: str = ""
+    edit_col_memo: str = ""
+    edit_col_msg: str = ""
+
+    # ── [처리확인] 오늘 비교 KPI (P2 섹션3) ──
+    proc_today_coll_weight: float = 0.0
+    proc_today_proc_weight: float = 0.0
+    proc_today_diff: float = 0.0
+
+    # ── [월말정산] 상세 (P2 섹션6) ──
+    monthly_settlement_detail: list[dict] = []
+
+    # ── [안전관리] 기사별 이행률 (P2 섹션7) ──
+    daily_driver_compliance: list[dict] = []
+
+    # ── [일정관리] 오늘 완료 (P3 섹션8) ──
+    today_done_schools: list[str] = []
+
     # ── [설정] 탭 ──
     settings_old_pw: str = ""
     settings_new_pw: str = ""
@@ -506,6 +532,19 @@ class VendorState(AuthState):
         return len(self.daily_check_items) > 0
 
     @rx.var
+    def daily_fail_rows(self) -> list[dict]:
+        """불량 있는 일일점검 행 (섹션9)"""
+        return [r for r in self.safety_daily_rows if int(r.get("total_fail", 0) or 0) > 0]
+
+    @rx.var
+    def has_daily_fails(self) -> bool:
+        return len(self.daily_fail_rows) > 0
+
+    @rx.var
+    def has_driver_compliance(self) -> bool:
+        return len(self.daily_driver_compliance) > 0
+
+    @rx.var
     def edu_save_has_msg(self) -> bool:
         return self.edu_save_msg != ""
 
@@ -578,6 +617,11 @@ class VendorState(AuthState):
             self.chk_save_msg = ""
             self.acc_save_msg = ""
             self.load_safety_data()
+        elif tab_name == "현장사진":
+            self.photo_type_filter = "전체"
+            self.photo_date_from = ""
+            self.photo_date_to = ""
+            self.load_photos()
         elif tab_name == "설정":
             self.settings_active_subtab = "업장관리"
             self.biz_save_msg = ""
@@ -1418,9 +1462,24 @@ class VendorState(AuthState):
             self.form_save_msg = "저장에 실패했습니다. 다시 시도해주세요."
 
     def load_processing_confirms(self):
-        """처리확인(계근표) 데이터 로드"""
+        """처리확인(계근표) 데이터 로드 + 오늘 수거/처리량 비교 KPI"""
         from zeroda_reflex.utils.database import get_processing_confirms
         self.processing_confirms = get_processing_confirms(self.user_vendor)
+        # 오늘 날짜 기준 수거량 vs 처리량 비교
+        today = datetime.now().strftime("%Y-%m-%d")
+        coll_today = sum(
+            float(r.get("weight", 0) or 0)
+            for r in self.monthly_collections
+            if str(r.get("collect_date", "")) == today
+        )
+        proc_today = sum(
+            float(r.get("total_weight", 0) or 0)
+            for r in self.processing_confirms
+            if str(r.get("confirm_date", "")) == today
+        )
+        self.proc_today_coll_weight = round(coll_today, 1)
+        self.proc_today_proc_weight = round(proc_today, 1)
+        self.proc_today_diff = round(coll_today - proc_today, 1)
 
     def confirm_processing(self, record_id: str):
         """처리확인 승인"""
@@ -1446,9 +1505,10 @@ class VendorState(AuthState):
         month = int(self.selected_month) if self.selected_month else datetime.now().month
 
         raw = get_monthly_collections(vendor, year, month)
-        # 정규화 — foreach 컴포넌트에서 일관된 키 보장
+        # 정규화 — foreach 컴포넌트에서 일관된 키 보장 (id 포함 — 편집/삭제용)
         self.monthly_collections = [
             {
+                "id": str(r.get("id", r.get("rowid", "")) or ""),
                 "school_name": str(r.get("school_name", "") or ""),
                 "collect_date": str(r.get("collect_date", "") or ""),
                 "item_type": str(r.get("item_type", "") or ""),
@@ -1611,9 +1671,40 @@ class VendorState(AuthState):
             self.cust_delete_msg = f"'{name}' 삭제 실패"
 
     def load_schedules(self):
-        """일정관리 탭 데이터 로드"""
-        from zeroda_reflex.utils.database import get_schedules
-        self.all_schedules = get_schedules(self.user_vendor)
+        """일정관리 탭 데이터 로드 + 오늘 완료 학교 표시"""
+        from zeroda_reflex.utils.database import get_schedules, get_monthly_collections
+        schedules = get_schedules(self.user_vendor)
+
+        # 오늘 수거 완료 학교 세트 추출
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self.monthly_collections:
+            today_set = {
+                str(r.get("school_name", ""))
+                for r in self.monthly_collections
+                if str(r.get("collect_date", "")) == today
+            }
+        else:
+            try:
+                now = datetime.now()
+                raw = get_monthly_collections(self.user_vendor, now.year, now.month)
+                today_set = {
+                    str(r.get("school_name", ""))
+                    for r in raw
+                    if str(r.get("collect_date", "")) == today
+                }
+            except Exception:
+                today_set = set()
+
+        self.today_done_schools = list(today_set)
+
+        # 각 일정에 is_done 플래그 추가 ("true"/"false" 문자열)
+        result = []
+        for s in schedules:
+            s_copy = dict(s)
+            slist = [x.strip() for x in s_copy.get("schools", "").split(",") if x.strip()]
+            s_copy["is_done"] = "true" if any(sc in today_set for sc in slist) else "false"
+            result.append(s_copy)
+        self.all_schedules = result
 
     def load_drivers(self):
         """기사 목록 로드"""
@@ -1740,6 +1831,7 @@ class VendorState(AuthState):
             }
             for r in raw
         ]
+        self.compute_monthly_settlement()
 
     def load_expenses(self):
         """지출 내역 로드"""
@@ -1961,6 +2053,7 @@ class VendorState(AuthState):
             self.safety_daily_rows = get_daily_checks_by_month(
                 self.user_vendor, self.safety_daily_ym
             )
+            self.compute_driver_compliance()
 
     def load_biz_customers(self):
         """업장 목록 로드"""
@@ -2278,6 +2371,192 @@ class VendorState(AuthState):
         self.sms_ok = ok
         self.sms_msg = msg
         self.sms_sending = False
+
+    # ════════════════════════════════════════════
+    #  수거데이터 편집/삭제 (P2 섹션2)
+    # ════════════════════════════════════════════
+
+    def set_edit_col_id(self, v: str):
+        self.edit_col_id = v
+
+    def set_edit_col_weight(self, v: str):
+        self.edit_col_weight = v
+
+    def set_edit_col_memo(self, v: str):
+        self.edit_col_memo = v
+
+    def open_col_edit(self, row: dict):
+        """수거 행 편집 모드 진입 — 폼에 기존 값 세팅"""
+        self.edit_col_id = str(row.get("id", ""))
+        self.edit_col_weight = str(row.get("weight", ""))
+        self.edit_col_memo = str(row.get("memo", "") or "")
+        self.edit_col_msg = ""
+
+    def update_collection_record(self):
+        """수거량/메모 수정"""
+        if not self.edit_col_id:
+            self.edit_col_msg = "❌ 수정할 항목을 선택하세요."
+            return
+        try:
+            from zeroda_reflex.utils.database import update_collection_row
+            ok = update_collection_row(
+                row_id=int(self.edit_col_id),
+                weight=float(self.edit_col_weight or 0),
+                unit_price=0,
+                memo=self.edit_col_memo,
+            )
+            self.edit_col_msg = "✅ 수정 완료" if ok else "❌ 수정 실패"
+            if ok:
+                self.edit_col_id = ""
+                self.edit_col_weight = ""
+                self.edit_col_memo = ""
+                self.load_dashboard_data()
+        except Exception as e:
+            self.edit_col_msg = f"❌ {str(e)}"
+
+    def delete_collection_record(self, row_id: str):
+        """수거 데이터 삭제"""
+        try:
+            from zeroda_reflex.utils.database import delete_collection
+            ok = delete_collection(int(row_id))
+            self.edit_col_msg = "✅ 삭제 완료" if ok else "❌ 삭제 실패"
+            if ok:
+                self.load_dashboard_data()
+        except Exception as e:
+            self.edit_col_msg = f"❌ {str(e)}"
+
+    # ════════════════════════════════════════════
+    #  월말정산 상세화 (P2 섹션6)
+    # ════════════════════════════════════════════
+
+    def compute_monthly_settlement(self):
+        """settlement_data 기반 월말정산 상세 계산 — 세금분류 레이블 추가"""
+        tax_labels = {
+            'tax_free':      '면세',
+            'fixed_fee':     '월정액',
+            'fixed_fee_vat': '월정액+VAT',
+            'vat_10':        'VAT10%',
+        }
+        detail = []
+        for r in self.settlement_data:
+            cust_type = r.get("cust_type", "")
+            tax_type = self._get_tax_type(cust_type)
+            detail.append({
+                "name":      r.get("name", ""),
+                "cust_type": cust_type,
+                "tax_label": tax_labels.get(tax_type, ""),
+                "weight":    r.get("weight", "0"),
+                "count":     r.get("count", "0"),
+                "supply":    r.get("supply", "0"),
+                "vat":       r.get("vat", "0"),
+                "total":     r.get("total", "0"),
+            })
+        self.monthly_settlement_detail = detail
+
+    # ════════════════════════════════════════════
+    #  기사별 이행률 (P2 섹션7)
+    # ════════════════════════════════════════════
+
+    def compute_driver_compliance(self):
+        """safety_daily_rows에서 기사별 이행률 집계"""
+        REQUIRED_CATS = 4
+        agg: dict = {}
+        for r in self.safety_daily_rows:
+            drv = str(r.get("driver", "") or "기타")
+            try:
+                ok_c = int(r.get("total_ok", 0) or 0)
+                fail_c = int(r.get("total_fail", 0) or 0)
+            except (ValueError, TypeError):
+                ok_c, fail_c = 0, 0
+            total_c = ok_c + fail_c
+            rate = round(ok_c / total_c * 100, 1) if total_c > 0 else 0.0
+            if drv not in agg:
+                agg[drv] = {"check_days": 0, "rate_sum": 0.0, "total_fail": 0}
+            agg[drv]["check_days"] += 1
+            agg[drv]["rate_sum"] += rate
+            agg[drv]["total_fail"] += fail_c
+
+        result = []
+        for drv, d in sorted(agg.items()):
+            days = d["check_days"]
+            avg_rate = round(d["rate_sum"] / days, 1) if days > 0 else 0.0
+            result.append({
+                "driver":      drv,
+                "check_days":  str(days),
+                "avg_rate":    str(avg_rate),
+                "total_fail":  str(d["total_fail"]),
+            })
+        self.daily_driver_compliance = result
+
+    # ════════════════════════════════════════════
+    #  현장사진 (P2 섹션1)
+    # ════════════════════════════════════════════
+
+    PHOTO_TYPE_MAP: dict = {
+        "전체":    None,
+        "수거증빙":  "collection",
+        "계근표":   "processing",
+        "차량장비":  "vehicle",
+        "사고이슈":  "accident",
+    }
+
+    def set_photo_type_filter(self, v: str):
+        self.photo_type_filter = v
+
+    def set_photo_date_from(self, v: str):
+        self.photo_date_from = v
+
+    def set_photo_date_to(self, v: str):
+        self.photo_date_to = v
+
+    def load_photos(self):
+        """현장사진 조회 — photo_records 테이블 없으면 빈 리스트 반환"""
+        from zeroda_reflex.utils.database import get_db
+        try:
+            conn = get_db()
+            photo_type_val = self.PHOTO_TYPE_MAP.get(self.photo_type_filter)
+            if photo_type_val:
+                rows = conn.execute(
+                    "SELECT * FROM photo_records WHERE vendor=? AND photo_type=? "
+                    "ORDER BY created_at DESC LIMIT 200",
+                    (self.user_vendor, photo_type_val),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM photo_records WHERE vendor=? "
+                    "ORDER BY created_at DESC LIMIT 200",
+                    (self.user_vendor,),
+                ).fetchall()
+            conn.close()
+            raw = [dict(r) for r in rows]
+            # Python 레벨 날짜 필터
+            df = self.photo_date_from
+            dt = self.photo_date_to
+            if df or dt:
+                filtered = []
+                for r in raw:
+                    d = str(r.get("created_at", "") or "")[:10]
+                    if df and d < df:
+                        continue
+                    if dt and d > dt:
+                        continue
+                    filtered.append(r)
+                raw = filtered
+            self.photo_rows = [
+                {
+                    "id":         str(r.get("id", "") or ""),
+                    "school_name": str(r.get("school_name", r.get("location_name", "")) or ""),
+                    "photo_type": str(r.get("photo_type", "") or ""),
+                    "driver":     str(r.get("driver", "") or ""),
+                    "memo":       str(r.get("memo", "") or ""),
+                    "created_at": str(r.get("created_at", "") or "")[:10],
+                    "photo_url":  str(r.get("photo_url", r.get("file_path", "")) or ""),
+                }
+                for r in raw
+            ]
+        except Exception as e:
+            logger.warning(f"photo_records 테이블 없음 또는 오류: {e}")
+            self.photo_rows = []
 
     # ════════════════════════════════════════════
     #  Excel 다운로드 핸들러
