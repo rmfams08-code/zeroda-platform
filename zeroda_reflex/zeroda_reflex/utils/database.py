@@ -1083,25 +1083,31 @@ def get_driver_schedule_schools(
         ).fetchall()
 
         # ── meal_schedules 조회 (해당 월, 급식일정 필터용) ──
-        ms_rows = conn.execute(
-            "SELECT school_name, collect_date, status FROM meal_schedules "
-            "WHERE school_name IN "
-            "(SELECT name FROM customer_info WHERE vendor=?) "
-            "AND meal_date LIKE ?",
-            (vendor, f"{sel_month}%"),
-        ).fetchall()
-
-        meal_managed = set()
+        # 이 쿼리가 실패해도 schedules 테이블 기반 결과는 정상 반환 (fallback)
+        meal_managed: set = set()
         meal_approved_dates: dict[str, set] = {}
-        for ms in ms_rows:
-            ms_d = dict(ms)
-            sn = ms_d.get("school_name", "")
-            if sn:
-                meal_managed.add(sn)
-                if ms_d.get("status") == "approved":
-                    cd = str(ms_d.get("collect_date", ""))
-                    if cd:
-                        meal_approved_dates.setdefault(sn, set()).add(cd)
+        try:
+            ms_rows = conn.execute(
+                "SELECT school_name, collect_date, status FROM meal_schedules "
+                "WHERE school_name IN "
+                "(SELECT name FROM customer_info WHERE vendor=?) "
+                "AND meal_date LIKE ?",
+                (vendor, f"{sel_month}%"),
+            ).fetchall()
+            for ms in ms_rows:
+                ms_d = dict(ms)
+                sn = ms_d.get("school_name", "")
+                if sn:
+                    meal_managed.add(sn)
+                    if ms_d.get("status") == "approved":
+                        cd = str(ms_d.get("collect_date", ""))
+                        if cd:
+                            meal_approved_dates.setdefault(sn, set()).add(cd)
+        except Exception as me:
+            print(f"[DB ERROR] get_driver_schedule_schools meal_schedules: {me}")
+            logger.warning(f"meal_schedules 조회 실패 (fallback 적용): {me}")
+            meal_managed = set()
+            meal_approved_dates = {}
 
         # ── 거래처 정보 조회 (주소 + 유형) ──
         addr_rows = conn.execute(
