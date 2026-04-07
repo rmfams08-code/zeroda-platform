@@ -109,6 +109,9 @@ class DriverState(AuthState):
     collection_memo: str = ""
     collection_save_msg: str = ""
 
+    # ── 거래처 타입 아이콘 ──
+    school_cust_type_map: dict[str, str] = {}
+
     # ── GPS ──
     gps_msg: str = ""
 
@@ -262,6 +265,14 @@ class DriverState(AuthState):
         self.assigned_schools = get_schools_by_vendor(self.user_vendor)
         if self.assigned_schools and not self.selected_school:
             self.selected_school = self.assigned_schools[0]
+        # cust_type 맵 구성 (아이콘 표시용)
+        rows = db_get("customer_info", {"vendor": self.user_vendor})
+        cust_map: dict[str, str] = {}
+        for r in rows:
+            name = r.get("name", "")
+            if name:
+                cust_map[name] = str(r.get("cust_type", r.get("구분", "")) or "")
+        self.school_cust_type_map = cust_map
 
     def _load_today_collections(self):
         """오늘 수거 기록 로드"""
@@ -418,6 +429,13 @@ class DriverState(AuthState):
     def set_collection_memo(self, value: str):
         """메모 입력"""
         self.collection_memo = value
+
+    @rx.var
+    def selected_school_icon(self) -> str:
+        """선택된 거래처의 cust_type 아이콘"""
+        _ICON_MAP = {"학교": "🏫", "기업": "🏢", "관공서": "🏛️", "병원": "🏥"}
+        ct = self.school_cust_type_map.get(self.selected_school, "")
+        return _ICON_MAP.get(ct, "📍")
 
     @rx.var
     def estimated_amount(self) -> str:

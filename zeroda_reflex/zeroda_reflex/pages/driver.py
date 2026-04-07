@@ -561,7 +561,15 @@ def _collection_section() -> rx.Component:
         ),
 
         # ── 거래처 선택 ──
-        rx.text("거래처", font_size="13px", font_weight="600", color="#374151"),
+        rx.hstack(
+            rx.cond(
+                DriverState.selected_school != "",
+                rx.text(DriverState.selected_school_icon, font_size="15px"),
+            ),
+            rx.text("거래처", font_size="13px", font_weight="600", color="#374151"),
+            spacing="1",
+            align="center",
+        ),
         rx.select(
             DriverState.assigned_schools,
             value=DriverState.selected_school,

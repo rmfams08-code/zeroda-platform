@@ -1159,8 +1159,8 @@ def get_driver_schedule_schools(
                 seen.add(sch)
                 ct = type_map.get(sch, "")
                 # 아이콘 매핑
-                icon_map = {"학교": "🏫", "기업": "🏢", "관공서": "🏛️", "일반업장": "🍽️"}
-                icon = icon_map.get(ct, "🏫")
+                icon_map = {"학교": "🏫", "기업": "🏢", "관공서": "🏛️", "병원": "🏥", "일반업장": "🍽️"}
+                icon = icon_map.get(ct, "📍")
                 result.append({
                     "school_name": sch,
                     "items": ", ".join(items) if items else "-",
