@@ -26,7 +26,7 @@ SETTLE_TYPE_FILTERS = ["전체", "학교", "기업", "관공서", "일반업장"
 SCHED_WEEKDAYS = ["월", "화", "수", "목", "금", "토"]
 SCHED_ITEMS = ["음식물", "재활용", "일반"]
 SCHED_ITEM_FILTERS = ["전체", "음식물", "재활용", "일반"]
-CUST_SUBTABS = ["목록", "등록수정"]
+CUST_SUBTABS = ["목록", "등록수정", "별칭관리"]
 CUST_TYPE_OPTIONS = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
 CUST_TYPE_FILTERS = ["전체", "학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
 SAFETY_SUBTABS = ["안전교육", "차량안전점검", "사고신고", "일일안전점검"]
@@ -1219,6 +1219,112 @@ def _cust_form_panel() -> rx.Component:
     )
 
 
+def _cust_alias_panel() -> rx.Component:
+    """섹션 3: 거래처 음성 별칭 관리 패널"""
+    return rx.vstack(
+        rx.text(
+            "음성 인식 시 오인식되는 거래처 별칭을 등록하면 자동으로 매칭됩니다.",
+            font_size="12px",
+            color="#64748b",
+        ),
+        # ── 거래처 선택 ──
+        rx.hstack(
+            rx.text("거래처 선택", font_size="13px", font_weight="600", color="#374151"),
+            rx.select(
+                [s.get("name", "") for s in VendorState.customers_list
+                 if s.get("name")],
+                value=VendorState.alias_customer_sel,
+                on_change=VendorState.set_alias_customer,
+                placeholder="거래처를 선택하세요",
+                size="2",
+                flex="1",
+            ),
+            width="100%",
+            spacing="3",
+            align="center",
+        ),
+        # ── 현재 별칭 목록 ──
+        rx.cond(
+            VendorState.alias_customer_sel != "",
+            rx.vstack(
+                rx.text(
+                    "현재 별칭 목록",
+                    font_size="13px",
+                    font_weight="600",
+                    color="#374151",
+                ),
+                rx.cond(
+                    VendorState.alias_list.length() > 0,
+                    rx.foreach(
+                        VendorState.alias_list,
+                        lambda alias: rx.hstack(
+                            rx.badge(alias, size="2", color_scheme="blue", variant="soft"),
+                            rx.icon_button(
+                                rx.icon("x", size=12),
+                                size="1",
+                                variant="ghost",
+                                color_scheme="red",
+                                on_click=VendorState.remove_alias(alias),
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                    ),
+                    rx.text(
+                        "등록된 별칭이 없습니다.",
+                        font_size="12px",
+                        color="#9ca3af",
+                    ),
+                ),
+                # ── 별칭 추가 입력 ──
+                rx.hstack(
+                    rx.input(
+                        placeholder="예: 서초고, 서초중 (STT 오인식 표현)",
+                        value=VendorState.alias_input,
+                        on_change=VendorState.set_alias_input,
+                        size="2",
+                        flex="1",
+                    ),
+                    rx.button(
+                        "추가",
+                        on_click=VendorState.add_alias,
+                        size="2",
+                        color_scheme="blue",
+                    ),
+                    width="100%",
+                    spacing="2",
+                ),
+                rx.cond(
+                    VendorState.alias_msg != "",
+                    rx.text(
+                        VendorState.alias_msg,
+                        font_size="12px",
+                        color=rx.cond(
+                            VendorState.alias_msg.contains("✅"),
+                            "#16a34a",
+                            rx.cond(
+                                VendorState.alias_msg.contains("🗑️"),
+                                "#64748b",
+                                "#dc2626",
+                            ),
+                        ),
+                    ),
+                    rx.fragment(),
+                ),
+                spacing="3",
+                width="100%",
+                bg="white",
+                border_radius="8px",
+                padding="12px",
+                border="1px solid #e5e7eb",
+            ),
+        ),
+        spacing="4",
+        width="100%",
+        align="start",
+    )
+
+
 def _customer_tab() -> rx.Component:
     return rx.vstack(
         # ── 헤더 + Excel 다운로드 (Phase 3) ──
@@ -1239,7 +1345,11 @@ def _customer_tab() -> rx.Component:
         rx.cond(
             VendorState.cust_active_subtab == "목록",
             _cust_list_panel(),
-            _cust_form_panel(),
+            rx.cond(
+                VendorState.cust_active_subtab == "별칭관리",
+                _cust_alias_panel(),
+                _cust_form_panel(),
+            ),
         ),
         spacing="4", width="100%", align="start",
     )

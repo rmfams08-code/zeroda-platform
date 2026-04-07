@@ -4343,3 +4343,176 @@ def save_meal_schedule_drafts(site_name: str, dates: list) -> int:
         return 0
     finally:
         conn.close()
+
+
+# ══════════════════════════════════════════
+#  섹션 3: 거래처 음성 별칭 관리
+#  customer_info.voice_aliases TEXT (comma-separated) — idempotent ADD COLUMN
+# ══════════════════════════════════════════
+
+def _ensure_voice_aliases_col(conn) -> None:
+    """customer_info 테이블에 voice_aliases 컬럼이 없으면 추가 (idempotent)"""
+    try:
+        conn.execute(
+            "ALTER TABLE customer_info ADD COLUMN voice_aliases TEXT DEFAULT ''"
+        )
+        conn.commit()
+    except Exception:
+        pass  # 이미 존재하면 무시
+
+
+def get_customer_aliases(vendor: str, customer_name: str) -> list:
+    """거래처의 음성 별칭 목록 반환 (빈 문자열 제거)"""
+    conn = get_db()
+    try:
+        _ensure_voice_aliases_col(conn)
+        row = conn.execute(
+            "SELECT voice_aliases FROM customer_info WHERE vendor=? AND name=?",
+            (vendor, customer_name),
+        ).fetchone()
+        if not row:
+            return []
+        raw = str(dict(row).get("voice_aliases", "") or "")
+        return [a.strip() for a in raw.split(",") if a.strip()]
+    except Exception as e:
+        logger.warning(f"get_customer_aliases: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def add_customer_alias(vendor: str, customer_name: str, alias: str) -> bool:
+    """거래처 음성 별칭 추가 (중복 무시)"""
+    alias = alias.strip()
+    if not alias:
+        return False
+    conn = get_db()
+    try:
+        _ensure_voice_aliases_col(conn)
+        row = conn.execute(
+            "SELECT voice_aliases FROM customer_info WHERE vendor=? AND name=?",
+            (vendor, customer_name),
+        ).fetchone()
+        if not row:
+            return False
+        raw = str(dict(row).get("voice_aliases", "") or "")
+        existing = [a.strip() for a in raw.split(",") if a.strip()]
+        if alias in existing:
+            return True  # 이미 존재
+        existing.append(alias)
+        new_val = ",".join(existing)
+        conn.execute(
+            "UPDATE customer_info SET voice_aliases=? WHERE vendor=? AND name=?",
+            (new_val, vendor, customer_name),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"add_customer_alias: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def remove_customer_alias(vendor: str, customer_name: str, alias: str) -> bool:
+    """거래처 음성 별칭 제거"""
+    alias = alias.strip()
+    conn = get_db()
+    try:
+        _ensure_voice_aliases_col(conn)
+        row = conn.execute(
+            "SELECT voice_aliases FROM customer_info WHERE vendor=? AND name=?",
+            (vendor, customer_name),
+        ).fetchone()
+        if not row:
+            return False
+        raw = str(dict(row).get("voice_aliases", "") or "")
+        existing = [a.strip() for a in raw.split(",") if a.strip()]
+        updated = [a for a in existing if a != alias]
+        conn.execute(
+            "UPDATE customer_info SET voice_aliases=? WHERE vendor=? AND name=?",
+            (",".join(updated), vendor, customer_name),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"remove_customer_alias: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_all_customer_aliases(vendor: str) -> dict:
+    """vendor 거래처 전체의 음성 별칭 맵 반환.
+    반환: {customer_name: [alias1, alias2, ...], ...}
+    """
+    conn = get_db()
+    try:
+        _ensure_voice_aliases_col(conn)
+        rows = conn.execute(
+            "SELECT name, voice_aliases FROM customer_info WHERE vendor=?",
+            (vendor,),
+        ).fetchall()
+        result: dict = {}
+        for r in rows:
+            d = dict(r)
+            name = str(d.get("name", "") or "")
+            if not name:
+                continue
+            raw = str(d.get("voice_aliases", "") or "")
+            aliases = [a.strip() for a in raw.split(",") if a.strip()]
+            result[name] = aliases
+        return result
+    except Exception as e:
+        logger.warning(f"get_all_customer_aliases: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
+# ══════════════════════════════════════════
+#  섹션 6: GPS 기반 가장 가까운 거래처 조회
+# ══════════════════════════════════════════
+
+def get_nearest_customer(
+    vendor: str,
+    lat: float,
+    lng: float,
+    max_distance_m: int = 200,
+    schedule_names: list = None,
+) -> dict:
+    """현재 GPS 좌표에서 가장 가까운 거래처를 반환.
+
+    - schedule_names 가 지정되면 해당 거래처 중에서만 탐색 (오늘 일정 우선)
+    - max_distance_m 이내에 없으면 None 반환
+    - 반환 dict: {"name": str, "distance_m": float}
+    """
+    customers = get_customers_with_gps(vendor)
+    if not customers:
+        return None
+
+    # 오늘 일정 필터
+    if schedule_names:
+        sched_set = set(schedule_names)
+        pool = [c for c in customers if c["name"] in sched_set]
+        if not pool:
+            pool = customers  # fallback: 전체
+    else:
+        pool = customers
+
+    best = None
+    best_dist = float("inf")
+
+    for c in pool:
+        try:
+            dist = haversine(lat, lng, c["lat"], c["lng"])
+        except Exception:
+            continue
+        if dist < best_dist:
+            best_dist = dist
+            best = c
+
+    if best is None or best_dist > max_distance_m:
+        return None
+
+    return {"name": best["name"], "distance_m": round(best_dist, 1)}
