@@ -48,6 +48,7 @@ def db_get(table: str, where: dict = None) -> list[dict]:
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] db_get: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -67,6 +68,7 @@ def db_insert(table: str, data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] db_insert: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -89,6 +91,7 @@ def db_upsert(table: str, data: dict, key_col: str = "id") -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] db_upsert: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -106,6 +109,7 @@ def verify_password(plain: str, hashed: str) -> bool:
         try:
             return bcrypt.checkpw(plain.encode(), hashed.encode())
         except Exception as e:
+            print(f"[DB ERROR] verify_password: {e}")
             logger.warning(f'Exception in database operation: {str(e)}')
             return False
     if hashlib.sha256(plain.strip().encode()).hexdigest() == hashed.strip():
@@ -149,6 +153,7 @@ def get_daily_safety_checks(vendor: str, driver: str, check_date: str) -> list[d
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_daily_safety_checks: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -219,6 +224,7 @@ def save_daily_safety_checks_transaction(
         return True
     except Exception as e:
         # 에러 발생 시 ROLLBACK
+        print(f"[DB ERROR] save_daily_safety_checks_transaction: {e}")
         conn.rollback()
         logger.warning(f'Transaction failed in save_daily_safety_checks_transaction: {str(e)}')
         return False
@@ -238,6 +244,7 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_today_collections: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -278,6 +285,7 @@ def delete_collection(rowid: int) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] delete_collection: {e}")
         logger.warning(f"수거 삭제 실패: {e}")
         return False
     finally:
@@ -313,6 +321,7 @@ def update_collection_row(
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] update_collection_row: {e}")
         logger.warning(f"수거 수정 실패: {e}")
         return False
     finally:
@@ -381,6 +390,7 @@ def bulk_insert_collections(rows: list[dict], uploader: str = "admin") -> tuple[
                 )
                 success += 1
             except Exception as e:
+                print(f"[DB ERROR] bulk_insert_collections: {e}")
                 logger.warning(f"bulk_insert_collections row 실패: {e}")
                 fail += 1
         conn.commit()
@@ -399,6 +409,7 @@ def get_driver_checkout_log(vendor: str, driver: str, checkout_date: str) -> lis
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_driver_checkout_log: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -430,6 +441,7 @@ def get_today_processing(vendor: str, driver: str, confirm_date: str) -> list[di
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_today_processing: {e}")
         logger.warning(f"get_today_processing error: {e}")
         return []
     finally:
@@ -468,6 +480,7 @@ def save_customer_gps(vendor: str, name: str, lat: float, lng: float) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_customer_gps: {e}")
         logger.warning(f"save_customer_gps error: {e}")
         return False
     finally:
@@ -508,6 +521,7 @@ def get_photo_records_today(
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_photo_records_today: {e}")
         logger.warning(f"get_photo_records_today error: {e}")
         return []
     finally:
@@ -543,6 +557,7 @@ def get_photo_records_all(
         rows = conn.execute(sql, tuple(params)).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_photo_records_all: {e}")
         logger.warning(f"get_photo_records_all error: {e}")
         return []
     finally:
@@ -563,6 +578,7 @@ def get_monthly_collections(vendor: str, year: int, month: int) -> list[dict]:
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_monthly_collections: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -586,6 +602,7 @@ def get_collection_summary_by_school(vendor: str, year: int, month: int) -> list
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_collection_summary_by_school: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -645,6 +662,7 @@ def get_customers_by_vendor(vendor: str, cust_type: str = None) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_customers_by_vendor: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -703,6 +721,7 @@ def save_customer(data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_customer: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -720,6 +739,7 @@ def delete_customer(vendor: str, name: str) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] delete_customer: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -770,6 +790,7 @@ def get_vendor_schedules(vendor: str) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_vendor_schedules: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -833,6 +854,7 @@ def get_daily_checks_by_month(vendor: str, year_month: str) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_daily_checks_by_month: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -874,6 +896,7 @@ def get_collections_filtered(
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_collections_filtered: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -929,6 +952,7 @@ def get_processing_confirms(vendor: str, status: str = None) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_processing_confirms: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -950,6 +974,7 @@ def update_processing_confirm_status(
         conn.commit()
         return conn.total_changes > 0
     except Exception as e:
+        print(f"[DB ERROR] update_processing_confirm_status: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -967,6 +992,7 @@ def update_user_password(user_id: str, new_pw_hash: str) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] update_user_password: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1000,6 +1026,7 @@ def get_schedules(vendor: str, month: str = None) -> list[dict]:
                     return ", ".join(str(x) for x in parsed)
                 return str(parsed)
             except Exception as e:
+                print(f"[DB ERROR] get_schedules: {e}")
                 logger.warning(f'Exception in database operation: {str(e)}')
                 return s
 
@@ -1017,6 +1044,7 @@ def get_schedules(vendor: str, month: str = None) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_schedules: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1102,19 +1130,22 @@ def get_driver_schedule_schools(
             # 요일 매칭
             try:
                 wds = _json.loads(rd["weekdays"]) if isinstance(rd.get("weekdays"), str) else (rd.get("weekdays") or [])
-            except Exception:
+            except Exception as e:
+                print(f"[DB ERROR] get_driver_schedule_schools: {e}")
                 wds = []
             if sel_wd not in wds:
                 continue
             # 학교 파싱
             try:
                 schools = _json.loads(rd["schools"]) if isinstance(rd.get("schools"), str) else (rd.get("schools") or [])
-            except Exception:
+            except Exception as e:
+                print(f"[DB ERROR] get_driver_schedule_schools: {e}")
                 schools = []
             # 품목 파싱
             try:
                 items = _json.loads(rd["items"]) if isinstance(rd.get("items"), str) else (rd.get("items") or [])
-            except Exception:
+            except Exception as e:
+                print(f"[DB ERROR] get_driver_schedule_schools: {e}")
                 items = []
 
             for sch in schools:
@@ -1141,6 +1172,7 @@ def get_driver_schedule_schools(
 
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_driver_schedule_schools: {e}")
         logger.warning(f"get_driver_schedule_schools error: {e}")
         return []
     finally:
@@ -1174,6 +1206,7 @@ def save_schedule(data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_schedule: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1188,6 +1221,7 @@ def delete_schedule(schedule_id: str) -> bool:
         conn.commit()
         return conn.total_changes > 0
     except Exception as e:
+        print(f"[DB ERROR] delete_schedule: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1319,6 +1353,7 @@ def get_settlement_summary(vendor: str, year: int, month: int) -> list[dict]:
 
         return sorted(result, key=lambda x: (x["cust_type"], x["name"]))
     except Exception as e:
+        print(f"[DB ERROR] get_settlement_summary: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1346,6 +1381,7 @@ def get_expenses(vendor: str, year_month: str) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_expenses: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1371,6 +1407,7 @@ def save_expense(data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_expense: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1385,6 +1422,7 @@ def delete_expense(expense_id: str) -> bool:
         conn.commit()
         return conn.total_changes > 0
     except Exception as e:
+        print(f"[DB ERROR] delete_expense: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1435,6 +1473,7 @@ def delete_biz_customer(vendor: str, biz_name: str) -> bool:
         conn.commit()
         return conn.total_changes > 0
     except Exception as e:
+        print(f"[DB ERROR] delete_biz_customer: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1469,6 +1508,7 @@ def save_vendor_info(data: dict) -> bool:
                 )
         conn.commit()
     except Exception as e:
+        print(f"[DB ERROR] save_vendor_info: {e}")
         logger.warning(f'Exception caught: {str(e)}')
         pass
     finally:
@@ -1499,6 +1539,7 @@ def save_safety_education(data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_safety_education: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1534,6 +1575,7 @@ def save_safety_checklist(data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_safety_checklist: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1583,6 +1625,7 @@ def save_accident_report(data: dict) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] save_accident_report: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1634,6 +1677,7 @@ def get_daily_check_summary(vendor: str, year_month: str, category: str = None) 
             "rate_str":   f"{rate:.1f}",
         }
     except Exception as e:
+        print(f"[DB ERROR] get_daily_check_summary: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {"items": [], "total_ok": 0, "total_fail": 0, "count": 0, "rate_str": "0.0"}
     finally:
@@ -1657,6 +1701,7 @@ def get_all_collections(year_month: str = "") -> list[dict]:
             rows = conn.execute("SELECT * FROM real_collection").fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_all_collections: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1672,6 +1717,7 @@ def get_all_vendors_list() -> list[str]:
         ).fetchall()
         return [r["vendor"] for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_all_vendors_list: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1694,6 +1740,7 @@ def update_user_approval(user_id: str, status: str) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] update_user_approval: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1711,6 +1758,7 @@ def update_user_active(user_id: str, is_active: int) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] update_user_active: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1730,6 +1778,7 @@ def reset_user_password(user_id: str, new_pw: str) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] reset_user_password: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1750,6 +1799,7 @@ def get_pending_collections() -> list[dict]:
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_pending_collections: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1766,6 +1816,7 @@ def confirm_all_pending() -> int:
         conn.commit()
         return cur.rowcount
     except Exception as e:
+        print(f"[DB ERROR] confirm_all_pending: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return 0
     finally:
@@ -1783,6 +1834,7 @@ def reject_collection_by_id(row_id: int) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] reject_collection_by_id: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1816,6 +1868,7 @@ def get_filtered_collections(
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_filtered_collections: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1834,6 +1887,7 @@ def get_all_schools_list() -> list[str]:
             ).fetchall()
             names.update(r["school_name"] for r in rows)
         except Exception as e:
+            print(f"[DB ERROR] get_all_schools_list: {e}")
             logger.warning(f'Exception caught: {str(e)}')
             pass
         try:
@@ -1843,10 +1897,12 @@ def get_all_schools_list() -> list[str]:
             ).fetchall()
             names.update(r["school_name"] for r in rows)
         except Exception as e:
+            print(f"[DB ERROR] get_all_schools_list: {e}")
             logger.warning(f'Exception caught: {str(e)}')
             pass
         return sorted(names)
     except Exception as e:
+        print(f"[DB ERROR] get_all_schools_list: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1879,6 +1935,7 @@ def get_hq_processing_confirms(
         ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_hq_processing_confirms: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1898,6 +1955,7 @@ def confirm_processing_item(row_id: int) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] confirm_processing_item: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1917,6 +1975,7 @@ def reject_processing_item(row_id: int) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] reject_processing_item: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -1933,6 +1992,7 @@ def get_processing_vendors() -> list[str]:
         ).fetchall()
         return [r["vendor"] for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_processing_vendors: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1949,6 +2009,7 @@ def get_processing_drivers() -> list[str]:
         ).fetchall()
         return [r["driver"] for r in rows]
     except Exception as e:
+        print(f"[DB ERROR] get_processing_drivers: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -1979,6 +2040,7 @@ def get_all_vendor_info() -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_all_vendor_info: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2007,6 +2069,7 @@ def get_school_master_all() -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_school_master_all: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2070,6 +2133,7 @@ def hq_get_violations(vendor: str = "", year_month: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] hq_get_violations: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2104,6 +2168,7 @@ def hq_get_safety_scores(year_month: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] hq_get_safety_scores: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2141,6 +2206,7 @@ def hq_calculate_safety_score(vendor: str, year_month: str) -> dict:
             else:
                 checklist_score = 15.0
         except Exception as e:
+            print(f"[DB ERROR] hq_calculate_safety_score: {e}")
             logger.error(f'Exception in operation: {str(e)}')
             checklist_score = 15.0
 
@@ -2156,6 +2222,7 @@ def hq_calculate_safety_score(vendor: str, year_month: str) -> dict:
             d_total = d_ok + d_fail
             daily_check_score = round((d_ok / d_total) * 15, 1) if d_total > 0 else 15.0
         except Exception as e:
+            print(f"[DB ERROR] hq_calculate_safety_score: {e}")
             logger.error(f'Exception in operation: {str(e)}')
             daily_check_score = 15.0
 
@@ -2169,6 +2236,7 @@ def hq_calculate_safety_score(vendor: str, year_month: str) -> dict:
             edu_cnt = int(edu[0]["cnt"]) if edu else 0
             education_score = min(30.0, edu_cnt * 10.0)
         except Exception as e:
+            print(f"[DB ERROR] hq_calculate_safety_score: {e}")
             logger.error(f'Exception in operation: {str(e)}')
             education_score = 0.0
 
@@ -2202,6 +2270,7 @@ def hq_calculate_safety_score(vendor: str, year_month: str) -> dict:
             )
             conn.commit()
         except Exception as e:
+            print(f"[DB ERROR] hq_calculate_safety_score: {e}")
             logger.warning(f'Exception caught: {str(e)}')
             pass
 
@@ -2216,6 +2285,7 @@ def hq_calculate_safety_score(vendor: str, year_month: str) -> dict:
             "grade": grade,
         }
     except Exception as e:
+        print(f"[DB ERROR] hq_calculate_safety_score: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "vendor": vendor, "year_month": year_month,
@@ -2259,6 +2329,7 @@ def get_hq_schedules(vendor: str = "", year_month: str = "") -> list[dict]:
                     return ", ".join(str(x) for x in parsed)
                 return str(parsed)
             except Exception as e:
+                print(f"[DB ERROR] get_hq_schedules: {e}")
                 logger.warning(f'Exception in database operation: {str(e)}')
                 return s
 
@@ -2276,6 +2347,7 @@ def get_hq_schedules(vendor: str = "", year_month: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_hq_schedules: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2313,6 +2385,7 @@ def get_neis_schools_by_vendor(vendor: str) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_neis_schools_by_vendor: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2381,6 +2454,7 @@ def get_meal_schedules(
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_meal_schedules: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2416,7 +2490,8 @@ def approve_meal_schedules(
                 try:
                     base = _dt.strptime(meal_date, "%Y-%m-%d")
                     new_collect = (base + _td(days=int(collect_offset))).strftime("%Y-%m-%d")
-                except Exception:
+                except Exception as e:
+                    print(f"[DB ERROR] approve_meal_schedules: {e}")
                     new_collect = str(d.get("collect_date", meal_date))
 
                 now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2445,6 +2520,7 @@ def approve_meal_schedules(
                 )
                 success += 1
             except Exception as e:
+                print(f"[DB ERROR] approve_meal_schedules: {e}")
                 logger.warning(f"approve_meal_schedules row 실패: {e}")
                 fail += 1
         conn.commit()
@@ -2472,6 +2548,7 @@ def cancel_meal_schedules(ids: list, note: str = "") -> tuple[int, int]:
                 )
                 success += 1
             except Exception as e:
+                print(f"[DB ERROR] cancel_meal_schedules: {e}")
                 logger.warning(f"cancel_meal_schedules 실패: {e}")
                 fail += 1
         conn.commit()
@@ -2493,6 +2570,7 @@ def check_schedule_duplicate(vendor: str, month_key: str, schools_json: str) -> 
         ).fetchone()
         return row is not None
     except Exception as e:
+        print(f"[DB ERROR] check_schedule_duplicate: {e}")
         logger.warning(f'check_schedule_duplicate 실패: {str(e)}')
         return False
     finally:
@@ -2544,6 +2622,7 @@ def get_settlement_data(year: int, month: int, vendor: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_settlement_data: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2635,6 +2714,7 @@ def get_carbon_data(year: int, month: int = 0) -> dict:
             "school_ranking": school_ranking,
         }
     except Exception as e:
+        print(f"[DB ERROR] get_carbon_data: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "food_kg": "0", "recycle_kg": "0", "general_kg": "0",
@@ -2679,6 +2759,7 @@ def get_hq_safety_checklist(vendor: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_hq_safety_checklist: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2717,6 +2798,7 @@ def get_hq_daily_checks(vendor: str = "", year_month: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_hq_daily_checks: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2734,6 +2816,7 @@ def update_accident_status(accident_id: int, new_status: str) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] update_accident_status: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -2767,6 +2850,7 @@ def get_hq_safety_education(vendor: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_hq_safety_education: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2801,6 +2885,7 @@ def get_hq_accident_reports(vendor: str = "") -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] get_hq_accident_reports: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2874,6 +2959,7 @@ def get_waste_analytics(year: int, month: int = 0) -> dict:
             "by_month": by_month_list,
         }
     except Exception as e:
+        print(f"[DB ERROR] get_waste_analytics: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "total_weight": "0", "count": "0",
@@ -2951,6 +3037,7 @@ def school_filter_collections(school: str, year: int, month: int) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] school_filter_collections: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -2995,6 +3082,7 @@ def school_get_monthly_summary(school: str, year: int) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] school_get_monthly_summary: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -3090,6 +3178,7 @@ def school_get_esg(school: str, year: int, month: int = 0) -> dict:
             "count": str(len(filtered)),
         }
     except Exception as e:
+        print(f"[DB ERROR] school_get_esg: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "total_kg": "0", "food_kg": "0", "recycle_kg": "0", "general_kg": "0",
@@ -3125,10 +3214,12 @@ def school_get_vendors(school_name: str) -> list[str]:
                 if school_name in school_list and r[0]:
                     vendors.add(r[0])
             except Exception as e:
+                print(f"[DB ERROR] school_get_vendors: {e}")
                 logger.warning(f'Exception caught: {str(e)}')
                 pass
         return sorted(list(vendors))
     except Exception as e:
+        print(f"[DB ERROR] school_get_vendors: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -3203,6 +3294,7 @@ def school_get_safety_report(school_name: str, year_month: str) -> dict:
             "education": edu_rows,
         }
     except Exception as e:
+        print(f"[DB ERROR] school_get_safety_report: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {"vendors": [], "scores": [], "violations": [], "education": []}
     finally:
@@ -3222,6 +3314,7 @@ def edu_get_managed_schools(user_schools: str) -> list[str]:
         rows = conn.execute("SELECT school_name FROM school_master ORDER BY school_name").fetchall()
         return [r[0] for r in rows if r[0]]
     except Exception as e:
+        print(f"[DB ERROR] edu_get_managed_schools: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -3295,6 +3388,7 @@ def edu_get_overview(schools: list[str], year: int, month: int = 0) -> dict:
             "school_list": school_list,
         }
     except Exception as e:
+        print(f"[DB ERROR] edu_get_overview: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "school_count": "0", "total_weight": "0", "total_count": "0",
@@ -3352,6 +3446,7 @@ def edu_get_by_vendor(schools: list[str], vendor: str, year: int) -> dict:
             "school_list": school_list,
         }
     except Exception as e:
+        print(f"[DB ERROR] edu_get_by_vendor: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {"total_weight": "0", "school_count": "0", "school_list": []}
     finally:
@@ -3425,6 +3520,7 @@ def edu_get_carbon(schools: list[str], year: int, month: int = 0) -> dict:
             "school_ranking": ranking,
         }
     except Exception as e:
+        print(f"[DB ERROR] edu_get_carbon: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "total_kg": "0", "food_kg": "0", "recycle_kg": "0", "general_kg": "0",
@@ -3524,6 +3620,7 @@ def edu_get_safety(schools: list[str], year_month: str) -> dict:
             "accidents": accidents,
         }
     except Exception as e:
+        print(f"[DB ERROR] edu_get_safety: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {"vendors": [], "scores": [], "violations": [], "education": [], "accidents": []}
     finally:
@@ -3585,6 +3682,7 @@ def meal_get_menus(site_name: str, year_month: str) -> list[dict]:
             })
         return result
     except Exception as e:
+        print(f"[DB ERROR] meal_get_menus: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -3616,6 +3714,7 @@ def meal_save_menu(site_name: str, meal_date: str, meal_type: str,
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] meal_save_menu: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -3633,6 +3732,7 @@ def meal_delete_menu(site_name: str, meal_date: str) -> bool:
         conn.commit()
         return True
     except Exception as e:
+        print(f"[DB ERROR] meal_delete_menu: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return False
     finally:
@@ -3683,6 +3783,7 @@ def meal_analyze_waste(site_name: str, year_month: str) -> list[dict]:
                 else:
                     menu_str = str(menu_list)
             except Exception as e:
+                print(f"[DB ERROR] meal_analyze_waste: {e}")
                 logger.error(f'Exception in operation: {str(e)}')
                 menu_str = str(m.get("menu_items", ""))
 
@@ -3714,11 +3815,13 @@ def meal_analyze_waste(site_name: str, year_month: str) -> list[dict]:
                       float(r["waste_kg"]), float(r["waste_per_person"]),
                       float(r["waste_rate"]), r["grade"], "", now))
             except Exception as e:
+                print(f"[DB ERROR] meal_analyze_waste: {e}")
                 logger.warning(f'Exception caught: {str(e)}')
                 pass
         conn.commit()
         return results
     except Exception as e:
+        print(f"[DB ERROR] meal_analyze_waste: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return []
     finally:
@@ -3804,6 +3907,7 @@ def meal_get_weekday_pattern(analysis: list[dict]) -> list[dict]:
             dt = _dt.strptime(r.get("meal_date", ""), "%Y-%m-%d")
             wd = dt.weekday()
         except Exception as e:
+            print(f"[DB ERROR] meal_get_weekday_pattern: {e}")
             logger.warning(f'Exception in loop: {str(e)}')
             continue
         w = float(r.get("waste_kg", 0) or 0)
@@ -3854,6 +3958,7 @@ def meal_get_cost_savings(site_name: str, analysis: list[dict]) -> dict:
             "annual_save": str(save_10pct * 12),
         }
     except Exception as e:
+        print(f"[DB ERROR] meal_get_cost_savings: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {
             "unit_price": "0", "total_waste_kg": "0",
