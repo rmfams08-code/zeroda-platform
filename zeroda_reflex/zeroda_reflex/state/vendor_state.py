@@ -29,10 +29,12 @@ class VendorState(AuthState):
 
     # ── [수거데이터] 탭 ──
     col_school_filter: str = "전체"
+    col_item_filter: str = "전체"        # P2-5: 품목 4단 필터
     col_active_subtab: str = "수거내역"
 
     # ── [수거데이터] 수거입력 폼 ──
     form_school: str = ""
+    form_school_search: str = ""         # P2-6: 거래처 검색 텍스트
     form_date: str = ""
     form_item_type: str = "음식물"
     form_weight: str = "0"
@@ -72,6 +74,7 @@ class VendorState(AuthState):
     cust_save_msg: str = ""
     cust_save_ok: bool = False
     cust_delete_msg: str = ""
+    cust_search_name: str = ""           # P2-9: 수정탭 검색어
 
     # ── [거래처관리 - 음성별칭] 섹션 3 ──
     alias_customer_sel: str = ""   # 별칭 관리 대상 거래처
@@ -182,6 +185,7 @@ class VendorState(AuthState):
     # ── [안전관리] 탭 ──
     safety_edu_rows: list[dict] = []
     safety_check_rows: list[dict] = []
+    safety_chk_approve_msg: str = ""     # P1-3: 차량점검 승인 메시지
     safety_daily_rows: list[dict] = []
     safety_daily_ym: str = ""
     safety_active_subtab: str = "안전교육"
@@ -193,6 +197,8 @@ class VendorState(AuthState):
     daily_check_count: int = 0
     daily_check_rate_str: str = "0.0"
     daily_check_category: str = "전체"
+    daily_approve_msg: str = ""          # P1-4: 일일점검 일괄승인 메시지
+    daily_safety_grade: str = ""         # P1-4: 안전등급 (S/A/B/C/D)
     # 안전교육 폼
     edu_driver: str = ""
     edu_date: str = ""
@@ -362,12 +368,29 @@ class VendorState(AuthState):
 
     @rx.var
     def filtered_collections(self) -> list[dict]:
-        if self.col_school_filter == "전체":
-            return self.monthly_collections
-        return [
-            r for r in self.monthly_collections
-            if r.get("school_name") == self.col_school_filter
-        ]
+        result = self.monthly_collections
+        if self.col_school_filter != "전체":
+            result = [r for r in result if r.get("school_name") == self.col_school_filter]
+        if self.col_item_filter != "전체":
+            result = [r for r in result if r.get("item_type") == self.col_item_filter]
+        return result
+
+    @rx.var
+    def col_input_school_opts(self) -> list[str]:
+        """P2-6: 수거입력 거래처 검색 필터 결과"""
+        names = [s.get("name", "") for s in self.vendor_schools if s.get("name")]
+        q = self.form_school_search.strip().lower()
+        if not q:
+            return names
+        return [n for n in names if q in n.lower()]
+
+    @rx.var
+    def cust_edit_search_names(self) -> list[str]:
+        """P2-9: 수정탭 검색 필터 결과"""
+        q = self.cust_search_name.strip().lower()
+        if not q:
+            return self.customer_names
+        return [n for n in self.customer_names if q in n.lower()]
 
     @rx.var
     def has_collections(self) -> bool:
@@ -656,6 +679,14 @@ class VendorState(AuthState):
 
     def set_col_school_filter(self, school: str):
         self.col_school_filter = school
+
+    def set_col_item_filter(self, v: str):
+        """P2-5: 품목 필터"""
+        self.col_item_filter = v
+
+    def set_form_school_search(self, v: str):
+        """P2-6: 수거입력 거래처 검색어"""
+        self.form_school_search = v
 
     def set_col_subtab(self, subtab: str):
         """수거데이터 서브탭 전환"""
@@ -1651,7 +1682,19 @@ class VendorState(AuthState):
         self.selected_customer = name
         self.cust_save_msg = ""
         self.cust_save_ok = False
-        self.cust_active_subtab = "등록수정"
+        self.cust_active_subtab = "수정"   # P2-8: "등록수정" → "수정" 탭으로 변경
+
+    def set_cust_subtab(self, label: str):
+        """P2-8: 거래처관리 서브탭 전환 (등록 탭 전환 시 폼 초기화)"""
+        self.cust_active_subtab = label
+        if label == "등록":
+            self.clear_cust_form()
+        elif label == "수정":
+            self.cust_search_name = ""
+
+    def set_cust_search_name(self, v: str):
+        """P2-9: 수정탭 검색어"""
+        self.cust_search_name = v
 
     def save_cust_form(self):
         """거래처 폼 저장"""
@@ -1974,6 +2017,23 @@ class VendorState(AuthState):
         self.daily_check_total_fail = int(result.get("total_fail", 0))
         self.daily_check_count = int(result.get("count", 0))
         self.daily_check_rate_str = str(result.get("rate_str", "0.0"))
+        # P1-4: 안전등급 계산
+        try:
+            rate = float(result.get("rate_str", "0") or "0")
+        except (ValueError, TypeError):
+            rate = 0.0
+        fail = self.daily_check_total_fail
+        if rate >= 100.0 and fail == 0:
+            self.daily_safety_grade = "S"
+        elif rate >= 95.0:
+            self.daily_safety_grade = "A"
+        elif rate >= 85.0:
+            self.daily_safety_grade = "B"
+        elif rate >= 70.0:
+            self.daily_safety_grade = "C"
+        else:
+            self.daily_safety_grade = "D"
+        self.daily_approve_msg = ""
 
     def save_edu_form(self):
         """안전교육 폼 저장"""
@@ -2099,6 +2159,34 @@ class VendorState(AuthState):
             self.load_accident_reports()
         else:
             self.acc_save_msg = "신고에 실패했습니다."
+
+    def approve_safety_checklist(self, chk_id: str):
+        """P1-3: 차량점검 승인"""
+        from zeroda_reflex.utils.database import update_safety_checklist_status
+        ok = update_safety_checklist_status(chk_id, "approved", self.user_vendor)
+        if ok:
+            self.safety_chk_approve_msg = f"✅ 점검 {chk_id} 승인 완료"
+            self.load_safety_data()
+        else:
+            self.safety_chk_approve_msg = "❌ 승인 처리 실패"
+
+    def reject_safety_checklist(self, chk_id: str):
+        """P1-3: 차량점검 반려"""
+        from zeroda_reflex.utils.database import update_safety_checklist_status
+        ok = update_safety_checklist_status(chk_id, "rejected", self.user_vendor)
+        if ok:
+            self.safety_chk_approve_msg = f"반려 처리 완료 (ID {chk_id})"
+            self.load_safety_data()
+        else:
+            self.safety_chk_approve_msg = "❌ 반려 처리 실패"
+
+    def approve_all_daily_checks(self):
+        """P1-4: 해당 월 일일점검 일괄 승인"""
+        from zeroda_reflex.utils.database import approve_all_daily_checks_by_vendor
+        ym = self.safety_daily_ym or datetime.now().strftime("%Y-%m")
+        count = approve_all_daily_checks_by_vendor(self.user_vendor, ym, self.user_vendor)
+        self.daily_approve_msg = f"✅ {count}건 일괄승인 완료 ({ym})"
+        self.load_daily_check_summary()
 
     def load_safety_data(self):
         """안전관리 탭 데이터 로드"""

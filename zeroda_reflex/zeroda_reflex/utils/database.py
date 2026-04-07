@@ -988,20 +988,54 @@ def get_safety_education(vendor: str) -> list[dict]:
 
 
 def get_safety_checklist(vendor: str) -> list[dict]:
-    """차량 안전점검 이력 조회"""
-    rows = db_get("safety_checklist", {"vendor": vendor})
-    result = []
-    for r in rows:
-        result.append({
-            "check_date":  str(r.get("check_date", "") or ""),
-            "driver":      str(r.get("driver", "") or ""),
-            "vehicle_no":  str(r.get("vehicle_no", "") or ""),
-            "total_ok":    str(r.get("total_ok", 0) or 0),
-            "total_fail":  str(r.get("total_fail", 0) or 0),
-            "inspector":   str(r.get("inspector", "") or ""),
-            "memo":        str(r.get("memo", "") or ""),
-        })
-    return sorted(result, key=lambda x: x["check_date"], reverse=True)
+    """차량 안전점검 이력 조회 (id·승인상태 포함)"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM safety_checklist WHERE vendor=? ORDER BY check_date DESC, id DESC",
+            (vendor,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            result.append({
+                "id":          str(d.get("id", "") or ""),
+                "check_date":  str(d.get("check_date", "") or ""),
+                "driver":      str(d.get("driver", "") or ""),
+                "vehicle_no":  str(d.get("vehicle_no", "") or ""),
+                "total_ok":    str(d.get("total_ok", 0) or 0),
+                "total_fail":  str(d.get("total_fail", 0) or 0),
+                "inspector":   str(d.get("inspector", "") or ""),
+                "memo":        str(d.get("memo", "") or ""),
+                "status":      str(d.get("status", "pending") or "pending"),
+                "approved_by": str(d.get("approved_by", "") or ""),
+                "approved_at": str(d.get("approved_at", "") or ""),
+            })
+        return result
+    except Exception as e:
+        print(f"[DB ERROR] get_safety_checklist: {e}")
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
+def update_safety_checklist_status(chk_id: str, status: str, approved_by: str) -> bool:
+    """차량점검 승인/반려 상태 업데이트"""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE safety_checklist SET status=?, approved_by=?, approved_at=? WHERE id=?",
+            (status, approved_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), int(chk_id)),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB ERROR] update_safety_checklist_status: {e}")
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return False
+    finally:
+        conn.close()
 
 
 def get_daily_checks_by_month(vendor: str, year_month: str) -> list[dict]:
@@ -1839,12 +1873,14 @@ def get_daily_check_summary(vendor: str, year_month: str, category: str = None) 
             total_ok += ok
             total_fail += fail
             items.append({
+                "id":         str(d.get("id", "") or ""),
                 "check_date": str(d.get("check_date", "") or ""),
                 "driver":     str(d.get("driver", "") or ""),
                 "category":   str(d.get("category", "") or ""),
                 "total_ok":   str(ok),
                 "total_fail": str(fail),
                 "fail_memo":  str(d.get("fail_memo", "") or ""),
+                "status":     str(d.get("status", "pending") or "pending"),
             })
         all_count = total_ok + total_fail
         rate = round(total_ok / all_count * 100, 1) if all_count > 0 else 0.0
@@ -1859,6 +1895,25 @@ def get_daily_check_summary(vendor: str, year_month: str, category: str = None) 
         print(f"[DB ERROR] get_daily_check_summary: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
         return {"items": [], "total_ok": 0, "total_fail": 0, "count": 0, "rate_str": "0.0"}
+    finally:
+        conn.close()
+
+
+def approve_all_daily_checks_by_vendor(vendor: str, year_month: str, approved_by: str) -> int:
+    """해당 월 일일점검 전체 승인 — 승인 건수 반환"""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "UPDATE daily_safety_check SET status='approved', approved_by=?, approved_at=? "
+            "WHERE vendor=? AND check_date LIKE ? AND (status IS NULL OR status='pending')",
+            (approved_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), vendor, f"{year_month}%"),
+        )
+        conn.commit()
+        return cur.rowcount
+    except Exception as e:
+        print(f"[DB ERROR] approve_all_daily_checks_by_vendor: {e}")
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return 0
     finally:
         conn.close()
 
