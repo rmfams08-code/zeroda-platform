@@ -488,6 +488,65 @@ def _schedule_school_card(s: dict) -> rx.Component:
                     width="100%",
                 ),
 
+                # 사진 첨부 (토글 패널)
+                rx.hstack(
+                    rx.button(
+                        rx.cond(
+                            DriverState.show_photo_for == school_name,
+                            "📷 사진 닫기",
+                            "📷 사진 첨부",
+                        ),
+                        on_click=DriverState.toggle_photo_panel(school_name),
+                        size="1",
+                        variant="outline",
+                        color_scheme="orange",
+                    ),
+                    rx.cond(
+                        DriverState.school_photo_msgs[school_name] != "",
+                        rx.text(
+                            DriverState.school_photo_msgs[school_name],
+                            font_size="11px",
+                            color="#16a34a",
+                        ),
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                # 사진 업로드 패널 (열린 카드만 DOM에 render됨 → ID 충돌 없음)
+                rx.cond(
+                    DriverState.show_photo_for == school_name,
+                    rx.vstack(
+                        rx.upload(
+                            rx.button(
+                                "📂 파일 선택 (1장)",
+                                size="1",
+                                variant="soft",
+                                width="100%",
+                            ),
+                            id="active_card_photo",
+                            accept={"image/*": [".jpg", ".jpeg", ".png"]},
+                            max_files=1,
+                            multiple=False,
+                        ),
+                        rx.button(
+                            "📤 업로드",
+                            on_click=DriverState.handle_card_photo_upload(
+                                rx.upload_files(upload_id="active_card_photo")
+                            ),
+                            size="1",
+                            color_scheme="orange",
+                            width="100%",
+                        ),
+                        bg="#fff7ed",
+                        border="1px solid #fed7aa",
+                        border_radius="6px",
+                        padding="8px",
+                        spacing="2",
+                        width="100%",
+                    ),
+                ),
+
                 # 저장 버튼 2개
                 rx.hstack(
                     rx.button(

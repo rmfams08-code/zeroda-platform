@@ -143,7 +143,11 @@ class DriverState(AuthState):
     school_item_types: dict[str, str] = {}    # {school_name: "음식물"}
     school_memos: dict[str, str] = {}         # {school_name: "메모"}
     school_save_msgs: dict[str, str] = {}     # {school_name: "✅ 완료"}
-    active_save_school: str = ""              # GPS/음성 콜백용 현재 대상 거래처
+    active_save_school: str = ""              # GPS/음성/사진 콜백용 현재 대상 거래처
+
+    # ── 거래처별 사진 (카드 통합) ──
+    show_photo_for: str = ""                  # 사진 업로드 패널 열린 거래처 (한 번에 하나)
+    school_photo_msgs: dict[str, str] = {}    # {school_name: "📸 업로드 완료"}
 
     # ── 퇴근 ──
     is_checked_out: bool = False
@@ -239,16 +243,19 @@ class DriverState(AuthState):
         si = {}
         sm = {}
         ssm = {}
+        spm = {}
         for s in self.schedule_schools:
             name = s.get("school_name", "")
             sw[name] = self.school_weights.get(name, "")
             si[name] = self.school_item_types.get(name, "음식물")
             sm[name] = self.school_memos.get(name, "")
             ssm[name] = self.school_save_msgs.get(name, "")
+            spm[name] = self.school_photo_msgs.get(name, "")
         self.school_weights = sw
         self.school_item_types = si
         self.school_memos = sm
         self.school_save_msgs = ssm
+        self.school_photo_msgs = spm
 
     def set_schedule_date(self, value: str):
         """일정 날짜 변경"""
@@ -986,6 +993,44 @@ class DriverState(AuthState):
         self.schoolzone_enabled = value
 
     # ── 사진 핸들러 ──
+
+    def toggle_photo_panel(self, school: str):
+        """카드 사진 업로드 패널 토글 — 한 번에 하나의 카드만 열림"""
+        if self.show_photo_for == school:
+            self.show_photo_for = ""
+        else:
+            self.show_photo_for = school
+            self.active_save_school = school  # 업로드 핸들러가 참조
+
+    async def handle_card_photo_upload(self, files: list[rx.UploadFile]):
+        """카드 내 사진 업로드 (거래처당 1장) — active_save_school 사용"""
+        school = self.active_save_school
+        if not school:
+            return
+        if not files:
+            self.school_photo_msgs = {**self.school_photo_msgs, school: "파일을 선택하세요."}
+            return
+
+        upload_dir = os.path.join("uploaded_files", "photos", self.today_str)
+        os.makedirs(upload_dir, exist_ok=True)
+
+        file = files[0]  # 거래처당 1장
+        upload_data = await file.read()
+        fname = f"{self.user_vendor}_{school}_{datetime.now().strftime('%H%M%S')}.jpg"
+        fpath = os.path.join(upload_dir, fname)
+        with open(fpath, "wb") as f:
+            f.write(upload_data)
+        save_photo_record(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            school_name=school,
+            photo_type="collection",
+            photo_url=fpath,
+            collect_date=self.today_str,
+        )
+        self.school_photo_msgs = {**self.school_photo_msgs, school: "📸 사진 저장 완료"}
+        self.show_photo_for = ""  # 업로드 후 패널 닫기
+        self._load_today_photos()
 
     def _load_today_photos(self):
         """오늘 사진 기록 로드"""
