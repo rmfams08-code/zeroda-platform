@@ -343,17 +343,17 @@ def _schedule_school_card(s: dict) -> rx.Component:
             rx.hstack(
                 rx.link(
                     rx.badge("🗺️카카오", color_scheme="yellow", size="1"),
-                    href="https://map.kakao.com/link/search/" + address,
+                    href="https://map.kakao.com/link/search/" + address.to(str),
                     is_external=True,
                 ),
                 rx.link(
                     rx.badge("🚗T맵", color_scheme="blue", size="1"),
-                    href="https://tmap.life/search?name=" + address,
+                    href="https://tmap.life/search?name=" + address.to(str),
                     is_external=True,
                 ),
                 rx.link(
                     rx.badge("🟢네이버", color_scheme="green", size="1"),
-                    href="https://map.naver.com/v5/search/" + address,
+                    href="https://map.naver.com/v5/search/" + address.to(str),
                     is_external=True,
                 ),
                 spacing="2",
