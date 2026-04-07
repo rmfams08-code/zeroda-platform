@@ -387,6 +387,22 @@ class DriverState(AuthState):
     is_checked_out: bool = False
     checkout_time: str = ""
 
+    # ── 퇴근 차량점검 다이얼로그 ──
+    checkout_dialog_open: bool = False
+    vehicle_check_items: list[dict] = [
+        {"label": "브레이크 정상 작동", "checked": False},
+        {"label": "사이드브레이크 정상 작동", "checked": False},
+        {"label": "계기판 경고등 없음 (정상)", "checked": False},
+        {"label": "전조등 양쪽 양호", "checked": False},
+        {"label": "후미등 양쪽 양호", "checked": False},
+        {"label": "타이어 공기압·마모 양호", "checked": False},
+        {"label": "경적 정상 작동", "checked": False},
+        {"label": "안전벨트 정상 작동", "checked": False},
+        {"label": "적재함 잠금장치 정상", "checked": False},
+        {"label": "누유·누수 없음", "checked": False},
+    ]
+    vehicle_check_remark: str = ""
+
     @rx.var
     def today_str(self) -> str:
         return date.today().strftime("%Y-%m-%d")
@@ -417,6 +433,12 @@ class DriverState(AuthState):
     @rx.var
     def all_checked(self) -> bool:
         return self.checked_count == self.total_items and self.total_items > 0
+
+    @rx.var
+    def all_vehicle_items_checked(self) -> bool:
+        """퇴근 차량점검 — 10개 항목 전체 체크 여부"""
+        items = self.vehicle_check_items
+        return len(items) > 0 and all(item.get("checked", False) for item in items)
 
     def on_driver_load(self):
         """기사 페이지 로드 시"""
@@ -1443,3 +1465,96 @@ class DriverState(AuthState):
         if ok:
             self.is_checked_out = True
             self.checkout_time = datetime.now().strftime("%H:%M:%S")
+
+    # ── 퇴근 차량점검 다이얼로그 핸들러 ──
+
+    def open_checkout_dialog(self):
+        """퇴근하기 버튼 클릭 → 차량점검 다이얼로그 열기 (항목 초기화)"""
+        self.vehicle_check_items = [
+            {"label": "브레이크 정상 작동", "checked": False},
+            {"label": "사이드브레이크 정상 작동", "checked": False},
+            {"label": "계기판 경고등 없음 (정상)", "checked": False},
+            {"label": "전조등 양쪽 양호", "checked": False},
+            {"label": "후미등 양쪽 양호", "checked": False},
+            {"label": "타이어 공기압·마모 양호", "checked": False},
+            {"label": "경적 정상 작동", "checked": False},
+            {"label": "안전벨트 정상 작동", "checked": False},
+            {"label": "적재함 잠금장치 정상", "checked": False},
+            {"label": "누유·누수 없음", "checked": False},
+        ]
+        self.vehicle_check_remark = ""
+        self.checkout_dialog_open = True
+
+    def toggle_vehicle_check(self, idx: int):
+        """차량점검 항목 체크 토글"""
+        items = list(self.vehicle_check_items)
+        item = dict(items[idx])
+        item["checked"] = not item["checked"]
+        items[idx] = item
+        self.vehicle_check_items = items
+
+    def set_vehicle_check_remark(self, value: str):
+        """특이사항 입력"""
+        self.vehicle_check_remark = value
+
+    def cancel_checkout(self):
+        """차량점검 다이얼로그 취소"""
+        self.checkout_dialog_open = False
+
+    def confirm_checkout(self):
+        """차량점검 확인 후 퇴근 처리"""
+        import json as _json
+
+        # ── 미체크 항목 확인 ──
+        unchecked = [
+            item["label"]
+            for item in self.vehicle_check_items
+            if not item.get("checked", False)
+        ]
+        if unchecked:
+            msg = "미체크 항목이 있습니다:\\n" + "\\n".join(f"· {u}" for u in unchecked)
+            yield rx.call_script(f"alert('{msg}')")
+            return
+
+        # ── 차량점검 결과를 daily_safety_check 테이블에 저장 (category='vehicle_checkout') ──
+        check_dict = {item["label"]: item["checked"] for item in self.vehicle_check_items}
+        save_daily_safety_check(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            check_date=self.today_str,
+            category="vehicle_checkout",
+            check_items=check_dict,
+            fail_memo=self.vehicle_check_remark,
+        )
+
+        # ── 안전점검 미완료 카테고리 경고 (기존 do_checkout 로직 동일) ──
+        checks = get_daily_safety_checks(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            check_date=self.today_str,
+        )
+        saved_cats = {r.get("category", "") for r in checks}
+        missing_labels = [
+            SAFETY_CHECKLIST[k]["label"]
+            for k in SAFETY_CHECKLIST
+            if k not in saved_cats
+        ]
+        if missing_labels:
+            warning_msg = (
+                "\u26a0\ufe0f \uc548\uc804\uc810\uac80 \ubbf8\uc644\ub8cc \ud56d\ubaa9:\\n"
+                + ", ".join(missing_labels)
+                + "\\n\\n\ud1f4\uadfc \ucc98\ub9ac\ub97c \uc9c4\ud589\ud569\ub2c8\ub2e4."
+            )
+            yield rx.call_script(f"alert('{warning_msg}')")
+
+        # ── 퇴근 기록 저장 ──
+        ok = save_driver_checkout(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+            checkout_date=self.today_str,
+        )
+        if ok:
+            self.is_checked_out = True
+            self.checkout_time = datetime.now().strftime("%H:%M:%S")
+
+        self.checkout_dialog_open = False
