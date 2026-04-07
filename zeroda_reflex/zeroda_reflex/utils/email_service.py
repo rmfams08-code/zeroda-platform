@@ -83,15 +83,18 @@ def send_email_with_pdf(
         logger.info(f"이메일 발송 완료: {to_email}")
         return True, f"{to_email} 으로 발송 완료"
 
-    except smtplib.SMTPAuthenticationError:
-        logger.error("SMTP 인증 실패")
+    except smtplib.SMTPAuthenticationError as e:
+        logger.exception("SMTP 인증 실패 (535): %s", e)
         return False, "SMTP 인증 실패 — 네이버웍스 앱 비밀번호를 확인하세요."
-    except smtplib.SMTPRecipientsRefused:
-        logger.error(f"수신 이메일 오류: {to_email}")
-        return False, f"수신 이메일 오류: {to_email}"
+    except smtplib.SMTPRecipientsRefused as e:
+        logger.exception("수신 이메일 거부: %s → %s", to_email, e)
+        return False, f"수신 이메일 거부: {to_email}"
+    except smtplib.SMTPConnectError as e:
+        logger.exception("SMTP 서버 연결 실패: %s", e)
+        return False, f"SMTP 서버 연결 실패: {str(e)[:60]}"
     except smtplib.SMTPException as e:
-        logger.error(f"SMTP 오류: {e}")
-        return False, f"SMTP 오류: {str(e)}"
+        logger.exception("SMTP 오류: %s", e)
+        return False, f"SMTP 오류: {str(e)[:80]}"
     except Exception as e:
-        logger.error(f"이메일 발송 실패: {e}")
-        return False, f"발송 실패: {str(e)}"
+        logger.exception("이메일 발송 예외: %s", e)
+        return False, f"발송 실패: {str(e)[:80]}"

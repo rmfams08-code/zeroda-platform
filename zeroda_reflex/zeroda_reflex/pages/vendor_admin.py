@@ -26,7 +26,7 @@ SETTLE_TYPE_FILTERS = ["전체", "학교", "기업", "관공서", "일반업장"
 SCHED_WEEKDAYS = ["월", "화", "수", "목", "금", "토"]
 SCHED_ITEMS = ["음식물", "재활용", "일반"]
 SCHED_ITEM_FILTERS = ["전체", "음식물", "재활용", "일반"]
-CUST_SUBTABS = ["목록", "등록수정", "별칭관리"]
+CUST_SUBTABS = ["목록", "등록", "수정", "별칭관리"]
 CUST_TYPE_OPTIONS = ["학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
 CUST_TYPE_FILTERS = ["전체", "학교", "기업", "관공서", "일반업장", "기타", "기타1(면세사업장)", "기타2(부가세포함)"]
 SAFETY_SUBTABS = ["안전교육", "차량안전점검", "사고신고", "일일안전점검"]
@@ -503,6 +503,13 @@ def _col_history_panel() -> rx.Component:
                 size="2", width="150px",
                 placeholder="학교 선택",
             ),
+            rx.select(
+                ["전체", "음식물", "재활용", "일반"],
+                value=VendorState.col_item_filter,
+                on_change=VendorState.set_col_item_filter,
+                size="2", width="100px",
+                placeholder="품목",
+            ),
             rx.button(
                 rx.icon("refresh_cw", size=14),
                 on_click=VendorState.load_dashboard_data,
@@ -565,8 +572,15 @@ def _col_input_panel() -> rx.Component:
                 rx.hstack(
                     rx.vstack(
                         rx.text("거래처 *", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.input(
+                            placeholder="거래처 검색...",
+                            value=VendorState.form_school_search,
+                            on_change=VendorState.set_form_school_search,
+                            size="2",
+                            width="100%",
+                        ),
                         rx.select(
-                            VendorState.col_school_names,
+                            VendorState.col_input_school_opts,
                             value=VendorState.form_school,
                             on_change=VendorState.set_form_school,
                             size="3",
@@ -619,12 +633,13 @@ def _col_input_panel() -> rx.Component:
                 rx.hstack(
                     rx.vstack(
                         rx.text("기사명", font_size="12px", color="#64748b", font_weight="600"),
-                        rx.input(
-                            placeholder="기사명 입력",
+                        rx.select(
+                            VendorState.sched_driver_options,
                             value=VendorState.form_driver,
                             on_change=VendorState.set_form_driver,
                             size="3",
                             width="100%",
+                            placeholder="기사 선택",
                         ),
                         spacing="1", align="start", flex="1",
                     ),
@@ -1324,6 +1339,41 @@ def _cust_alias_panel() -> rx.Component:
     )
 
 
+def _cust_edit_panel() -> rx.Component:
+    """P2-9: 거래처 수정 탭 — 검색 후 선택 → 폼 편집"""
+    return rx.vstack(
+        rx.vstack(
+            rx.text("거래처 검색", font_size="13px", font_weight="600", color="#334155"),
+            rx.input(
+                placeholder="거래처명 검색...",
+                value=VendorState.cust_search_name,
+                on_change=VendorState.set_cust_search_name,
+                size="2",
+                width="100%",
+            ),
+            rx.select(
+                VendorState.cust_edit_search_names,
+                placeholder="거래처 선택",
+                on_change=VendorState.select_cust_for_edit,
+                size="2",
+                width="100%",
+            ),
+            spacing="2", width="100%",
+            bg="white", border_radius="10px", padding="14px",
+            border="1px solid #e2e8f0",
+        ),
+        rx.cond(
+            VendorState.edit_mode,
+            _cust_form_panel(),
+            rx.text(
+                "거래처를 검색하여 선택하면 수정 폼이 표시됩니다.",
+                font_size="13px", color="#94a3b8", padding="12px 0",
+            ),
+        ),
+        spacing="4", width="100%", align="start",
+    )
+
+
 def _customer_tab() -> rx.Component:
     return rx.vstack(
         # ── 헤더 + Excel 다운로드 (Phase 3) ──
@@ -1345,9 +1395,13 @@ def _customer_tab() -> rx.Component:
             VendorState.cust_active_subtab == "목록",
             _cust_list_panel(),
             rx.cond(
-                VendorState.cust_active_subtab == "별칭관리",
-                _cust_alias_panel(),
+                VendorState.cust_active_subtab == "등록",
                 _cust_form_panel(),
+                rx.cond(
+                    VendorState.cust_active_subtab == "수정",
+                    _cust_edit_panel(),
+                    _cust_alias_panel(),
+                ),
             ),
         ),
         spacing="4", width="100%", align="start",
@@ -2652,6 +2706,8 @@ def _edu_row(row: dict) -> rx.Component:
 
 
 def _check_row(row: dict) -> rx.Component:
+    is_approved = row["status"] == "승인"
+    is_rejected = row["status"] == "반려"
     return rx.box(
         rx.hstack(
             rx.text(row["check_date"], font_size="12px", color="#64748b",
@@ -2671,6 +2727,32 @@ def _check_row(row: dict) -> rx.Component:
                 rx.text(row["total_fail"], font_size="12px", font_weight="700",
                         color="#ef4444"),
                 spacing="1", align="center", flex_shrink="0",
+            ),
+            rx.cond(
+                is_approved,
+                rx.badge("승인", color_scheme="green", size="1", flex_shrink="0"),
+                rx.cond(
+                    is_rejected,
+                    rx.badge("반려", color_scheme="red", size="1", flex_shrink="0"),
+                    rx.badge("미승인", color_scheme="gray", size="1", flex_shrink="0"),
+                ),
+            ),
+            rx.cond(
+                is_approved,
+                rx.box(),
+                rx.hstack(
+                    rx.button(
+                        "승인",
+                        on_click=VendorState.approve_safety_checklist(row["id"]),
+                        size="1", color_scheme="green", cursor="pointer",
+                    ),
+                    rx.button(
+                        "반려",
+                        on_click=VendorState.reject_safety_checklist(row["id"]),
+                        size="1", color_scheme="red", variant="soft", cursor="pointer",
+                    ),
+                    spacing="1", flex_shrink="0",
+                ),
             ),
             width="100%", padding_x="16px", padding_y="10px",
             align="center", gap="10px",
@@ -2978,6 +3060,8 @@ def _safety_chk_panel() -> rx.Component:
                             display=["none", "inline", "inline"]),
                     rx.text("양호",     font_size="12px", font_weight="700", color="#38bd94", flex_shrink="0"),
                     rx.text("불량",     font_size="12px", font_weight="700", color="#ef4444", flex_shrink="0"),
+                    rx.text("상태",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
+                    rx.text("처리",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
                     width="100%", padding_x="16px", padding_y="10px", gap="10px",
                 ),
                 bg="#f8fafc", border_bottom="1px solid #e2e8f0",
@@ -2989,6 +3073,18 @@ def _safety_chk_panel() -> rx.Component:
                        max_height="260px", overflow_y="auto"),
                 _empty_state("차량 안전점검 이력이 없습니다."),
             ),
+        ),
+        rx.cond(
+            VendorState.safety_chk_approve_msg != "",
+            rx.text(
+                VendorState.safety_chk_approve_msg,
+                font_size="12px",
+                color=rx.cond(
+                    VendorState.safety_chk_approve_msg.contains("✅"),
+                    "#22c55e", "#ef4444",
+                ),
+            ),
+            rx.box(),
         ),
         spacing="4", width="100%", align="start",
     )
@@ -3153,6 +3249,54 @@ def _safety_daily_panel() -> rx.Component:
         rx.cond(
             VendorState.has_daily_check_items,
             rx.vstack(
+                # ── 일괄승인 + 안전등급 ──
+                rx.hstack(
+                    rx.button(
+                        rx.icon("check_circle", size=14),
+                        rx.text("전체 승인", font_size="13px"),
+                        on_click=VendorState.approve_all_daily_checks,
+                        size="2", color_scheme="green", variant="soft",
+                        cursor="pointer", gap="6px",
+                    ),
+                    rx.cond(
+                        VendorState.daily_safety_grade != "",
+                        rx.badge(
+                            "등급: ", VendorState.daily_safety_grade,
+                            size="2",
+                            color_scheme=rx.cond(
+                                VendorState.daily_safety_grade == "S",
+                                "yellow",
+                                rx.cond(
+                                    VendorState.daily_safety_grade == "A",
+                                    "green",
+                                    rx.cond(
+                                        VendorState.daily_safety_grade == "B",
+                                        "blue",
+                                        rx.cond(
+                                            VendorState.daily_safety_grade == "C",
+                                            "orange",
+                                            "red",
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        rx.box(),
+                    ),
+                    rx.cond(
+                        VendorState.daily_approve_msg != "",
+                        rx.text(
+                            VendorState.daily_approve_msg,
+                            font_size="12px",
+                            color=rx.cond(
+                                VendorState.daily_approve_msg.contains("✅"),
+                                "#22c55e", "#ef4444",
+                            ),
+                        ),
+                        rx.box(),
+                    ),
+                    spacing="3", align="center", flex_wrap="wrap",
+                ),
                 # ── 섹션9: 불량 경고 callout ──
                 rx.cond(
                     VendorState.has_daily_fails,
