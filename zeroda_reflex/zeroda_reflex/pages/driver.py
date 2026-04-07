@@ -88,6 +88,37 @@ def _weather_section() -> rx.Component:
     )
 
 
+def _schoolzone_warning() -> rx.Component:
+    """수거입력 섹션 내 스쿨존 원형 시각 경고 — 학교(🏫) 거래처 선택 시 표시"""
+    return rx.hstack(
+        rx.box(
+            rx.text(
+                "30",
+                color="white",
+                font_weight="bold",
+                font_size="20px",
+                line_height="1",
+            ),
+            border_radius="50%",
+            background="red",
+            width="48px",
+            height="48px",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+        rx.text(
+            "스쿨존 서행",
+            font_size="14px",
+            font_weight="600",
+            color="#dc2626",
+        ),
+        align="center",
+        spacing="2",
+        padding="6px 0",
+    )
+
+
 def _schoolzone_section() -> rx.Component:
     """스쿨존 알림 토글"""
     return rx.box(
@@ -567,6 +598,33 @@ def _collection_section() -> rx.Component:
             value=DriverState.selected_school,
             on_change=DriverState.set_selected_school,
             placeholder="거래처를 선택하세요",
+            width="100%",
+        ),
+
+        # ── 스쿨존 원형 시각 경고 (학교 거래처 선택 시만) ──
+        rx.cond(
+            DriverState.selected_school_icon == "🏫",
+            _schoolzone_warning(),
+            rx.fragment(),
+        ),
+
+        # ── GPS 자동 거래처 매칭 버튼 ──
+        rx.hstack(
+            rx.button(
+                "📍 현재 위치로 거래처 찾기",
+                size="1",
+                variant="outline",
+                color_scheme="green",
+                on_click=rx.call_script(
+                    "new Promise((resolve) => {"
+                    "  navigator.geolocation.getCurrentPosition("
+                    "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+                    "    () => resolve('0,0')"
+                    "  );"
+                    "})",
+                    callback=DriverState.auto_match_school_by_gps,
+                ),
+            ),
             width="100%",
         ),
 
