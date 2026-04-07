@@ -112,6 +112,11 @@ class DriverState(AuthState):
     # ── 거래처 타입 아이콘 ──
     school_cust_type_map: dict[str, str] = {}
 
+    # ── 모바일 숫자 키패드 ──
+    keypad_visible: bool = False
+    keypad_active_row: int = -1   # -1 = 단일, >=0 = 다중행 인덱스
+    keypad_value: str = ""
+
     # ── GPS ──
     gps_msg: str = ""
 
@@ -429,6 +434,49 @@ class DriverState(AuthState):
     def set_collection_memo(self, value: str):
         """메모 입력"""
         self.collection_memo = value
+
+    # ── 모바일 숫자 키패드 핸들러 ──
+
+    def open_keypad(self, row_idx: int):
+        """키패드 열기 — 해당 행의 현재 값으로 초기화"""
+        self.keypad_active_row = row_idx
+        if row_idx >= 0 and row_idx < len(self.collection_rows):
+            self.keypad_value = str(self.collection_rows[row_idx].get("weight", ""))
+        else:
+            self.keypad_value = self.collection_weight
+        self.keypad_visible = True
+
+    def close_keypad(self):
+        """키패드 확인 — 값 확정 후 닫기"""
+        if self.keypad_active_row >= 0:
+            rows = list(self.collection_rows)
+            if 0 <= self.keypad_active_row < len(rows):
+                rows[self.keypad_active_row] = {
+                    **rows[self.keypad_active_row],
+                    "weight": self.keypad_value,
+                }
+                self.collection_rows = rows
+        else:
+            self.collection_weight = self.keypad_value
+        self.keypad_visible = False
+        self.keypad_active_row = -1
+
+    def keypad_press(self, key: str):
+        """키패드 버튼 입력"""
+        if key == "⌫":
+            self.keypad_value = self.keypad_value[:-1]
+        elif key == ".":
+            if "." not in self.keypad_value:
+                self.keypad_value = self.keypad_value + "."
+        elif key == "C":
+            self.keypad_value = ""
+        else:
+            if len(self.keypad_value) >= 7:
+                return
+            if self.keypad_value == "0":
+                self.keypad_value = key
+            else:
+                self.keypad_value = self.keypad_value + key
 
     @rx.var
     def selected_school_icon(self) -> str:

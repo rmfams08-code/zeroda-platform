@@ -503,6 +503,71 @@ def _schedule_section() -> rx.Component:
     )
 
 
+def _keypad_component() -> rx.Component:
+    """모바일용 4×3 숫자 키패드 (운전 중 한 손 입력)"""
+    _ROWS = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], [".", "0", "⌫"]]
+    return rx.cond(
+        DriverState.keypad_visible,
+        rx.vstack(
+            # 입력값 표시줄
+            rx.hstack(
+                rx.text("수거량", font_size="13px", font_weight="600", color="#374151"),
+                rx.spacer(),
+                rx.box(
+                    rx.text(
+                        rx.cond(
+                            DriverState.keypad_value != "",
+                            DriverState.keypad_value + " kg",
+                            "0 kg",
+                        ),
+                        font_size="24px",
+                        font_weight="700",
+                        color="#1a73e8",
+                    ),
+                    padding_x="8px",
+                ),
+                width="100%",
+                align="center",
+            ),
+            # 키 배열 (Python 정적 loop — Reflex Var 불필요)
+            *[
+                rx.hstack(
+                    *[
+                        rx.button(
+                            k,
+                            on_click=DriverState.keypad_press(k),
+                            width="100%",
+                            min_height="56px",
+                            size="3",
+                            variant="solid" if k == "⌫" else "outline",
+                            color_scheme="red" if k == "⌫" else "gray",
+                        )
+                        for k in row
+                    ],
+                    width="100%",
+                    spacing="2",
+                )
+                for row in _ROWS
+            ],
+            # 확인 버튼
+            rx.button(
+                "✅ 확인 (입력 완료)",
+                on_click=DriverState.close_keypad,
+                width="100%",
+                size="3",
+                color_scheme="blue",
+                min_height="52px",
+            ),
+            bg="#f8fafc",
+            border="1px solid #e2e8f0",
+            border_radius="12px",
+            padding="12px",
+            width="100%",
+            spacing="2",
+        ),
+    )
+
+
 def _collection_section() -> rx.Component:
     """수거입력 섹션 — 진행률 + 완료/미완료 거래처 + 삭제 기능"""
     return rx.vstack(
@@ -664,14 +729,30 @@ def _collection_section() -> rx.Component:
                     size="2",
                     width="90px",
                 ),
-                rx.input(
-                    placeholder="kg",
-                    value=row["weight"],
-                    on_change=lambda v: DriverState.set_row_weight([idx, v]),
-                    type="number",
-                    input_mode="decimal",
-                    size="2",
+                rx.box(
+                    rx.hstack(
+                        rx.text(
+                            rx.cond(
+                                row["weight"] != "",
+                                row["weight"] + " kg",
+                                "kg 입력",
+                            ),
+                            font_size="14px",
+                            color=rx.cond(row["weight"] != "", "#374151", "#9ca3af"),
+                            font_weight=rx.cond(row["weight"] != "", "600", "400"),
+                        ),
+                        rx.icon("keyboard", size=14, color="#9ca3af"),
+                        spacing="1",
+                        align="center",
+                    ),
+                    bg="white",
+                    border="1px solid #d1d5db",
+                    border_radius="6px",
+                    padding="7px 10px",
                     flex="1",
+                    cursor="pointer",
+                    on_click=DriverState.open_keypad(idx),
+                    min_height="36px",
                 ),
                 rx.cond(
                     idx > 0,
@@ -689,6 +770,9 @@ def _collection_section() -> rx.Component:
                 align="center",
             ),
         ),
+
+        # ── 숫자 키패드 (모바일 kg 입력) ──
+        _keypad_component(),
 
         # ── 단가 + 예상금액 ──
         rx.hstack(
