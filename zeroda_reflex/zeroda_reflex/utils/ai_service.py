@@ -120,27 +120,51 @@ def _build_weekday_text(analysis_rows: list) -> str:
     return "\n".join(lines)
 
 
-def build_comprehensive_prompt(
+def _build_comprehensive_prompt(
     site_name: str,
     analysis_rows: list,
     cost_data: dict | None = None,
+    anomaly_dates: list | None = None,
+    combo_analysis: list | None = None,
 ) -> str:
-    """종합 잔반분석 프롬프트 구성"""
+    """강화된 종합 잔반분석 프롬프트"""
     stats = _build_menu_stats(analysis_rows)
     monthly = _build_monthly_summary(analysis_rows)
     weekday = _build_weekday_text(analysis_rows)
 
-    good_list = "\n".join(
+    # 핵심 지표
+    total_waste = sum(float(r.get("waste_kg", 0) or 0) for r in analysis_rows)
+    avg_wpp = stats["overall_avg"]
+
+    # TOP5 잔반 많은/적은 메뉴
+    bad5 = "\n".join(
         f"- {m['menu']} ({m['avg_waste']:.1f}g/인, {m['count']}회)"
-        for m in stats["good"]
+        for m in stats["bad"][:5]
+    ) or "- 데이터 없음"
+    good5 = "\n".join(
+        f"- {m['menu']} ({m['avg_waste']:.1f}g/인, {m['count']}회)"
+        for m in stats["good"][:5]
     ) or "- 데이터 없음"
 
-    bad_list = "\n".join(
-        f"- {m['menu']} ({m['avg_waste']:.1f}g/인, {m['count']}회)"
-        for m in stats["bad"]
-    ) or "- 데이터 없음"
+    # 이상치
+    anomaly_text = ""
+    if anomaly_dates:
+        lines = [
+            f"- {a['date']}: {a['type']} ({a['waste_per_person']}g/인, Z={a['z_score']})"
+            for a in anomaly_dates
+        ]
+        anomaly_text = "\n## 이상치 날짜\n" + "\n".join(lines)
 
-    # 비용 정보
+    # 메뉴 조합
+    combo_text = ""
+    if combo_analysis:
+        lines = [
+            f"- {c['combo']}: 평균 {c['avg_waste_pp']}g/인 ({c['count']}회)"
+            for c in combo_analysis[:5]
+        ]
+        combo_text = "\n## 잔반 적은 메뉴 조합 TOP5\n" + "\n".join(lines)
+
+    # 비용
     cost_text = ""
     if cost_data and float(cost_data.get("unit_price", 0) or 0) > 0:
         cost_text = f"""
@@ -149,12 +173,14 @@ def build_comprehensive_prompt(
 - 월 처리비용: {cost_data.get('current_cost', 0)}원
 - 10% 절감 시: {cost_data.get('save_10pct', 0)}원/월"""
 
-    prompt = f"""당신은 단체급식 잔반 분석 전문가입니다.
+    return f"""당신은 단체급식 잔반 분석 전문가입니다.
 아래 데이터를 기반으로 종합 분석 리포트를 작성하세요.
 
 ## 기관: {site_name}
 ## 분석 일수: {len(analysis_rows)}일
-## 전체 평균 1인당 잔반: {stats['overall_avg']:.1f}g
+## 핵심 지표
+- 전체 평균 1인당 잔반: {avg_wpp:.1f}g
+- 총 잔반량: {total_waste:.1f}kg
 
 ## 잔반 등급 기준
 - A등급: 150g 미만 (우수) | B등급: 150~245g (양호)
@@ -163,26 +189,36 @@ def build_comprehensive_prompt(
 ## 월별 추이
 {monthly}
 
-## 잔반 적은 메뉴 TOP
-{good_list}
+## 잔반 많은 메뉴 TOP5
+{bad5}
 
-## 잔반 많은 메뉴 TOP
-{bad_list}
+## 잔반 적은 메뉴 TOP5
+{good5}
+
 {weekday}
+{anomaly_text}
+{combo_text}
 {cost_text}
 
 ## 작성 항목 (반드시 모두 포함)
-1. **종합 평가**: 전체적인 잔반 관리 수준 (A~D 등급 기준)
+1. **종합 평가**: 전체적인 잔반 관리 수준
 2. **월별 트렌드 분석**: 증감 패턴 및 원인 추정
-3. **요일별 패턴 분석**: 요일별 잔반 차이 원인과 대응 방안
-4. **메뉴 분석**: 잔반 많은 메뉴의 원인과 개선 방안
-5. **비용 절감 방안**: 구체적인 절감 목표와 실행 방안
+3. **요일별 패턴 분석**: 요일별 잔반 차이 원인과 대응
+4. **메뉴 분석**: 잔반 많은 메뉴 원인과 개선 방안
+5. **비용 절감 방안**: 구체적 절감 목표와 실행 방안
 6. **개선 권고사항**: 5가지 즉시 실행 가능한 방안
 7. **목표 설정**: 다음 분기 잔반 감소 목표
 
 마크다운 형식으로 간결하게 작성하세요. 한국어로 답변하세요."""
 
-    return prompt
+
+def build_comprehensive_prompt(
+    site_name: str,
+    analysis_rows: list,
+    cost_data: dict | None = None,
+) -> str:
+    """종합 잔반분석 프롬프트 구성"""
+    return _build_comprehensive_prompt(site_name, analysis_rows, cost_data)
 
 
 def build_recommend_prompt(

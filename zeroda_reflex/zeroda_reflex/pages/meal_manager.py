@@ -21,6 +21,24 @@ GRADE_COLORS = {"A": "green", "B": "blue", "C": "orange", "D": "red", "-": "gray
 
 _WEEKDAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"]
 
+# 수정1: 영양정보 키 목록 (NUTRITION_KEYS 하드코딩)
+_NUTRITION_KEYS = [
+    "에너지(kcal)", "탄수화물(g)", "단백질(g)", "지방(g)",
+    "비타민A(μg RE)", "티아민(mg)", "리보플라빈(mg)", "비타민C(mg)", "칼슘(mg)",
+]
+
+
+def _grade_badge(grade) -> rx.Component:
+    """수정12: 등급별 색상 badge"""
+    return rx.match(
+        grade,
+        ("A", rx.badge(grade, color_scheme="green", size="1")),
+        ("B", rx.badge(grade, color_scheme="blue", size="1")),
+        ("C", rx.badge(grade, color_scheme="yellow", size="1")),
+        ("D", rx.badge(grade, color_scheme="red", size="1")),
+        rx.badge(grade, color_scheme="gray", size="1"),
+    )
+
 
 # ══════════════════════════════════════════
 #  수정1: 달력형 식단 보기 (helper)
@@ -206,6 +224,42 @@ def _menu_tab() -> rx.Component:
                               placeholder="잡곡밥, 된장찌개, 돈까스, 배추김치, 우유", size="2",
                               width="100%"),
                     spacing="1", width="100%"),
+                # 수정1: 영양정보 입력 (선택)
+                rx.accordion.root(
+                    rx.accordion.item(
+                        rx.accordion.header(
+                            rx.accordion.trigger(
+                                rx.text("영양정보 입력 (선택)", font_size="12px"),
+                                rx.accordion.icon(),
+                            ),
+                        ),
+                        rx.accordion.content(
+                            rx.grid(
+                                rx.vstack(rx.text(_NUTRITION_KEYS[0], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[0])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[1], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[1])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[2], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[2])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[3], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[3])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[4], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[4])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[5], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[5])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[6], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[6])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[7], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[7])), spacing="1"),
+                                rx.vstack(rx.text(_NUTRITION_KEYS[8], font_size="11px", color="#64748b"),
+                                          rx.input(placeholder="0", size="1", on_change=MealState.set_mf_nut(_NUTRITION_KEYS[8])), spacing="1"),
+                                columns="3", spacing="2", width="100%",
+                            ),
+                        ),
+                        value="nutrition",
+                    ),
+                    collapsible=True, type="single", variant="outline", width="100%",
+                ),
                 rx.button(rx.icon("save", size=14), "저장",
                            color_scheme="blue", size="2", on_click=MealState.save_menu),
                 spacing="3", width="100%")),
@@ -587,7 +641,7 @@ def _smart_tab() -> rx.Component:
                                     _c(r["waste_kg"], font_weight="600"),
                                     _c(r["waste_per_person"], font_weight="600"),
                                     _c(r["waste_rate"]),
-                                    rx.table.cell(rx.badge(r["grade"], size="1"))))),
+                                    rx.table.cell(_grade_badge(r["grade"]))))),
                         width="100%"),
                     rx.text("분석 데이터가 없습니다. 식단 등록 후 수거 데이터가 필요합니다.",
                              font_size="13px", color="#94a3b8", padding="20px", text_align="center")),
@@ -620,6 +674,71 @@ def _smart_tab() -> rx.Component:
                     ),
                 ),
                 spacing="3", width="100%")),
+        # 수정7: 이상치 탐지 callout
+        rx.cond(
+            MealState.has_anomaly,
+            _card(
+                rx.vstack(
+                    _header("triangle_alert", "이상치 탐지 (Z-Score > 2)"),
+                    rx.foreach(
+                        MealState.anomaly_dates,
+                        lambda a: rx.callout(
+                            a["date"] + ": 잔반 " + a["type"] + " (" + a["waste_per_person"] + "g/인, Z=" + a["z_score"] + ")",
+                            icon="triangle_alert",
+                            color_scheme=rx.cond(a["type"] == "급증", "red", "blue"),
+                            size="1",
+                        ),
+                    ),
+                    spacing="1", width="100%",
+                )
+            ),
+        ),
+        # 수정3: 등급 분포 파이차트
+        rx.cond(
+            MealState.has_grade_distribution,
+            _card(
+                rx.vstack(
+                    _header("pie_chart", "등급 분포"),
+                    rx.recharts.pie_chart(
+                        rx.recharts.pie(
+                            data=MealState.grade_distribution,
+                            data_key="value",
+                            name_key="name",
+                            cx="50%", cy="50%",
+                            outer_radius=80,
+                            label=True,
+                        ),
+                        rx.recharts.legend(),
+                        rx.recharts.tooltip(),
+                        width="100%", height=220,
+                    ),
+                    spacing="2", width="100%",
+                )
+            ),
+        ),
+        # 수정4: 일별 1인당 잔반 라인차트
+        rx.cond(
+            MealState.has_daily_chart,
+            _card(
+                rx.vstack(
+                    _header("trending_up", "일별 1인당 잔반 추이"),
+                    rx.recharts.line_chart(
+                        rx.recharts.line(
+                            data_key="waste_per_person",
+                            stroke="#ef4444", name="1인당(g)",
+                            type_="monotone", dot=True,
+                        ),
+                        rx.recharts.x_axis(data_key="date", font_size=10, angle=-30),
+                        rx.recharts.y_axis(font_size=11),
+                        rx.recharts.cartesian_grid(stroke_dasharray="3 3"),
+                        rx.recharts.tooltip(),
+                        data=MealState.daily_waste_chart,
+                        width="100%", height=260,
+                    ),
+                    spacing="2", width="100%",
+                )
+            ),
+        ),
         # 요일별 패턴
         _card(
             rx.vstack(
@@ -704,6 +823,92 @@ def _smart_tab() -> rx.Component:
                     spacing="2", width="100%"),
                 flex="1"),
             spacing="3", width="100%"),
+        # 수정13: 전체 메뉴 통계 accordion
+        rx.cond(
+            MealState.has_all_menu_stats,
+            rx.accordion.root(
+                rx.accordion.item(
+                    rx.accordion.header(
+                        rx.accordion.trigger(
+                            rx.hstack(
+                                rx.icon("list", size=14, color="#3b82f6"),
+                                rx.text("전체 메뉴별 통계 (출현 횟수 기준)",
+                                        font_size="13px", font_weight="600"),
+                                rx.accordion.icon(),
+                                spacing="2", align="center",
+                            ),
+                            padding="10px 12px",
+                        ),
+                    ),
+                    rx.accordion.content(
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(_col("메뉴"), _col("횟수"), _col("1인당 평균(g)"))),
+                            rx.table.body(
+                                rx.foreach(
+                                    MealState.all_menu_stats,
+                                    lambda r: rx.table.row(
+                                        _c(r["menu"], max_width="250px", overflow="hidden"),
+                                        _c(r["count"]),
+                                        _c(r["avg_waste_pp"]),
+                                    ),
+                                ),
+                            ),
+                            width="100%",
+                        ),
+                    ),
+                    value="all_menu",
+                ),
+                collapsible=True, type="single", variant="outline", width="100%",
+            ),
+        ),
+        # 수정14: 배식인원 효율 분석 바차트
+        rx.cond(
+            MealState.has_servings_analysis,
+            _card(
+                rx.vstack(
+                    _header("users", "배식인원 구간별 1인당 잔반"),
+                    rx.recharts.bar_chart(
+                        rx.recharts.bar(
+                            data_key="avg_waste_pp",
+                            fill="#8b5cf6", name="1인당 평균(g)",
+                        ),
+                        rx.recharts.x_axis(data_key="range", font_size=11),
+                        rx.recharts.y_axis(font_size=11),
+                        rx.recharts.cartesian_grid(stroke_dasharray="3 3"),
+                        rx.recharts.tooltip(),
+                        data=MealState.servings_analysis,
+                        width="100%", height=240,
+                    ),
+                    spacing="2", width="100%",
+                )
+            ),
+        ),
+        # 수정6: 메뉴 조합 효과 분석
+        rx.cond(
+            MealState.has_combo_analysis,
+            _card(
+                rx.vstack(
+                    _header("layers", "잔반 적은 메뉴 조합 TOP 10"),
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(_col("메뉴 조합"), _col("1인당 평균(g)"), _col("횟수"))),
+                        rx.table.body(
+                            rx.foreach(
+                                MealState.menu_combo_analysis,
+                                lambda r: rx.table.row(
+                                    _c(r["combo"], max_width="300px", overflow="hidden"),
+                                    _c(r["avg_waste_pp"], color="#22c55e", font_weight="600"),
+                                    _c(r["count"]),
+                                ),
+                            ),
+                        ),
+                        width="100%",
+                    ),
+                    spacing="2", width="100%",
+                )
+            ),
+        ),
         spacing="4", width="100%")
 
 
@@ -805,7 +1010,23 @@ def _ai_tab() -> rx.Component:
                         on_click=MealState.run_ai_recommend,
                         loading=MealState.ai_loading,
                     ),
-                    spacing="3",
+                    # 수정5: 잔반 원인 분석 버튼
+                    rx.button(
+                        rx.cond(MealState.ai_cause_loading, rx.spinner(size="1"), rx.icon("search", size=14)),
+                        "잔반 원인 분석",
+                        size="2", color_scheme="orange",
+                        on_click=MealState.run_ai_cause_analysis,
+                        loading=MealState.ai_cause_loading,
+                    ),
+                    # 수정10: 일별 특이사항 버튼
+                    rx.button(
+                        rx.cond(MealState.ai_daily_loading, rx.spinner(size="1"), rx.icon("calendar_days", size=14)),
+                        "일별 특이사항",
+                        size="2", color_scheme="teal",
+                        on_click=MealState.generate_daily_remarks,
+                        loading=MealState.ai_daily_loading,
+                    ),
+                    spacing="3", flex_wrap="wrap",
                 ),
                 # 에러 메시지
                 rx.cond(
@@ -864,7 +1085,56 @@ def _ai_tab() -> rx.Component:
                         ),
                         width="100%",
                     ),
+                    # 수정8: AI 추천식단 일괄등록 버튼
+                    rx.button(
+                        rx.icon("calendar_plus", size=14), "AI 추천식단 일괄등록",
+                        size="2", color_scheme="green",
+                        on_click=MealState.save_ai_recommendations,
+                    ),
                     spacing="3", width="100%",
+                ),
+            ),
+        ),
+        # 수정5: AI 잔반 원인 분석 결과
+        rx.cond(
+            MealState.has_ai_cause_result,
+            _card(
+                rx.vstack(
+                    _header("search", "AI 잔반 원인 분석"),
+                    rx.box(
+                        rx.markdown(MealState.ai_cause_result),
+                        width="100%",
+                        padding="12px",
+                        bg="#fff7ed",
+                        border_radius="8px",
+                        border="1px solid #fed7aa",
+                        max_height="500px",
+                        overflow_y="auto",
+                    ),
+                    spacing="3", width="100%",
+                ),
+            ),
+        ),
+        # 수정10: AI 일별 특이사항
+        rx.cond(
+            MealState.has_ai_daily_remarks,
+            _card(
+                rx.vstack(
+                    _header("calendar_days", "AI 일별 특이사항"),
+                    rx.foreach(
+                        MealState.analysis_rows,
+                        lambda r: rx.cond(
+                            MealState.ai_daily_remarks.get(r["meal_date"], "") != "",
+                            rx.hstack(
+                                rx.text(r["meal_date"], font_size="12px", font_weight="600",
+                                        color="#374151", min_width="100px"),
+                                rx.text(MealState.ai_daily_remarks.get(r["meal_date"], ""),
+                                        font_size="12px", color="#64748b"),
+                                spacing="2", align="start", width="100%",
+                            ),
+                        ),
+                    ),
+                    spacing="2", width="100%",
                 ),
             ),
         ),
