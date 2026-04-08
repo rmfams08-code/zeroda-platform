@@ -2037,6 +2037,24 @@ def get_all_users() -> list[dict]:
     return db_get("users")
 
 
+def is_school_in_customer_info(vendor: str, school_name: str) -> bool:
+    """가입 승인 사전 검증용 — 거래처가 등록되어 있는지 확인"""
+    if not vendor or not school_name:
+        return False
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM customer_info WHERE vendor=? AND name=? LIMIT 1",
+            (vendor, school_name),
+        ).fetchone()
+        return row is not None
+    except Exception as e:
+        logger.warning(f"[is_school_in_customer_info] 조회 오류: {e}")
+        return False
+    finally:
+        conn.close()
+
+
 def update_user_approval(user_id: str, status: str) -> bool:
     """사용자 승인 상태 변경"""
     conn = get_db()

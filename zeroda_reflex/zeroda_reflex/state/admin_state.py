@@ -12,7 +12,7 @@ from zeroda_reflex.utils.database import (
     get_all_users, update_user_approval, update_user_active,
     reset_user_password, update_user_fields, delete_user,
     create_user, validate_password,
-    get_user_by_id, upsert_customer_neis_codes,
+    get_user_by_id, upsert_customer_neis_codes, is_school_in_customer_info,
     # 섹션B: 수거데이터
     get_pending_collections, confirm_all_pending, reject_collection_by_id,
     get_filtered_collections, get_all_schools_list,
@@ -852,7 +852,17 @@ class AdminState(AuthState):
     # ══════════════════════════════
 
     def load_users(self):
-        self.all_users = get_all_users()
+        users = get_all_users() or []
+        for u in users:
+            u["_school_in_db"] = True  # 기본값 (school/meal_manager 외 역할)
+            if u.get("role") in ("school", "meal_manager"):
+                v = u.get("pending_vendor") or ""
+                s = u.get("pending_school_name") or ""
+                if v and s:
+                    u["_school_in_db"] = is_school_in_customer_info(v, s)
+                else:
+                    u["_school_in_db"] = False
+        self.all_users = users
         # acct_msg는 여기서 초기화하지 않음 — approve/reject/toggle에서 설정 후 유지
 
     def set_acct_filter_role(self, v: str):
@@ -863,6 +873,15 @@ class AdminState(AuthState):
 
     def approve_user(self, user_id: str):
         """사용자 승인 — school/meal_manager이면 NEIS 코드를 customer_info에 반영"""
+        # P2: 거래처 미등록 학교 사전 차단
+        target = get_user_by_id(user_id)
+        if target and target.get("role") in ("school", "meal_manager"):
+            v = target.get("pending_vendor") or ""
+            s = target.get("pending_school_name") or ""
+            if v and s and not is_school_in_customer_info(v, s):
+                self.acct_msg = f"거래처 미등록: '{s}'({v})을 먼저 거래처 관리에 등록하세요."
+                self.acct_ok = False
+                return
         ok = update_user_approval(user_id, "approved")
         self.all_users = get_all_users()
         if not ok:
