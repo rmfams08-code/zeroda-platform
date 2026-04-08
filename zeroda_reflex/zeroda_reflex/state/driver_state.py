@@ -1921,7 +1921,8 @@ class DriverState(AuthState):
         auth = await self.get_state(AuthState)
         username = auth.username or ""
         if not username:
-            return rx.toast.error("로그인 정보가 없습니다")
+            yield rx.toast.error("로그인 정보가 없습니다")
+            return
 
         starts = ",".join([s.strip() for s in (self.wake_keywords_start or "").split(",") if s.strip()])
         stops = ",".join([s.strip() for s in (self.wake_keywords_stop or "").split(",") if s.strip()])
@@ -1958,7 +1959,7 @@ class DriverState(AuthState):
             "  Object.assign(window.__zerodaWake.keywords, " + payload + ");"
             "}"
         )
-        return rx.toast.success("호출명령이 저장되었습니다")
+        yield rx.toast.success("호출명령이 저장되었습니다")
 
     async def log_wake_event(self, event_type: str, heard: str = "", matched: str = ""):
         """P2-3 — 인식 통계 저장 (wake_fired/voice_success/voice_failed/cancel)."""
