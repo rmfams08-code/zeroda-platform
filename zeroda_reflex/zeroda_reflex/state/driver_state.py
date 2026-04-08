@@ -972,6 +972,10 @@ class DriverState(AuthState):
         self.voice_pending_entries = entries
         self.voice_pending_failed = failed_chunks
 
+        # 복수 GPS 후보 선택 다이얼로그가 열린 경우 confirm dialog 차단
+        if self.voice_pick_open:
+            return
+
         if not entries:
             # 섹션 2: 매칭 실패여도 항상 다이얼로그 표시
             self.voice_match_failed = True
@@ -1110,8 +1114,8 @@ class DriverState(AuthState):
         self._do_save_for_school(gps, "submitted")
         yield rx.toast.success(f"✅ {school_name} 수거량 {weight}kg 전송 완료")
 
-    def cancel_voice_pick(self):
-        """GPS 복수 후보 선택 다이얼로그 취소"""
+    def cancel_voice_pick(self, _open: bool = False):
+        """GPS 복수 후보 선택 다이얼로그 취소 (on_open_change bool 인자 수용)"""
         self.voice_pick_open = False
         self.voice_pick_candidates = []
         self.voice_pick_weight = ""
