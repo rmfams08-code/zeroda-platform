@@ -1229,6 +1229,10 @@ class VendorState(AuthState):
                 self.detail_sms_sending = False
                 return
 
+            # [2-B] URL 단축 (TinyURL — iOS SMS 자동링크 인식률 향상)
+            from zeroda_reflex.utils.url_shortener import shorten_url
+            url = shorten_url(url)
+
             # [3] 본문 조립
             try:
                 od_amt = float(self.overdue_amount or 0)
