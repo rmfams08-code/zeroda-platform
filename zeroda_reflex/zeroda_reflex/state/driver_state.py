@@ -403,6 +403,17 @@ class DriverState(AuthState):
     proc_save_msg: str = ""
     today_processing: list[dict] = []
 
+    # ── 계근표 OCR ──
+    weighslip_ocr_loading: bool = False
+    weighslip_ocr_error: str = ""
+    weighslip_ocr_process_time: str = ""
+    weighslip_ocr_gross_weight: str = ""
+    weighslip_ocr_net_weight: str = ""
+    weighslip_ocr_vehicle_number: str = ""
+    weighslip_ocr_company: str = ""
+    weighslip_photo_path: str = ""
+    weighslip_ocr_done: bool = False
+
     # ── 거래처별 수거 입력 (일정 카드 통합) ──
     # 입력값은 schedule_schools 각 아이템에 직접 포함:
     # {school_name, icon, address, items, weight, item_type, memo, save_msg, photo_msg}
@@ -1529,6 +1540,85 @@ class DriverState(AuthState):
     def today_proc_count(self) -> int:
         return len(self.today_processing)
 
+    @rx.event(background=True)
+    async def handle_weighslip_upload(self, files: list):
+        """계량표 사진 업로드 → Claude Vision OCR → 폼 자동 채우기"""
+        import os, uuid
+        from zeroda_reflex.utils.ai_service import extract_weigh_ticket
+
+        STAMP_DIR = "/opt/zeroda-platform/storage/weighslips"
+        MAX_SIZE = 10 * 1024 * 1024
+        ALLOWED_EXT = {".jpg", ".jpeg", ".png"}
+
+        async with self:
+            self.weighslip_ocr_loading = True
+            self.weighslip_ocr_error = ""
+            self.weighslip_ocr_done = False
+
+        try:
+            if not files:
+                async with self:
+                    self.weighslip_ocr_error = "파일이 없습니다."
+                    self.weighslip_ocr_loading = False
+                return
+
+            f = files[0]
+            raw = await f.read()
+
+            if len(raw) > MAX_SIZE:
+                async with self:
+                    self.weighslip_ocr_error = "파일 크기 10MB 초과."
+                    self.weighslip_ocr_loading = False
+                return
+
+            ext = os.path.splitext(f.filename or "")[1].lower()
+            if ext not in ALLOWED_EXT:
+                async with self:
+                    self.weighslip_ocr_error = "JPG/PNG 파일만 가능합니다."
+                    self.weighslip_ocr_loading = False
+                return
+
+            # 이미지 저장
+            os.makedirs(STAMP_DIR, exist_ok=True)
+            fname = f"weighslip_{uuid.uuid4().hex[:12]}{ext}"
+            fpath = os.path.join(STAMP_DIR, fname)
+            with open(fpath, "wb") as w:
+                w.write(raw)
+
+            async with self:
+                self.weighslip_photo_path = fpath
+
+            # OCR 호출
+            result = extract_weigh_ticket(raw)
+
+            async with self:
+                if result.get("error"):
+                    self.weighslip_ocr_error = result["error"]
+                else:
+                    self.weighslip_ocr_process_time = str(result.get("process_time") or "")
+                    gw = result.get("gross_weight")
+                    nw = result.get("net_weight")
+                    self.weighslip_ocr_gross_weight = str(int(gw)) if gw else ""
+                    self.weighslip_ocr_net_weight = str(int(nw)) if nw else ""
+                    self.weighslip_ocr_vehicle_number = str(result.get("vehicle_number") or "")
+                    self.weighslip_ocr_company = str(result.get("processor_company") or "")
+                    # 실중량을 처리량 폼에 자동 채우기
+                    if nw and nw > 0:
+                        self.proc_weight = str(int(nw))
+                    elif gw and gw > 0:
+                        self.proc_weight = str(int(gw))
+                    # 처분업체명 → 처리장명 자동 채우기
+                    if result.get("processor_company"):
+                        self.proc_location = str(result["processor_company"])
+                    self.weighslip_ocr_done = True
+
+        except Exception as e:
+            async with self:
+                self.weighslip_ocr_error = f"업로드 오류: {e}"
+        finally:
+            async with self:
+                self.weighslip_ocr_loading = False
+
     def save_processing(self):
         """처리확인 저장"""
         self.proc_save_msg = ""
@@ -1544,18 +1634,40 @@ class DriverState(AuthState):
             self.proc_save_msg = "처리장명을 입력하세요."
             return
 
+        try:
+            gw = float(self.weighslip_ocr_gross_weight) if self.weighslip_ocr_gross_weight else 0.0
+        except ValueError:
+            gw = 0.0
+        try:
+            nw = float(self.weighslip_ocr_net_weight) if self.weighslip_ocr_net_weight else 0.0
+        except ValueError:
+            nw = 0.0
+
         ok = save_processing_confirm(
             vendor=self.user_vendor,
             driver=self.user_name,
             total_weight=w,
             location_name=self.proc_location.strip(),
             memo=self.proc_memo,
+            process_time=self.weighslip_ocr_process_time,
+            gross_weight=gw,
+            net_weight=nw,
+            vehicle_number=self.weighslip_ocr_vehicle_number,
+            processor_company=self.weighslip_ocr_company,
+            weighslip_photo_path=self.weighslip_photo_path,
         )
         if ok:
             self.proc_save_msg = f"✅ 처리확인 완료 ({w}kg @ {self.proc_location})"
             self.proc_weight = ""
             self.proc_location = ""
             self.proc_memo = ""
+            self.weighslip_ocr_process_time = ""
+            self.weighslip_ocr_gross_weight = ""
+            self.weighslip_ocr_net_weight = ""
+            self.weighslip_ocr_vehicle_number = ""
+            self.weighslip_ocr_company = ""
+            self.weighslip_photo_path = ""
+            self.weighslip_ocr_done = False
             self._load_today_processing()
         else:
             self.proc_save_msg = "저장 실패. 다시 시도해주세요."

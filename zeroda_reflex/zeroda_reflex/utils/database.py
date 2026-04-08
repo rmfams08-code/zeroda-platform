@@ -614,8 +614,14 @@ def get_today_processing(vendor: str, driver: str, confirm_date: str) -> list[di
 def save_processing_confirm(
     vendor: str, driver: str,
     total_weight: float, location_name: str, memo: str = "",
+    process_time: str = "",
+    gross_weight: float = 0.0,
+    net_weight: float = 0.0,
+    vehicle_number: str = "",
+    processor_company: str = "",
+    weighslip_photo_path: str = "",
 ) -> bool:
-    """계근표 처리확인 저장"""
+    """계근표 처리확인 저장 (OCR 필드 포함)"""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return db_insert("processing_confirm", {
         "vendor": vendor,
@@ -627,6 +633,12 @@ def save_processing_confirm(
         "memo": memo,
         "status": "submitted",
         "created_at": now,
+        "process_time": process_time,
+        "gross_weight": gross_weight,
+        "net_weight": net_weight,
+        "vehicle_number": vehicle_number,
+        "processor_company": processor_company,
+        "weighslip_photo_path": weighslip_photo_path,
     })
 
 
