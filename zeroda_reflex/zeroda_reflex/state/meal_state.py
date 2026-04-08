@@ -86,6 +86,9 @@ class MealState(AuthState):
     #  탭6: ESG보고서
     # ══════════════════════════════
     esg_data: dict = {}
+    ai_esg_text: str = ""
+    ai_esg_loading: bool = False
+    ai_esg_error: str = ""
 
     # ══════════════════════════════
     #  수정4: 학교급식법 공식기준
@@ -1113,6 +1116,72 @@ class MealState(AuthState):
             return rx.download(
                 data=pdf_bytes,
                 filename=f"ESG보고서_{self.site_name}_{y}.pdf",
+            )
+        return None
+
+    async def run_ai_esg(self):
+        """급식담당자 AI ESG 보고서 생성."""
+        from zeroda_reflex.utils.ai_service import build_esg_ai_prompt, call_claude_api
+        from zeroda_reflex.utils.database import school_get_vendors
+        if not self.has_esg:
+            self.ai_esg_error = "ESG 데이터가 없습니다."
+            return
+        self.ai_esg_loading = True
+        self.ai_esg_error = ""
+        self.ai_esg_text = ""
+        yield
+        try:
+            y = int(self.selected_year)
+        except (ValueError, TypeError):
+            self.ai_esg_loading = False
+            return
+        month_label = f"{y}년 전체"
+        rows = school_filter_collections(self.site_name, y, 0)
+        vendor = ""
+        try:
+            vendors_list = school_get_vendors(self.site_name)
+            vendor = vendors_list[0] if vendors_list else ""
+        except Exception:
+            pass
+        prompt = build_esg_ai_prompt(
+            org_name=self.site_name, org_type="급식소",
+            year=y, month_label=month_label,
+            esg_data=dict(self.esg_data), rows=rows, vendor=vendor,
+        )
+        result = call_claude_api(prompt, "")
+        self.ai_esg_loading = False
+        if result.startswith("[ERROR]"):
+            self.ai_esg_error = result.replace("[ERROR] ", "")
+        else:
+            self.ai_esg_text = result
+
+    def download_ai_esg_pdf(self):
+        """급식담당자 AI ESG PDF 다운로드."""
+        from zeroda_reflex.utils.pdf_export import build_ai_esg_pdf
+        from zeroda_reflex.utils.database import school_get_vendors
+        if not self.ai_esg_text:
+            return None
+        try:
+            y = int(self.selected_year)
+        except (ValueError, TypeError):
+            return None
+        vendor = ""
+        try:
+            vendors_list = school_get_vendors(self.site_name)
+            vendor = vendors_list[0] if vendors_list else ""
+        except Exception:
+            pass
+        pdf_bytes = build_ai_esg_pdf(
+            org_name=self.site_name, org_type="급식소",
+            year=y, month_label=f"{y}년 전체",
+            ai_markdown=self.ai_esg_text,
+            esg_summary=dict(self.esg_data),
+            vendor=vendor,
+        )
+        if pdf_bytes:
+            return rx.download(
+                data=pdf_bytes,
+                filename=f"AI_ESG보고서_{self.site_name}_{y}.pdf",
             )
         return None
 
