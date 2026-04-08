@@ -406,7 +406,8 @@ class DriverState(AuthState):
     # ── 계근표 OCR ──
     weighslip_ocr_loading: bool = False
     weighslip_ocr_error: str = ""
-    weighslip_ocr_process_time: str = ""
+    weighslip_ocr_first_time: str = ""    # 1차 계근시간
+    weighslip_ocr_second_time: str = ""   # 2차 계근시간
     weighslip_ocr_gross_weight: str = ""
     weighslip_ocr_net_weight: str = ""
     weighslip_ocr_vehicle_number: str = ""
@@ -1595,7 +1596,8 @@ class DriverState(AuthState):
                 if result.get("error"):
                     self.weighslip_ocr_error = result["error"]
                 else:
-                    self.weighslip_ocr_process_time = str(result.get("process_time") or "")
+                    self.weighslip_ocr_first_time = str(result.get("first_weigh_time") or "")
+                    self.weighslip_ocr_second_time = str(result.get("second_weigh_time") or "")
                     gw = result.get("gross_weight")
                     nw = result.get("net_weight")
                     self.weighslip_ocr_gross_weight = str(int(gw)) if gw else ""
@@ -1649,7 +1651,8 @@ class DriverState(AuthState):
             total_weight=w,
             location_name=self.proc_location.strip(),
             memo=self.proc_memo,
-            process_time=self.weighslip_ocr_process_time,
+            first_weigh_time=self.weighslip_ocr_first_time,
+            second_weigh_time=self.weighslip_ocr_second_time,
             gross_weight=gw,
             net_weight=nw,
             vehicle_number=self.weighslip_ocr_vehicle_number,
@@ -1661,7 +1664,8 @@ class DriverState(AuthState):
             self.proc_weight = ""
             self.proc_location = ""
             self.proc_memo = ""
-            self.weighslip_ocr_process_time = ""
+            self.weighslip_ocr_first_time = ""
+            self.weighslip_ocr_second_time = ""
             self.weighslip_ocr_gross_weight = ""
             self.weighslip_ocr_net_weight = ""
             self.weighslip_ocr_vehicle_number = ""
