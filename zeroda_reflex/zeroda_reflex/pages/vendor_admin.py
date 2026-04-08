@@ -3647,6 +3647,70 @@ def _settings_info_panel() -> rx.Component:
             bg="white", border="1px solid #e2e8f0", border_radius="12px",
             padding="20px", width="100%",
         ),
+        # ── 직인 관리 카드 ──
+        rx.box(
+            rx.vstack(
+                _section_header("stamp", "직인 관리"),
+                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.text(
+                    "거래명세서 PDF에 찍힐 업체 직인 이미지를 등록하세요. (PNG/JPG, 2MB 이하)",
+                    font_size="12px", color="#64748b",
+                ),
+                rx.cond(
+                    VendorState.stamp_current_path != "",
+                    rx.hstack(
+                        rx.icon("circle-check", size=14, color="green"),
+                        rx.text("현재: 직인 등록됨", font_size="12px", color="green"),
+                        spacing="2", align="center",
+                    ),
+                    rx.hstack(
+                        rx.icon("circle-x", size=14, color="#ef4444"),
+                        rx.text("현재: 미등록", font_size="12px", color="#ef4444"),
+                        spacing="2", align="center",
+                    ),
+                ),
+                rx.upload(
+                    rx.vstack(
+                        rx.icon("upload", size=20, color="#64748b"),
+                        rx.text("클릭 또는 드래그하여 직인 이미지 업로드",
+                                font_size="12px", color="#64748b"),
+                        align="center", spacing="2",
+                    ),
+                    id="stamp_upload_vendor",
+                    accept={"image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"]},
+                    max_files=1,
+                    on_drop=VendorState.handle_stamp_upload(
+                        rx.upload_files(upload_id="stamp_upload_vendor")
+                    ),
+                    border="2px dashed #cbd5e1",
+                    border_radius="8px",
+                    padding="20px",
+                    width="100%",
+                    cursor="pointer",
+                ),
+                rx.cond(
+                    VendorState.stamp_upload_loading,
+                    rx.hstack(
+                        rx.spinner(size="2"),
+                        rx.text("업로드 중...", font_size="12px", color="#64748b"),
+                        spacing="2", align="center",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.cond(
+                    VendorState.stamp_upload_status != "",
+                    rx.text(VendorState.stamp_upload_status, font_size="12px",
+                            color=rx.cond(
+                                VendorState.stamp_upload_status.startswith("✅"),
+                                "green", "#ef4444"
+                            )),
+                    rx.fragment(),
+                ),
+                spacing="3", width="100%",
+            ),
+            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            padding="20px", width="100%",
+        ),
         spacing="4", width="100%", align="start",
     )
 

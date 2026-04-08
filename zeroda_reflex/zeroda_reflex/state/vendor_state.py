@@ -3292,6 +3292,90 @@ class VendorState(AuthState):
                 self.sched_sync_running = False
 
     # ════════════════════════════════════════════
+    #  직인 관리 (업체관리자 본인 업체)
+    # ════════════════════════════════════════════
+
+    stamp_upload_status: str = ""
+    stamp_upload_loading: bool = False
+    stamp_current_path: str = ""
+
+    def load_current_stamp(self):
+        """본인 업체의 현재 직인 경로 조회."""
+        from zeroda_reflex.utils.database import get_vendor_info
+        vendor = (self.user_vendor or "").strip()
+        if not vendor:
+            self.stamp_current_path = ""
+            return
+        info = get_vendor_info(vendor)
+        self.stamp_current_path = info.get("stamp_path", "")
+
+    async def handle_stamp_upload(self, files: list):
+        """업체관리자 직인 업로드 (본인 업체만)."""
+        import os
+        import uuid
+        from zeroda_reflex.utils.database import set_vendor_stamp
+
+        STAMP_DIR = "/opt/zeroda-platform/storage/stamps"
+        MAX_SIZE = 2 * 1024 * 1024
+        ALLOWED_EXT = {".png", ".jpg", ".jpeg"}
+
+        vendor = (self.user_vendor or "").strip()
+        if not vendor:
+            self.stamp_upload_status = "❌ 업체 정보를 불러올 수 없습니다."
+            return
+        if not files:
+            self.stamp_upload_status = "❌ 파일이 없습니다."
+            return
+
+        self.stamp_upload_loading = True
+        self.stamp_upload_status = ""
+        yield
+
+        try:
+            f = files[0]
+            raw = await f.read()
+            if len(raw) > MAX_SIZE:
+                self.stamp_upload_status = "❌ 파일 크기 2MB 초과."
+                self.stamp_upload_loading = False
+                return
+
+            ext = os.path.splitext(f.filename or "")[1].lower()
+            if ext not in ALLOWED_EXT:
+                self.stamp_upload_status = "❌ PNG/JPG 만 가능합니다."
+                self.stamp_upload_loading = False
+                return
+
+            os.makedirs(STAMP_DIR, exist_ok=True)
+            safe_slug = "".join(c for c in vendor if c.isalnum() or c in "-_")[:20] or "vendor"
+            fname = f"{safe_slug}_{uuid.uuid4().hex[:8]}{ext}"
+            target = os.path.join(STAMP_DIR, fname)
+
+            with open(target, "wb") as w:
+                w.write(raw)
+
+            try:
+                from PIL import Image
+                img = Image.open(target)
+                img.verify()
+            except Exception:
+                os.remove(target)
+                self.stamp_upload_status = "❌ 유효한 이미지가 아닙니다."
+                self.stamp_upload_loading = False
+                return
+
+            updated_by = self.user_name or self.user_id or "vendor"
+            ok = set_vendor_stamp(vendor, target, updated_by)
+            if ok:
+                self.stamp_upload_status = f"✅ 직인 등록 완료"
+                self.stamp_current_path = target
+            else:
+                self.stamp_upload_status = "❌ DB 저장 실패"
+        except Exception as e:
+            self.stamp_upload_status = f"❌ 업로드 오류: {e}"
+        finally:
+            self.stamp_upload_loading = False
+
+    # ════════════════════════════════════════════
     #  페이지 로드
     # ════════════════════════════════════════════
 
@@ -3302,3 +3386,4 @@ class VendorState(AuthState):
         if self.user_role not in ("vendor_admin", "admin"):
             return rx.redirect("/")
         self.load_dashboard_data()
+        self.load_current_stamp()
