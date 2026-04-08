@@ -1606,6 +1606,57 @@ def _vendor_mgmt_tab() -> rx.Component:
         rx.cond(AdminState.vendor_sub_tab == "업체등록", _vendor_form_sub()),
         rx.cond(AdminState.vendor_sub_tab == "학교별칭", _alias_sub()),
         rx.cond(AdminState.vendor_sub_tab == "안전평가", _safety_eval_sub()),
+        # ── 직인 관리 카드 ──
+        rx.card(
+            rx.vstack(
+                _section_header("stamp", "직인 관리"),
+                rx.text("업체를 선택하고 직인 이미지를 업로드하세요. (PNG/JPG, 2MB 이하)",
+                        font_size="12px", color="#64748b"),
+                rx.select(
+                    AdminState.vendor_name_options,
+                    value=AdminState.stamp_vendor_select,
+                    on_change=[
+                        AdminState.set_stamp_vendor_select,
+                        AdminState.load_current_stamp,
+                    ],
+                    placeholder="업체 선택",
+                    size="2", width="260px",
+                ),
+                rx.cond(
+                    AdminState.stamp_current_path != "",
+                    rx.text("현재: 직인 등록됨", color="#059669", font_size="12px"),
+                    rx.text("현재: 미등록", color="#dc2626", font_size="12px"),
+                ),
+                rx.upload(
+                    rx.vstack(
+                        rx.icon("upload", size=28),
+                        rx.text("PNG/JPG 드롭 또는 선택", font_size="12px"),
+                        rx.text("2MB 이하", font_size="11px", color="#94a3b8"),
+                        spacing="1", align="center",
+                    ),
+                    id="stamp_upload_admin",
+                    accept={"image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"]},
+                    max_files=1,
+                    border="1px dashed #cbd5e1",
+                    padding="20px",
+                    border_radius="8px",
+                    on_drop=AdminState.handle_stamp_upload(
+                        rx.upload_files("stamp_upload_admin")
+                    ),
+                ),
+                rx.cond(
+                    AdminState.stamp_upload_loading,
+                    rx.hstack(rx.spinner(size="1"), rx.text("업로드 중...", font_size="12px")),
+                    rx.fragment(),
+                ),
+                rx.cond(
+                    AdminState.stamp_upload_status != "",
+                    rx.text(AdminState.stamp_upload_status, font_size="12px"),
+                    rx.fragment(),
+                ),
+                spacing="3", width="100%",
+            ),
+        ),
         spacing="4", width="100%",
     )
 
