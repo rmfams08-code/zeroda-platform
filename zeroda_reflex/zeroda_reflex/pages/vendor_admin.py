@@ -14,9 +14,10 @@ from zeroda_reflex.components.shared import (
     card_box as _card_box,                     # 차트용 카드 박스
 )
 
-# ── 연/월 선택 옵션 (Phase 0-B: 동적 생성으로 교체) ──
+# ── 연/월/일 선택 옵션 (Phase 0-B: 동적 생성으로 교체) ──
 YEAR_OPTIONS = get_year_options()
 # MONTH_OPTIONS → auth_state에서 import
+DAY_OPTIONS = ["전체"] + [str(d) for d in range(1, 32)]
 WEEKDAYS_FILTER = ["전체", "월", "화", "수", "목", "금", "토"]
 SCHED_SUBTABS = ["조회", "등록", "NEIS연동", "급식일정승인"]
 NEIS_OFFSET_OPTIONS = ["당일", "다음날"]
@@ -509,6 +510,19 @@ def _col_history_panel() -> rx.Component:
                 on_change=VendorState.set_col_item_filter,
                 size="2", width="100px",
                 placeholder="품목",
+            ),
+            rx.select(
+                DAY_OPTIONS,
+                value=VendorState.col_day_filter,
+                on_change=VendorState.set_col_day_filter,
+                size="2", width="80px",
+            ),
+            rx.text("일", font_size="13px", color="#64748b"),
+            rx.input(
+                placeholder="검색 (학교/기사/품목/상태)",
+                value=VendorState.col_keyword,
+                on_change=VendorState.set_col_keyword,
+                size="2", width="220px",
             ),
             rx.button(
                 rx.icon("refresh_cw", size=14),
