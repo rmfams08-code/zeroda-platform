@@ -1628,21 +1628,31 @@ def _vendor_mgmt_tab() -> rx.Component:
                     rx.text("현재: 미등록", color="#dc2626", font_size="12px"),
                 ),
                 rx.upload(
-                    rx.vstack(
-                        rx.icon("upload", size=28),
-                        rx.text("PNG/JPG 드롭 또는 선택", font_size="12px"),
-                        rx.text("2MB 이하", font_size="11px", color="#94a3b8"),
-                        spacing="1", align="center",
+                    rx.button(
+                        rx.icon("upload", size=16),
+                        "직인 이미지 선택 (PNG/JPG, 2MB 이하)",
+                        size="2",
+                        variant="soft",
+                        color_scheme="gray",
+                        width="100%",
                     ),
                     id="stamp_upload_admin",
-                    accept={"image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"]},
+                    accept={"image/*": [".png", ".jpg", ".jpeg"]},
                     max_files=1,
+                    multiple=False,
                     border="1px dashed #cbd5e1",
-                    padding="20px",
+                    padding="8px",
                     border_radius="8px",
-                    on_drop=AdminState.handle_stamp_upload(
-                        rx.upload_files("stamp_upload_admin")
+                ),
+                rx.button(
+                    rx.icon("upload", size=14),
+                    "직인 등록",
+                    on_click=AdminState.handle_stamp_upload(
+                        rx.upload_files(upload_id="stamp_upload_admin")
                     ),
+                    size="2",
+                    color_scheme="blue",
+                    width="100%",
                 ),
                 rx.cond(
                     AdminState.stamp_upload_loading,

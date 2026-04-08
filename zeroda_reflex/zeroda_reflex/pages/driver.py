@@ -1161,23 +1161,32 @@ def _processing_section() -> rx.Component:
                     spacing="2", align="center",
                 ),
                 rx.upload(
-                    rx.vstack(
-                        rx.icon("camera", size=20, color="#7c3aed"),
-                        rx.text("촬영 또는 사진 선택",
-                                font_size="12px", color="#7c3aed"),
-                        align="center", spacing="1",
+                    rx.button(
+                        rx.icon("camera", size=16),
+                        "📷 사진 선택 (JPG/PNG)",
+                        size="2",
+                        variant="soft",
+                        color_scheme="violet",
+                        width="100%",
                     ),
                     id="weighslip_upload",
-                    accept={"image/jpeg": [".jpg", ".jpeg"], "image/png": [".png"]},
+                    accept={"image/*": [".jpg", ".jpeg", ".png"]},
                     max_files=1,
-                    on_drop=DriverState.handle_weighslip_upload(
-                        rx.upload_files(upload_id="weighslip_upload")
-                    ),
+                    multiple=False,
                     border="2px dashed #c4b5fd",
                     border_radius="8px",
-                    padding="12px",
+                    padding="8px",
                     width="100%",
-                    cursor="pointer",
+                ),
+                rx.button(
+                    rx.icon("scan", size=14),
+                    "OCR 자동 인식",
+                    on_click=DriverState.handle_weighslip_upload(
+                        rx.upload_files(upload_id="weighslip_upload")
+                    ),
+                    size="2",
+                    color_scheme="violet",
+                    width="100%",
                 ),
                 rx.cond(
                     DriverState.weighslip_ocr_loading,
