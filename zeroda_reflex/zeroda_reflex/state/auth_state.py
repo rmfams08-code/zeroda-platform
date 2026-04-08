@@ -127,12 +127,13 @@ class AuthState(rx.State):
                 self.reg_error = "학교명을 입력해주세요."
                 self.reg_loading = False
                 return
-            if len(self.reg_neis_edu.strip()) != 7:
-                self.reg_error = "NEIS 교육청코드는 7자리여야 합니다."
+            # NEIS 코드는 선택사항 — 빈 값이어도 가입 가능 (본사 관리자가 나중에 등록)
+            if self.reg_neis_edu.strip() and len(self.reg_neis_edu.strip()) != 7:
+                self.reg_error = "NEIS 교육청코드를 입력할 경우 7자리여야 합니다."
                 self.reg_loading = False
                 return
-            if len(self.reg_neis_school.strip()) != 7:
-                self.reg_error = "NEIS 학교코드는 7자리여야 합니다."
+            if self.reg_neis_school.strip() and len(self.reg_neis_school.strip()) != 7:
+                self.reg_error = "NEIS 학교코드를 입력할 경우 7자리여야 합니다."
                 self.reg_loading = False
                 return
         created, msg = create_user(
