@@ -2,6 +2,7 @@
 # 기사 대시보드 — 안전점검 → 수거일정 → 퇴근
 import reflex as rx
 from zeroda_reflex.state.driver_state import DriverState, SAFETY_CHECKLIST
+from zeroda_reflex.state.auth_state import AuthState
 
 
 def _header() -> rx.Component:
@@ -349,6 +350,7 @@ def _safety_section() -> rx.Component:
             rx.button(
                 "💾 점검 결과 저장",
                 on_click=DriverState.save_safety_check,
+                disabled=~AuthState.is_user_active,
                 width="100%",
                 size="3",
                 color_scheme="blue",
@@ -412,6 +414,7 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
             variant="ghost",
             color_scheme="red",
             on_click=DriverState.remove_row_for_school([school_idx, row_idx]),
+            disabled=~AuthState.is_user_active,
             flex_shrink="0",
         ),
         width="100%",
@@ -526,6 +529,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     rx.button(
                         "+ 행 추가",
                         on_click=DriverState.add_row_for_school(idx),
+                        disabled=~AuthState.is_user_active,
                         size="1",
                         variant="ghost",
                         color_scheme="blue",
@@ -551,6 +555,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     rx.button(
                         "📍 위치설정",
                         on_click=DriverState.initiate_location_for_school(idx),
+                        disabled=~AuthState.is_user_active,
                         size="1",
                         variant="outline",
                         color_scheme="violet",
@@ -593,6 +598,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                             on_click=DriverState.handle_card_photo_upload(
                                 rx.upload_files(upload_id="active_card_photo")
                             ),
+                            disabled=~AuthState.is_user_active,
                             size="1",
                             color_scheme="orange",
                             width="100%",
@@ -611,6 +617,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     rx.button(
                         "📋 임시저장",
                         on_click=DriverState.initiate_draft_for_school(idx),
+                        disabled=~AuthState.is_user_active,
                         size="2",
                         variant="outline",
                         color_scheme="gray",
@@ -619,6 +626,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     rx.button(
                         "✅ 수거완료",
                         on_click=DriverState.initiate_save_for_school(idx),
+                        disabled=~AuthState.is_user_active,
                         size="2",
                         color_scheme="blue",
                         flex="1",
@@ -777,6 +785,7 @@ def _voice_confirm_dialog() -> rx.Component:
                             "✅ 확인하고 입력",
                             color_scheme="grass",
                             on_click=DriverState.confirm_voice_apply,
+                            disabled=~AuthState.is_user_active,
                         ),
                     ),
                 ),
@@ -958,6 +967,7 @@ def _schedule_section() -> rx.Component:
                             variant="ghost",
                             color_scheme="red",
                             on_click=DriverState.delete_collection_entry(c["rowid"]),
+                            disabled=~AuthState.is_user_active,
                         ),
                         width="100%",
                         padding_y="4px",
@@ -1060,6 +1070,7 @@ def _processing_section() -> rx.Component:
         rx.button(
             "📤 처리확인 전송",
             on_click=DriverState.save_processing,
+            disabled=~AuthState.is_user_active,
             width="100%",
             size="3",
             color_scheme="blue",
@@ -1156,6 +1167,7 @@ def _checkout_section() -> rx.Component:
                 rx.button(
                     "🏠 퇴근하기",
                     on_click=DriverState.open_checkout_dialog,
+                    disabled=~AuthState.is_user_active,
                     width="100%",
                     size="3",
                     color_scheme="green",
@@ -1329,6 +1341,17 @@ def driver_page() -> rx.Component:
     """기사 대시보드 메인 페이지"""
     return rx.box(
         rx.vstack(
+            rx.cond(
+                ~AuthState.is_user_active,
+                rx.callout(
+                    "본사 관리자 활성화 대기 중입니다. 활성화 전까지 기능 사용이 제한됩니다.",
+                    icon="info",
+                    color_scheme="amber",
+                    size="2",
+                    margin_bottom="12px",
+                ),
+                rx.fragment(),
+            ),
             _header(),
             _weather_section(),
             _schoolzone_section(),

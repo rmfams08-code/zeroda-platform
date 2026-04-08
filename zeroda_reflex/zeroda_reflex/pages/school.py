@@ -2,7 +2,7 @@
 # 학교 사용자 대시보드 — 5탭 (월별현황, 수거내역, 정산확인, ESG, 안전관리)
 import reflex as rx
 from zeroda_reflex.state.school_state import SchoolState, SCHOOL_TABS
-from zeroda_reflex.state.auth_state import get_year_options, MONTH_OPTIONS
+from zeroda_reflex.state.auth_state import AuthState, get_year_options, MONTH_OPTIONS
 
 # ── 안전보건 점검 체크리스트 7항목 (모듈 상수) ──
 SAFETY_CHECKLIST_ITEMS = [
@@ -235,6 +235,7 @@ def _detail_tab() -> rx.Component:
                 rx.icon("download", size=14), "Excel",
                 size="1", variant="outline", color_scheme="green",
                 on_click=SchoolState.download_collection_excel,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -378,6 +379,7 @@ def _esg_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=SchoolState.download_esg_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -448,6 +450,7 @@ def _safety_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=SchoolState.download_safety_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -744,6 +747,17 @@ def school_page() -> rx.Component:
         _topbar(),
         _tab_nav(),
         rx.box(
+            rx.cond(
+                ~AuthState.is_user_active,
+                rx.callout(
+                    "본사 관리자 활성화 대기 중입니다. 활성화 전까지 기능 사용이 제한됩니다.",
+                    icon="info",
+                    color_scheme="amber",
+                    size="2",
+                    margin_bottom="12px",
+                ),
+                rx.fragment(),
+            ),
             _tab_content(),
             padding="24px",
             min_height="calc(100vh - 110px)",

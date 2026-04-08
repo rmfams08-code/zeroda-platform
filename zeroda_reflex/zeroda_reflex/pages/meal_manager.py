@@ -2,7 +2,7 @@
 # 급식담당자 대시보드 — 6메뉴
 import reflex as rx
 from zeroda_reflex.state.meal_state import MealState, MEAL_TABS
-from zeroda_reflex.state.auth_state import get_year_options, MONTH_OPTIONS
+from zeroda_reflex.state.auth_state import AuthState, get_year_options, MONTH_OPTIONS
 # ── 공통 컴포넌트 import (Phase 0-A 모듈화) ──
 from zeroda_reflex.components.shared import (
     kpi_card_compact as _kpi,          # 급식은 컴팩트형 KPI (_kpi 별칭 유지)
@@ -273,7 +273,8 @@ def _menu_tab() -> rx.Component:
                     collapsible=True, type="single", variant="outline", width="100%",
                 ),
                 rx.button(rx.icon("save", size=14), "저장",
-                           color_scheme="blue", size="2", on_click=MealState.save_menu),
+                           color_scheme="blue", size="2", on_click=MealState.save_menu,
+                           disabled=~AuthState.is_user_active),
                 spacing="3", width="100%")),
         # ── CSV/Excel 일괄 업로드 (Phase 4) ──
         _card(
@@ -312,6 +313,7 @@ def _menu_tab() -> rx.Component:
                         on_click=MealState.handle_meal_upload(
                             rx.upload_files(upload_id="meal_upload")
                         ),
+                        disabled=~AuthState.is_user_active,
                     ),
                     rx.cond(
                         MealState.upload_progress > 0,
@@ -362,6 +364,7 @@ def _menu_tab() -> rx.Component:
                     on_click=MealState.handle_neis_upload(
                         rx.upload_files(upload_id="neis_upload")
                     ),
+                    disabled=~AuthState.is_user_active,
                 ),
                 spacing="3", width="100%",
             ),
@@ -391,7 +394,8 @@ def _menu_tab() -> rx.Component:
                                     rx.table.cell(
                                         rx.button("삭제", size="1", variant="outline",
                                                    color_scheme="red",
-                                                   on_click=MealState.delete_menu(r["meal_date"])))))),
+                                                   on_click=MealState.delete_menu(r["meal_date"]),
+                                                   disabled=~AuthState.is_user_active))))),
                         width="100%"),
                     rx.text("등록된 식단이 없습니다.", font_size="13px", color="#94a3b8",
                              padding="20px", text_align="center")),
@@ -602,11 +606,13 @@ def _smart_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=MealState.download_smart_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             rx.button(
                 rx.icon("download", size=14), "Excel",
                 size="1", variant="outline", color_scheme="green",
                 on_click=MealState.download_meal_excel,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -938,6 +944,7 @@ def _ai_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "AI PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=MealState.download_ai_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -1014,6 +1021,7 @@ def _ai_tab() -> rx.Component:
                         size="2", color_scheme="violet",
                         on_click=MealState.run_ai_comprehensive,
                         loading=MealState.ai_loading,
+                        disabled=~AuthState.is_user_active,
                     ),
                     rx.button(
                         rx.cond(MealState.ai_loading, rx.spinner(size="1"), rx.icon("utensils", size=14)),
@@ -1021,6 +1029,7 @@ def _ai_tab() -> rx.Component:
                         size="2", color_scheme="blue",
                         on_click=MealState.run_ai_recommend,
                         loading=MealState.ai_loading,
+                        disabled=~AuthState.is_user_active,
                     ),
                     # 수정5: 잔반 원인 분석 버튼
                     rx.button(
@@ -1029,6 +1038,7 @@ def _ai_tab() -> rx.Component:
                         size="2", color_scheme="orange",
                         on_click=MealState.run_ai_cause_analysis,
                         loading=MealState.ai_cause_loading,
+                        disabled=~AuthState.is_user_active,
                     ),
                     # 수정10: 일별 특이사항 버튼
                     rx.button(
@@ -1037,6 +1047,7 @@ def _ai_tab() -> rx.Component:
                         size="2", color_scheme="teal",
                         on_click=MealState.generate_daily_remarks,
                         loading=MealState.ai_daily_loading,
+                        disabled=~AuthState.is_user_active,
                     ),
                     spacing="3", flex_wrap="wrap",
                 ),
@@ -1102,6 +1113,7 @@ def _ai_tab() -> rx.Component:
                         rx.icon("calendar_plus", size=14), "AI 추천식단 일괄등록",
                         size="2", color_scheme="green",
                         on_click=MealState.save_ai_recommendations,
+                        disabled=~AuthState.is_user_active,
                     ),
                     spacing="3", width="100%",
                 ),
@@ -1237,6 +1249,7 @@ def _esg_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=MealState.download_esg_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -1294,6 +1307,17 @@ def _tab_content() -> rx.Component:
 def meal_manager_page() -> rx.Component:
     """급식담당자 메인 페이지"""
     return rx.box(
+        rx.cond(
+            ~AuthState.is_user_active,
+            rx.callout(
+                "본사 관리자 활성화 대기 중입니다. 활성화 전까지 기능 사용이 제한됩니다.",
+                icon="info",
+                color_scheme="amber",
+                size="2",
+                margin_bottom="12px",
+            ),
+            rx.fragment(),
+        ),
         _topbar(),
         _nav(),
         rx.box(
