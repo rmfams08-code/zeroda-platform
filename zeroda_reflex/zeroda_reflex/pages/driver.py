@@ -1178,12 +1178,22 @@ def _processing_section() -> rx.Component:
                     padding="8px",
                     width="100%",
                 ),
+                rx.foreach(
+                    rx.selected_files("weighslip_upload"),
+                    lambda f: rx.text(
+                        rx.icon("file-image", size=12),
+                        " ", f,
+                        font_size="11px", color="#7c3aed",
+                    ),
+                ),
                 rx.button(
                     rx.icon("scan", size=14),
                     "OCR 자동 인식",
                     on_click=DriverState.handle_weighslip_upload(
                         rx.upload_files(upload_id="weighslip_upload")
                     ),
+                    loading=DriverState.weighslip_ocr_loading,
+                    disabled=DriverState.weighslip_ocr_loading,
                     size="2",
                     color_scheme="violet",
                     width="100%",
