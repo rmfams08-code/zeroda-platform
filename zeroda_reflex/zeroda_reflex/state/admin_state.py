@@ -12,6 +12,7 @@ from zeroda_reflex.utils.database import (
     get_all_users, update_user_approval, update_user_active,
     reset_user_password, update_user_fields, delete_user,
     create_user, validate_password,
+    get_user_by_id, upsert_customer_neis_codes,
     # 섹션B: 수거데이터
     get_pending_collections, confirm_all_pending, reject_collection_by_id,
     get_filtered_collections, get_all_schools_list,
@@ -855,15 +856,30 @@ class AdminState(AuthState):
         self.acct_filter_status = v
 
     def approve_user(self, user_id: str):
-        """사용자 승인"""
+        """사용자 승인 — school/meal_manager이면 NEIS 코드를 customer_info에 반영"""
         ok = update_user_approval(user_id, "approved")
-        self.all_users = get_all_users()   # load_users 대신 직접 갱신 (메시지 보존)
-        if ok:
-            self.acct_msg = f"{user_id} 승인 완료"
-            self.acct_ok = True
-        else:
+        self.all_users = get_all_users()
+        if not ok:
             self.acct_msg = "승인 처리 실패"
             self.acct_ok = False
+            return
+        # school/meal_manager: 가입 시 저장된 NEIS 임시 코드 → customer_info 자동 반영
+        user = get_user_by_id(user_id)
+        neis_warning = ""
+        if user and user.get("role") in ("school", "meal_manager"):
+            pv = user.get("pending_vendor") or ""
+            ps = user.get("pending_school_name") or ""
+            ne = user.get("neis_edu_pending") or ""
+            ns = user.get("neis_school_pending") or ""
+            if pv and ps and ne and ns:
+                neis_ok = upsert_customer_neis_codes(pv, ps, ne, ns)
+                if not neis_ok:
+                    neis_warning = (
+                        f" (주의: 거래처 '{ps}'({pv})를 찾지 못해 NEIS 코드 미반영 — "
+                        "거래처 등록 후 수동 입력 필요)"
+                    )
+        self.acct_msg = f"{user_id} 승인 완료{neis_warning}"
+        self.acct_ok = True if not neis_warning else False
 
     def reject_user(self, user_id: str):
         """사용자 반려"""

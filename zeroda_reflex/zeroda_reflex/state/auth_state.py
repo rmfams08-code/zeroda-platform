@@ -53,6 +53,13 @@ class AuthState(rx.State):
     reg_success: str = ""
     reg_loading: bool = False
 
+    # ── 회원가입 NEIS 필드 (school/meal_manager 전용) ──
+    reg_vendor_select: str = ""         # 소속 업체 드롭다운 선택값
+    reg_school_name_neis: str = ""      # NEIS용 학교명 (정확한 이름 필요)
+    reg_neis_edu: str = ""              # 교육청코드 7자리
+    reg_neis_school: str = ""           # 학교코드 7자리
+    reg_vendor_options: list[str] = []  # 드롭다운 옵션 (승인된 업체 목록)
+
     def set_reg_id(self, v: str): self.reg_id = v
     def set_reg_name(self, v: str): self.reg_name = v
     def set_reg_pw(self, v: str): self.reg_pw = v
@@ -65,6 +72,18 @@ class AuthState(rx.State):
     def set_reg_vendor(self, v: str): self.reg_vendor = v
     def set_reg_schools(self, v: str): self.reg_schools = v
     def set_reg_edu_office(self, v: str): self.reg_edu_office = v
+    def set_reg_vendor_select(self, v: str): self.reg_vendor_select = v
+    def set_reg_school_name_neis(self, v: str): self.reg_school_name_neis = v
+    def set_reg_neis_edu(self, v: str): self.reg_neis_edu = v
+    def set_reg_neis_school(self, v: str): self.reg_neis_school = v
+
+    def load_signup_vendor_options(self):
+        """회원가입 페이지 on_mount: 승인된 업체 목록 로드."""
+        from zeroda_reflex.utils.database import get_active_vendor_names
+        try:
+            self.reg_vendor_options = get_active_vendor_names()
+        except Exception:
+            self.reg_vendor_options = []
 
     def submit_register(self):
         try:
@@ -97,6 +116,24 @@ class AuthState(rx.State):
             self.reg_error = msg
             self.reg_loading = False
             return
+        # school / meal_manager 추가 검증
+        if self.reg_role in ("school", "meal_manager"):
+            if not self.reg_vendor_select:
+                self.reg_error = "소속 업체를 선택해주세요."
+                self.reg_loading = False
+                return
+            if not self.reg_school_name_neis:
+                self.reg_error = "학교명을 입력해주세요."
+                self.reg_loading = False
+                return
+            if len(self.reg_neis_edu.strip()) != 7:
+                self.reg_error = "NEIS 교육청코드는 7자리여야 합니다."
+                self.reg_loading = False
+                return
+            if len(self.reg_neis_school.strip()) != 7:
+                self.reg_error = "NEIS 학교코드는 7자리여야 합니다."
+                self.reg_loading = False
+                return
         created, msg = create_user(
             user_id=self.reg_id.strip(),
             password=self.reg_pw,
@@ -107,6 +144,10 @@ class AuthState(rx.State):
             edu_office=self.reg_edu_office.strip(),
             approval_status="pending",
             is_active=1,
+            pending_vendor=self.reg_vendor_select.strip() or None,
+            pending_school_name=self.reg_school_name_neis.strip() or None,
+            neis_edu_pending=self.reg_neis_edu.strip() or None,
+            neis_school_pending=self.reg_neis_school.strip() or None,
         )
         if not created:
             self.reg_error = msg
@@ -120,6 +161,10 @@ class AuthState(rx.State):
         self.reg_vendor = ""
         self.reg_schools = ""
         self.reg_edu_office = ""
+        self.reg_vendor_select = ""
+        self.reg_school_name_neis = ""
+        self.reg_neis_edu = ""
+        self.reg_neis_school = ""
         self.reg_loading = False
 
     def goto_login(self):

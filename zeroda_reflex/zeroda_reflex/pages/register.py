@@ -89,19 +89,50 @@ def register_page() -> rx.Component:
                         spacing="1", width="100%",
                     ),
                 ),
-                # 학교명 (school, meal_manager)
+                # 학교/급식담당자 전용 필드 (NEIS 연동)
                 rx.cond(
                     (AuthState.reg_role == "school") | (AuthState.reg_role == "meal_manager"),
                     rx.vstack(
-                        rx.text("학교명", size="2", weight="bold"),
-                        rx.input(
-                            placeholder="소속 학교명",
-                            value=AuthState.reg_schools,
-                            on_change=AuthState.set_reg_schools,
+                        rx.text("소속 업체 *", size="2", weight="bold"),
+                        rx.select(
+                            AuthState.reg_vendor_options,
+                            value=AuthState.reg_vendor_select,
+                            on_change=AuthState.set_reg_vendor_select,
+                            placeholder="업체를 선택하세요",
                             width="100%",
                         ),
-                        spacing="1", width="100%",
+                        rx.text("학교명 *", size="2", weight="bold"),
+                        rx.input(
+                            placeholder="학교 정식 명칭 (NEIS 등록명)",
+                            value=AuthState.reg_school_name_neis,
+                            on_change=AuthState.set_reg_school_name_neis,
+                            width="100%",
+                        ),
+                        rx.text("NEIS 교육청코드 * (7자리)", size="2", weight="bold"),
+                        rx.input(
+                            placeholder="7자리 숫자",
+                            value=AuthState.reg_neis_edu,
+                            on_change=AuthState.set_reg_neis_edu,
+                            max_length=7,
+                            width="100%",
+                        ),
+                        rx.text("NEIS 학교코드 * (7자리)", size="2", weight="bold"),
+                        rx.input(
+                            placeholder="7자리 숫자",
+                            value=AuthState.reg_neis_school,
+                            on_change=AuthState.set_reg_neis_school,
+                            max_length=7,
+                            width="100%",
+                        ),
+                        rx.callout(
+                            "NEIS 코드는 나이스 학교정보 사이트에서 확인할 수 있습니다. 승인 시 자동으로 거래처에 등록됩니다.",
+                            color_scheme="blue",
+                            size="1",
+                            width="100%",
+                        ),
+                        spacing="2", width="100%",
                     ),
+                    rx.fragment(),
                 ),
                 # 교육청 (edu_office)
                 rx.cond(

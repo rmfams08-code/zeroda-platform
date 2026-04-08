@@ -357,6 +357,62 @@ except Exception as _tbl_init_err:
     print(f"[DB ERROR] 누락 테이블 초기화 실패: {_tbl_init_err}")
 
 
+def ensure_academic_schedule_table() -> None:
+    """school_academic_schedule 테이블 + 인덱스 생성 (idempotent)."""
+    conn = get_db()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS school_academic_schedule (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                school_name TEXT NOT NULL,
+                sched_date  TEXT NOT NULL,
+                event_name  TEXT,
+                event_type  TEXT,
+                content     TEXT,
+                last_synced TEXT,
+                UNIQUE(school_name, sched_date, event_name)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sas_school_date
+                ON school_academic_schedule(school_name, sched_date)
+        """)
+        conn.commit()
+    except Exception as e:
+        print(f"[DB ERROR] ensure_academic_schedule_table: {e}")
+        logger.warning(f"ensure_academic_schedule_table 실패: {e}")
+    finally:
+        conn.close()
+
+
+def ensure_users_neis_columns() -> None:
+    """users 테이블에 NEIS 가입 임시보관 컬럼 4개 추가 (idempotent)."""
+    conn = get_db()
+    for col_def in [
+        "neis_edu_pending TEXT",
+        "neis_school_pending TEXT",
+        "pending_vendor TEXT",
+        "pending_school_name TEXT",
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col_def}")
+            conn.commit()
+        except Exception:
+            pass  # 이미 존재하면 무시
+    conn.close()
+
+
+try:
+    ensure_academic_schedule_table()
+except Exception as _sched_init_err:
+    print(f"[DB ERROR] school_academic_schedule 초기화 실패: {_sched_init_err}")
+
+try:
+    ensure_users_neis_columns()
+except Exception as _neis_col_err:
+    print(f"[DB ERROR] users NEIS 컬럼 초기화 실패: {_neis_col_err}")
+
+
 def save_collection(
     vendor: str, driver: str, school_name: str,
     collect_date: str, item_type: str, weight: float,
@@ -2093,6 +2149,58 @@ def delete_user(user_id: str) -> tuple[bool, str]:
     return False, "삭제 중 오류가 발생했습니다."
 
 
+def get_user_by_id(user_id: str) -> dict | None:
+    """users 테이블에서 user_id(PK)로 단일 행 조회. 없으면 None 반환."""
+    rows = db_get("users", {"user_id": user_id})
+    return rows[0] if rows else None
+
+
+def get_active_vendor_names() -> list[str]:
+    """승인된 활성 vendor_admin 역할의 업체명 목록 반환."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT vendor FROM users "
+            "WHERE role='vendor_admin' AND is_active=1 AND approval_status='approved' "
+            "  AND vendor IS NOT NULL AND vendor <> '' "
+            "ORDER BY vendor"
+        ).fetchall()
+        return [r[0] for r in rows]
+    except Exception as e:
+        print(f"[DB ERROR] get_active_vendor_names: {e}")
+        logger.warning(f"Exception in get_active_vendor_names: {str(e)}")
+        return []
+    finally:
+        conn.close()
+
+
+def upsert_customer_neis_codes(vendor: str, school_name: str,
+                               neis_edu: str, neis_school: str) -> bool:
+    """customer_info의 (vendor, name) 행에 NEIS 코드 2개 UPDATE.
+    해당 거래처가 존재하지 않으면 False 반환."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM customer_info WHERE vendor=? AND name=?",
+            (vendor, school_name),
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute(
+            "UPDATE customer_info SET neis_edu_code=?, neis_school_code=? "
+            "WHERE vendor=? AND name=?",
+            (neis_edu, neis_school, vendor, school_name),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[DB ERROR] upsert_customer_neis_codes: {e}")
+        logger.warning(f"Exception in upsert_customer_neis_codes: {str(e)}")
+        return False
+    finally:
+        conn.close()
+
+
 def validate_password(pw: str) -> tuple[bool, str]:
     import re
     if not pw or len(pw) < 8:
@@ -2107,7 +2215,9 @@ def validate_password(pw: str) -> tuple[bool, str]:
 
 
 def create_user(user_id, password, role, name, vendor="", schools="",
-                edu_office="", approval_status="pending", is_active=1):
+                edu_office="", approval_status="pending", is_active=1,
+                pending_vendor=None, pending_school_name=None,
+                neis_edu_pending=None, neis_school_pending=None):
     import bcrypt
     existing = db_get("users", {"user_id": user_id})
     if existing:
@@ -2118,10 +2228,14 @@ def create_user(user_id, password, role, name, vendor="", schools="",
         conn.execute(
             "INSERT INTO users "
             "(user_id, pw_hash, role, name, vendor, schools, edu_office, "
-            " is_active, approval_status) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            " is_active, approval_status, "
+            " pending_vendor, pending_school_name, "
+            " neis_edu_pending, neis_school_pending) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (user_id, pw_hash, role, name, vendor, schools, edu_office,
-             int(is_active), approval_status),
+             int(is_active), approval_status,
+             pending_vendor, pending_school_name,
+             neis_edu_pending, neis_school_pending),
         )
         conn.commit()
         return True, f"계정 '{user_id}' 가입 신청 완료"
