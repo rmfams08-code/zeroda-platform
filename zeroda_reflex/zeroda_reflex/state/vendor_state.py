@@ -1168,14 +1168,23 @@ class VendorState(AuthState):
             self.email_sending = False
 
     async def send_stmt_detail_sms(self):
-        """상세 SMS — 거래명세서 요약 + 미수금 포함"""
-        from zeroda_reflex.utils.sms_service import (
-            send_statement_sms as _send_sms,
+        """상세 SMS — PDF를 서버에 저장하고 다운로드 링크를 SMS로 발송."""
+        import traceback
+        from zeroda_reflex.utils.pdf_export import (
+            build_statement_pdf,
+            save_statement_pdf_to_storage,
         )
+        from zeroda_reflex.utils.sms_service import send_statement_sms as _send_sms
         from zeroda_reflex.utils.database import get_vendor_info
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
 
         if not self.rcv_phone:
             self.detail_sms_msg = "수신 전화번호를 입력하세요."
+            self.detail_sms_ok = False
+            return
+        if not self.stmt_cust_sel or not self.stmt_rows:
+            self.detail_sms_msg = "거래처를 먼저 조회하세요."
             self.detail_sms_ok = False
             return
 
@@ -1184,6 +1193,43 @@ class VendorState(AuthState):
         yield
 
         try:
+            y = int(self.selected_year)
+            m = int(self.selected_month)
+        except (ValueError, TypeError):
+            self.detail_sms_msg = "연/월을 선택하세요."
+            self.detail_sms_ok = False
+            self.detail_sms_sending = False
+            return
+
+        try:
+            # [1] PDF 생성
+            self.detail_sms_msg = "PDF 생성 중..."
+            yield
+            vinfo = get_vendor_info(self.user_vendor) or {}
+            biz_info = self._build_biz_info()
+            pdf_bytes = build_statement_pdf(
+                self.user_vendor, self.stmt_cust_sel, y, m,
+                self.stmt_rows, biz_info, vinfo,
+                self.stmt_cust_type, self.stmt_fixed_fee,
+            )
+            if not pdf_bytes:
+                self.detail_sms_msg = "❌ PDF 생성 실패 — 서버 로그 확인"
+                self.detail_sms_ok = False
+                self.detail_sms_sending = False
+                _log.error("send_stmt_detail_sms: build_statement_pdf returned None")
+                return
+
+            # [2] 저장소 업로드
+            self.detail_sms_msg = "저장소 업로드 중..."
+            yield
+            url, fpath = save_statement_pdf_to_storage(pdf_bytes)
+            if not url:
+                self.detail_sms_msg = "❌ PDF 저장 실패"
+                self.detail_sms_ok = False
+                self.detail_sms_sending = False
+                return
+
+            # [3] 본문 조립
             try:
                 od_amt = float(self.overdue_amount or 0)
             except Exception:
@@ -1191,15 +1237,17 @@ class VendorState(AuthState):
             overdue_line = f"\n[미납] {int(od_amt):,}원" if od_amt > 0 else ""
             text = (
                 f"[{self.user_vendor}]\n"
-                f"{self.selected_year}년 {self.selected_month}월 거래명세서\n"
+                f"{y}년 {m}월 거래명세서\n"
                 f"거래처: {self.stmt_cust_sel}\n"
-                f"수거량: {self.stmt_total_weight}kg\n"
-                f"공급가액: {int(self.stmt_total_amount):,}원\n"
-                f"부가세: {int(self.stmt_vat):,}원\n"
                 f"합계: {int(self.stmt_grand_total):,}원"
-                f"{overdue_line}"
+                f"{overdue_line}\n"
+                f"\n명세서(PDF): {url}\n"
+                f"(링크는 7일간 유효)"
             )
-            vinfo = get_vendor_info(self.user_vendor) or {}
+
+            # [4] SMS 발송
+            self.detail_sms_msg = "SMS 발송 중..."
+            yield
             ok, msg = _send_sms(
                 to_phone=self.rcv_phone,
                 message=text,
@@ -1207,10 +1255,12 @@ class VendorState(AuthState):
                 vendor_contact=vinfo.get("contact", ""),
             )
             self.detail_sms_ok = ok
-            self.detail_sms_msg = msg
+            self.detail_sms_msg = "✅ PDF 링크 SMS 발송 완료" if ok else f"❌ {msg}"
         except Exception as e:
             self.detail_sms_ok = False
-            self.detail_sms_msg = f"발송 실패: {e}"
+            short = str(e).split("\n")[0][:80]
+            self.detail_sms_msg = f"❌ [예외] {short}"
+            _log.exception("send_stmt_detail_sms 예외:\n%s", traceback.format_exc())
         finally:
             self.detail_sms_sending = False
 

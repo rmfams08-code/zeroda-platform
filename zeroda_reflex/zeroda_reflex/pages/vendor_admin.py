@@ -2398,7 +2398,7 @@ def _stmt_send_panel() -> rx.Component:
                 loading=VendorState.email_sending,
             ),
             rx.button(
-                "상세SMS",
+                "📎 PDF 링크 SMS",
                 size="2", color_scheme="orange", variant="soft",
                 on_click=VendorState.send_stmt_detail_sms,
                 loading=VendorState.detail_sms_sending,

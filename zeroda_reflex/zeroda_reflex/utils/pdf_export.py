@@ -5,7 +5,54 @@ import logging
 import sys
 import pathlib
 
+import uuid
+import os
+from datetime import datetime, timedelta
+
 logger = logging.getLogger(__name__)
+
+# ── 거래명세서 저장소 ──
+_STATEMENT_STORAGE_DIR = "/opt/zeroda-platform/storage/statements"
+_STATEMENT_URL_BASE = "https://zeroda.co.kr/statements"
+_STATEMENT_TTL_DAYS = 7
+
+
+def save_statement_pdf_to_storage(pdf_bytes: bytes) -> tuple[str, str]:
+    """PDF 바이트를 저장소에 UUID 파일명으로 저장.
+    반환: (공개 URL, 파일시스템 경로). 실패 시 ("", "").
+    """
+    if not pdf_bytes:
+        return "", ""
+    try:
+        os.makedirs(_STATEMENT_STORAGE_DIR, exist_ok=True)
+        fname = f"{uuid.uuid4().hex}.pdf"
+        fpath = os.path.join(_STATEMENT_STORAGE_DIR, fname)
+        with open(fpath, "wb") as f:
+            f.write(pdf_bytes)
+        url = f"{_STATEMENT_URL_BASE}/{fname}"
+        return url, fpath
+    except Exception as e:
+        logger.error(f"save_statement_pdf_to_storage 실패: {e}")
+        return "", ""
+
+
+def cleanup_old_statements(ttl_days: int = _STATEMENT_TTL_DAYS) -> int:
+    """TTL 경과 파일 삭제. 반환: 삭제 건수."""
+    if not os.path.isdir(_STATEMENT_STORAGE_DIR):
+        return 0
+    cutoff = datetime.now() - timedelta(days=ttl_days)
+    deleted = 0
+    for fname in os.listdir(_STATEMENT_STORAGE_DIR):
+        fpath = os.path.join(_STATEMENT_STORAGE_DIR, fname)
+        try:
+            mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+            if mtime < cutoff:
+                os.remove(fpath)
+                deleted += 1
+        except Exception as e:
+            logger.warning(f"cleanup_old_statements: {fname} 실패 {e}")
+    return deleted
+
 
 # ── 기존 pdf_generator.py를 import 경로에 추가 ──
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent.parent  # zeroda_platform/
