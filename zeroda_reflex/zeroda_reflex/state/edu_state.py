@@ -66,6 +66,9 @@ class EduState(AuthState):
     # ══════════════════════════════
     esg_school: str = ""
     esg_data: dict = {}
+    ai_esg_text: str = ""
+    ai_esg_loading: bool = False
+    ai_esg_error: str = ""
 
     # ══════════════════════════════
     #  탭6: 안전관리
@@ -346,6 +349,65 @@ class EduState(AuthState):
             return rx.download(
                 data=pdf_bytes,
                 filename=f"ESG보고서_교육청_{edu_name}_{y}.pdf",
+            )
+        return None
+
+    async def run_ai_esg(self):
+        """교육청 AI ESG 보고서 생성 (선택 학교 단건 또는 관할 통합)."""
+        from zeroda_reflex.utils.ai_service import build_esg_ai_prompt, call_claude_api
+        from zeroda_reflex.utils.database import school_filter_collections
+        if not self.has_esg:
+            self.ai_esg_error = "ESG 데이터가 없습니다."
+            return
+        self.ai_esg_loading = True
+        self.ai_esg_error = ""
+        self.ai_esg_text = ""
+        yield
+        try:
+            y = int(self.selected_year)
+        except (ValueError, TypeError):
+            self.ai_esg_loading = False
+            return
+        month_label = f"{y}년 전체"
+        target = self.esg_school or self.user_edu_office or "교육청"
+        rows = []
+        if self.esg_school:
+            rows = school_filter_collections(self.esg_school, y, 0)
+        prompt = build_esg_ai_prompt(
+            org_name=target,
+            org_type="학교" if self.esg_school else "교육청",
+            year=y, month_label=month_label,
+            esg_data=dict(self.esg_data), rows=rows, vendor="",
+        )
+        result = call_claude_api(prompt, "")
+        self.ai_esg_loading = False
+        if result.startswith("[ERROR]"):
+            self.ai_esg_error = result.replace("[ERROR] ", "")
+        else:
+            self.ai_esg_text = result
+
+    def download_ai_esg_pdf(self):
+        """교육청 AI ESG PDF 다운로드."""
+        from zeroda_reflex.utils.pdf_export import build_ai_esg_pdf
+        if not self.ai_esg_text:
+            return None
+        try:
+            y = int(self.selected_year)
+        except (ValueError, TypeError):
+            return None
+        target = self.esg_school or self.user_edu_office or "교육청"
+        pdf_bytes = build_ai_esg_pdf(
+            org_name=target,
+            org_type="학교" if self.esg_school else "교육청",
+            year=y, month_label=f"{y}년 전체",
+            ai_markdown=self.ai_esg_text,
+            esg_summary=dict(self.esg_data),
+            vendor="",
+        )
+        if pdf_bytes:
+            return rx.download(
+                data=pdf_bytes,
+                filename=f"AI_ESG보고서_{target}_{y}.pdf",
             )
         return None
 
