@@ -285,27 +285,32 @@ def _role_badge(role: str) -> rx.Component:
 
 def _user_row(user: dict) -> rx.Component:
     uid = user["user_id"]
-    status = user.get("approval_status", "approved")
-    is_active = str(user.get("is_active", "1"))
-    status_label, status_color = STATUS_COLORS.get(status, ("알수없음", "gray"))
 
     return rx.table.row(
         rx.table.cell(rx.text(uid, font_size="13px", font_weight="600")),
-        rx.table.cell(rx.text(user.get("name", ""), font_size="13px")),
-        rx.table.cell(_role_badge(user.get("role", ""))),
-        rx.table.cell(rx.text(user.get("vendor", ""), font_size="13px")),
-        rx.table.cell(rx.badge(status_label, color_scheme=status_color, size="1")),
+        rx.table.cell(rx.text(user["name"], font_size="13px")),
+        rx.table.cell(_role_badge(user["role"])),
+        rx.table.cell(rx.text(user["vendor"], font_size="13px")),
         rx.table.cell(
             rx.badge(
-                rx.cond(is_active == "1", "활성", "비활성"),
-                color_scheme=rx.cond(is_active == "1", "green", "gray"),
+                rx.cond(user["approval_status"] == "approved", "승인완료",
+                    rx.cond(user["approval_status"] == "pending", "승인대기", "반려")),
+                color_scheme=rx.cond(user["approval_status"] == "approved", "green",
+                    rx.cond(user["approval_status"] == "pending", "orange", "red")),
+                size="1",
+            ),
+        ),
+        rx.table.cell(
+            rx.badge(
+                rx.cond(user["is_active"] == 1, "활성", "비활성"),
+                color_scheme=rx.cond(user["is_active"] == 1, "green", "gray"),
                 size="1",
             ),
         ),
         rx.table.cell(
             rx.hstack(
                 rx.cond(
-                    status == "pending",
+                    user["approval_status"] == "pending",
                     rx.hstack(
                         rx.cond(
                             user["_school_in_db"] == False,
@@ -319,9 +324,10 @@ def _user_row(user: dict) -> rx.Component:
                                    on_click=AdminState.reject_user(uid)),
                         spacing="1",
                     ),
+                    rx.fragment(),
                 ),
                 rx.button(
-                    rx.cond(is_active == "1", "비활성화", "활성화"),
+                    rx.cond(user["is_active"] == 1, "비활성화", "활성화"),
                     size="1", variant="outline",
                     on_click=AdminState.toggle_user_active(uid),
                 ),
