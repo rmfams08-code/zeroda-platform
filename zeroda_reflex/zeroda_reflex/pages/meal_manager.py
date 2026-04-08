@@ -208,13 +208,104 @@ def _ym_filter() -> rx.Component:
 
 
 # ══════════════════════════════════════════
-#  탭1: 식단등록
+#  탭1: 식단등록 (업로드 삭제 + 일별 아코디언)
 # ══════════════════════════════════════════
+
+def _day_accordion_item(r) -> rx.Component:
+    """일별 식단 카드 — 클릭 시 펼침/접힘."""
+    is_open = r["meal_date"] == MealState.expanded_date
+    return rx.box(
+        # 헤더 (항상 표시, 클릭 가능)
+        rx.hstack(
+            rx.cond(
+                is_open,
+                rx.icon("chevron_down", size=14, color="#3b82f6"),
+                rx.icon("chevron_right", size=14, color="#64748b"),
+            ),
+            rx.text(r["meal_date"], font_size="13px", font_weight="600", color="#1e293b"),
+            rx.text(
+                r["menu_items"],
+                font_size="12px",
+                color="#64748b",
+                overflow="hidden",
+                white_space="nowrap",
+                text_overflow="ellipsis",
+                flex="1",
+            ),
+            rx.spacer(),
+            rx.hstack(
+                rx.icon("utensils", size=12, color="#94a3b8"),
+                rx.text(r["servings"], font_size="11px", color="#94a3b8"),
+                rx.text("명", font_size="11px", color="#94a3b8"),
+                spacing="1", align="center",
+            ),
+            on_click=MealState.toggle_day(r["meal_date"]),
+            cursor="pointer",
+            width="100%",
+            align="center",
+            spacing="2",
+            padding="10px 12px",
+            _hover={"bg": "#f1f5f9"},
+        ),
+        # 펼침 영역
+        rx.cond(
+            is_open,
+            rx.vstack(
+                rx.divider(),
+                rx.vstack(
+                    rx.hstack(
+                        rx.text("🍽 메뉴", font_size="12px", font_weight="600",
+                                color="#64748b", width="80px"),
+                        rx.text(r["menu_items"], font_size="13px", color="#1e293b"),
+                        spacing="2", align="start", width="100%",
+                    ),
+                    rx.hstack(
+                        rx.text("🔥 칼로리", font_size="12px", font_weight="600",
+                                color="#64748b", width="80px"),
+                        rx.hstack(
+                            rx.text(r["calories"], font_size="13px", color="#1e293b"),
+                            rx.text("kcal", font_size="12px", color="#64748b"),
+                            spacing="1",
+                        ),
+                        spacing="2", align="center", width="100%",
+                    ),
+                    rx.hstack(
+                        rx.text("👥 배식", font_size="12px", font_weight="600",
+                                color="#64748b", width="80px"),
+                        rx.hstack(
+                            rx.text(r["servings"], font_size="13px", color="#1e293b"),
+                            rx.text("명", font_size="12px", color="#64748b"),
+                            spacing="1",
+                        ),
+                        spacing="2", align="center", width="100%",
+                    ),
+                    spacing="2", width="100%", padding="10px 12px",
+                ),
+                rx.hstack(
+                    rx.spacer(),
+                    rx.button(
+                        rx.icon("trash_2", size=12), "삭제",
+                        size="1", variant="outline", color_scheme="red",
+                        on_click=MealState.delete_menu(r["meal_date"]),
+                        disabled=~AuthState.is_user_active,
+                    ),
+                    width="100%", padding="0 12px 10px 12px",
+                ),
+                spacing="0", width="100%", bg="#f8fafc",
+            ),
+            rx.fragment(),
+        ),
+        border="1px solid #e2e8f0",
+        border_radius="8px",
+        width="100%",
+        overflow="hidden",
+    )
+
 
 def _menu_tab() -> rx.Component:
     return rx.vstack(
         _header("calendar", "식단 등록"),
-        # 급식식단 갱신 버튼
+        # ── 급식식단 갱신 버튼 (유지) ──
         rx.hstack(
             rx.button(
                 rx.icon("refresh_cw", size=14),
@@ -228,9 +319,9 @@ def _menu_tab() -> rx.Component:
             spacing="2", justify="end", width="100%",
         ),
         _ym_filter(),
-        # 수정1: 달력형 식단 보기
+        # ── 달력형 식단 보기 (일별 시각화) ──
         _calendar_view(),
-        # 메시지
+        # ── 메시지 ──
         rx.cond(
             MealState.has_msg,
             rx.callout(
@@ -239,7 +330,7 @@ def _menu_tab() -> rx.Component:
                 color_scheme=rx.cond(MealState.msg_ok, "green", "red"),
                 size="1"),
         ),
-        # 등록 폼
+        # ── 식단 입력 폼 ──
         _card(
             rx.vstack(
                 rx.text("식단 입력", font_size="14px", font_weight="600"),
@@ -266,7 +357,7 @@ def _menu_tab() -> rx.Component:
                               placeholder="잡곡밥, 된장찌개, 돈까스, 배추김치, 우유", size="2",
                               width="100%"),
                     spacing="1", width="100%"),
-                # 수정1: 영양정보 입력 (선택)
+                # 영양정보 입력 (선택) — accordion 유지
                 rx.accordion.root(
                     rx.accordion.item(
                         rx.accordion.header(
@@ -306,127 +397,22 @@ def _menu_tab() -> rx.Component:
                            color_scheme="blue", size="2", on_click=MealState.save_menu,
                            disabled=~AuthState.is_user_active),
                 spacing="3", width="100%")),
-        # ── CSV/Excel 일괄 업로드 (Phase 4) ──
-        _card(
-            rx.vstack(
-                rx.text("식단 일괄 업로드", font_size="14px", font_weight="600"),
-                rx.text(
-                    "CSV 또는 Excel 파일로 식단을 한번에 등록합니다. "
-                    "필수 컬럼: 날짜, 메뉴 | 선택 컬럼: 칼로리, 배식인원",
-                    font_size="12px", color="#64748b",
-                ),
-                rx.upload(
-                    rx.vstack(
-                        rx.hstack(
-                            rx.icon("upload", size=20, color="#64748b"),
-                            rx.text("파일을 여기에 끌어놓거나 클릭하세요",
-                                    font_size="13px", color="#64748b"),
-                            align="center", spacing="2",
-                        ),
-                        rx.text("(.csv, .xlsx 지원)", font_size="11px", color="#94a3b8"),
-                        align="center", spacing="1", padding="20px",
-                    ),
-                    id="meal_upload",
-                    accept={".csv": ["text/csv"],
-                            ".xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]},
-                    max_files=1,
-                    border="2px dashed #cbd5e1",
-                    border_radius="8px",
-                    cursor="pointer",
-                    _hover={"border_color": "#3b82f6", "bg": "#f0f9ff"},
-                    width="100%",
-                ),
-                rx.hstack(
-                    rx.button(
-                        rx.icon("upload", size=14), "업로드",
-                        size="2", color_scheme="blue",
-                        on_click=MealState.handle_meal_upload(
-                            rx.upload_files(upload_id="meal_upload")
-                        ),
-                        disabled=~AuthState.is_user_active,
-                    ),
-                    rx.cond(
-                        MealState.upload_progress > 0,
-                        rx.hstack(
-                            rx.progress(value=MealState.upload_progress, width="120px"),
-                            rx.text(MealState.upload_progress.to(str) + "%",
-                                    font_size="12px", color="#64748b"),
-                            spacing="2", align="center",
-                        ),
-                    ),
-                    spacing="3", align="center",
-                ),
-                spacing="3", width="100%",
-            ),
-        ),
-        # ── 수정2: NEIS 엑셀 업로드 ──
-        _card(
-            rx.vstack(
-                rx.text("📂 NEIS 엑셀 업로드", font_size="14px", font_weight="600"),
-                rx.text(
-                    "NEIS에서 내려받은 급식식단 엑셀 파일을 업로드하면 자동 파싱됩니다. "
-                    "헤더에 '급식일자', '요리명' 컬럼이 있어야 합니다.",
-                    font_size="12px", color="#64748b",
-                ),
-                rx.upload(
-                    rx.vstack(
-                        rx.hstack(
-                            rx.icon("file_spreadsheet", size=20, color="#64748b"),
-                            rx.text("NEIS 엑셀 파일을 여기에 끌어놓거나 클릭하세요",
-                                    font_size="13px", color="#64748b"),
-                            align="center", spacing="2",
-                        ),
-                        rx.text("(.xlsx 지원)", font_size="11px", color="#94a3b8"),
-                        align="center", spacing="1", padding="20px",
-                    ),
-                    id="neis_upload",
-                    accept={".xlsx": ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]},
-                    max_files=1,
-                    border="2px dashed #bfdbfe",
-                    border_radius="8px",
-                    cursor="pointer",
-                    _hover={"border_color": "#3b82f6", "bg": "#eff6ff"},
-                    width="100%",
-                ),
-                rx.button(
-                    rx.icon("upload", size=14), "NEIS 업로드",
-                    size="2", color_scheme="indigo",
-                    on_click=MealState.handle_neis_upload(
-                        rx.upload_files(upload_id="neis_upload")
-                    ),
-                    disabled=~AuthState.is_user_active,
-                ),
-                spacing="3", width="100%",
-            ),
-        ),
-        # 등록된 식단 목록
+        # ── 일별 식단 (아코디언, 등록된 식단 테이블 대체) ──
         _card(
             rx.vstack(
                 rx.hstack(
-                    rx.text("등록된 식단", font_size="14px", font_weight="600"),
+                    rx.text("일별 식단", font_size="14px", font_weight="600"),
                     rx.badge(MealState.menu_count, color_scheme="blue", size="1"),
-                    spacing="2", align="center"),
+                    rx.spacer(),
+                    rx.text("행을 클릭하면 상세가 펼쳐집니다",
+                            font_size="11px", color="#94a3b8"),
+                    spacing="2", align="center", width="100%"),
                 rx.cond(
                     MealState.has_menus,
-                    rx.table.root(
-                        rx.table.header(
-                            rx.table.row(
-                                _col("날짜"), _col("메뉴"), _col("칼로리"),
-                                _col("배식인원"), _col("관리"))),
-                        rx.table.body(
-                            rx.foreach(
-                                MealState.menu_rows,
-                                lambda r: rx.table.row(
-                                    _c(r["meal_date"]),
-                                    _c(r["menu_items"], max_width="300px", overflow="hidden"),
-                                    _c(r["calories"]),
-                                    _c(r["servings"]),
-                                    rx.table.cell(
-                                        rx.button("삭제", size="1", variant="outline",
-                                                   color_scheme="red",
-                                                   on_click=MealState.delete_menu(r["meal_date"]),
-                                                   disabled=~AuthState.is_user_active))))),
-                        width="100%"),
+                    rx.vstack(
+                        rx.foreach(MealState.menu_rows, _day_accordion_item),
+                        spacing="2", width="100%",
+                    ),
                     rx.text("등록된 식단이 없습니다.", font_size="13px", color="#94a3b8",
                              padding="20px", text_align="center")),
                 spacing="3", width="100%")),
@@ -1192,42 +1178,6 @@ def _ai_tab() -> rx.Component:
 
 
 # ══════════════════════════════════════════
-#  탭4: 수거현황
-# ══════════════════════════════════════════
-
-def _collection_tab() -> rx.Component:
-    return rx.vstack(
-        _header("truck", "수거 현황"),
-        _ym_filter(),
-        _card(
-            rx.cond(
-                MealState.has_collection,
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            _col("수거일"), _col("품목"), _col("중량(kg)"),
-                            _col("기사"), _col("업체"), _col("상태"))),
-                    rx.table.body(
-                        rx.foreach(MealState.collection_rows,
-                                    lambda r: rx.table.row(
-                                        _c(r["collect_date"]),
-                                        _c(r["item_type"]),
-                                        _c(r["weight"], font_weight="600"),
-                                        _c(r["driver"]),
-                                        _c(r["vendor"]),
-                                        rx.table.cell(
-                                            rx.badge(r["status"],
-                                                      color_scheme=rx.cond(
-                                                          r["status"] == "confirmed", "green",
-                                                          rx.cond(r["status"] == "submitted", "blue", "gray")),
-                                                      size="1"))))),
-                    width="100%"),
-                rx.text("해당 기간 수거 데이터가 없습니다.", font_size="13px", color="#94a3b8",
-                         padding="20px", text_align="center"))),
-        spacing="4", width="100%")
-
-
-# ══════════════════════════════════════════
 #  탭5: 정산확인
 # ══════════════════════════════════════════
 
@@ -1324,7 +1274,6 @@ def _tab_content() -> rx.Component:
         rx.cond(MealState.active_tab == "식단등록", _menu_tab()),
         rx.cond(MealState.active_tab == "스마트잔반분석", _smart_tab()),
         rx.cond(MealState.active_tab == "AI잔반분석", _ai_tab()),
-        rx.cond(MealState.active_tab == "수거현황", _collection_tab()),
         rx.cond(MealState.active_tab == "정산확인", _settle_tab()),
         rx.cond(MealState.active_tab == "ESG보고서", _esg_tab()),
         width="100%")

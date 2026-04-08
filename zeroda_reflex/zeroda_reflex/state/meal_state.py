@@ -22,7 +22,7 @@ from zeroda_reflex.utils.database import (
 
 
 # ── 메뉴 목록 ──
-MEAL_TABS = ["식단등록", "스마트잔반분석", "AI잔반분석", "수거현황", "정산확인", "ESG보고서"]
+MEAL_TABS = ["식단등록", "스마트잔반분석", "AI잔반분석", "정산확인", "ESG보고서"]
 
 
 class MealState(AuthState):
@@ -77,11 +77,6 @@ class MealState(AuthState):
     ai_daily_loading: bool = False
 
     # ══════════════════════════════
-    #  탭4: 수거현황
-    # ══════════════════════════════
-    collection_rows: list[dict] = []
-
-    # ══════════════════════════════
     #  탭5: 정산확인
     # ══════════════════════════════
     settle_data: dict = {}
@@ -105,6 +100,7 @@ class MealState(AuthState):
     # 평탄화 달력: 각 셀 dict에 row_end="1" 이면 주(週) 마지막 셀
     calendar_cells: list[dict] = []
     calendar_open: bool = True   # 달력 섹션 접기/펴기
+    expanded_date: str = ""  # 일별 식단 펼침 (한 번에 한 날짜만)
 
     # ══════════════════════════════
     #  수정3: 잔반 트렌드
@@ -172,10 +168,6 @@ class MealState(AuthState):
             return True
         import os
         return bool(os.environ.get("ANTHROPIC_API_KEY", ""))
-
-    @rx.var
-    def has_collection(self) -> bool:
-        return len(self.collection_rows) > 0
 
     @rx.var
     def has_settle(self) -> bool:
@@ -461,6 +453,13 @@ class MealState(AuthState):
         """달력 섹션 접기/펴기."""
         self.calendar_open = not self.calendar_open
 
+    def toggle_day(self, date: str):
+        """일별 식단 펼치기/접기 — 같은 날짜 클릭 시 접힘, 다른 날짜 클릭 시 교체."""
+        if self.expanded_date == date:
+            self.expanded_date = ""
+        else:
+            self.expanded_date = date
+
     def set_active_tab(self, tab: str):
         self.active_tab = tab
         self.msg = ""
@@ -485,8 +484,6 @@ class MealState(AuthState):
             self.load_analysis()
         elif tab == "AI잔반분석":
             self.load_ai_analysis()
-        elif tab == "수거현황":
-            self.load_collections()
         elif tab == "정산확인":
             self.load_settlement()
         elif tab == "ESG보고서":
@@ -583,157 +580,8 @@ class MealState(AuthState):
             self.msg = "삭제 실패"
             self.msg_ok = False
 
-    # ──────────────────────────────
-    #  식단 CSV/Excel 일괄 업로드
-    # ──────────────────────────────
-    upload_progress: int = 0  # 업로드 진행률 (0~100)
-
-    async def handle_meal_upload(self, files: list[rx.UploadFile]):
-        """CSV 또는 Excel 파일로 식단 일괄 등록.
-        필수 컬럼: 날짜, 메뉴  |  선택 컬럼: 칼로리, 배식인원
-        """
-        import json as _json
-        if not files:
-            self.msg = "파일을 선택하세요."
-            self.msg_ok = False
-            return
-
-        file = files[0]
-        fname = file.filename.lower() if file.filename else ""
-
-        # ── 파일 읽기 ──
-        try:
-            raw = await file.read()
-        except Exception as e:
-            logger.warning(f"파일 읽기 실패: {e}")
-            self.msg = "파일 읽기 실패"
-            self.msg_ok = False
-            return
-
-        rows: list[dict] = []
-
-        # ── CSV 파싱 ──
-        if fname.endswith(".csv"):
-            import csv, io
-            try:
-                text = raw.decode("utf-8-sig")  # BOM 처리
-            except UnicodeDecodeError:
-                text = raw.decode("euc-kr", errors="replace")
-            reader = csv.DictReader(io.StringIO(text))
-            for r in reader:
-                rows.append(dict(r))
-
-        # ── Excel 파싱 (.xlsx / .xls) ──
-        elif fname.endswith((".xlsx", ".xls")):
-            try:
-                import openpyxl, io
-                wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
-                ws = wb.active
-                headers = [str(c.value or "").strip() for c in next(ws.iter_rows(max_row=1))]
-                for row in ws.iter_rows(min_row=2, values_only=True):
-                    d = {}
-                    for i, h in enumerate(headers):
-                        val = row[i] if i < len(row) else ""
-                        d[h] = str(val) if val is not None else ""
-                    rows.append(d)
-                wb.close()
-            except Exception as e:
-                logger.warning(f"Excel 파싱 실패: {e}")
-                self.msg = "Excel 파일 형식 오류"
-                self.msg_ok = False
-                return
-        else:
-            self.msg = "CSV 또는 Excel(.xlsx) 파일만 지원됩니다."
-            self.msg_ok = False
-            return
-
-        if not rows:
-            self.msg = "파일에 데이터가 없습니다."
-            self.msg_ok = False
-            return
-
-        # ── 컬럼명 매핑 (한글/영문 유연 매핑) ──
-        col_map = {
-            "날짜": "date", "date": "date", "meal_date": "date",
-            "메뉴": "menu", "menu": "menu", "menu_items": "menu",
-            "칼로리": "cal", "calories": "cal", "kcal": "cal",
-            "배식인원": "srv", "servings": "srv", "인원": "srv", "인원수": "srv",
-        }
-
-        def _find_col(row_keys: list[str], target: str) -> str:
-            """row의 key 중 target에 매핑되는 컬럼명 찾기"""
-            for k in row_keys:
-                if col_map.get(k.strip().lower()) == target:
-                    return k
-            return ""
-
-        sample_keys = list(rows[0].keys())
-        date_col = _find_col(sample_keys, "date")
-        menu_col = _find_col(sample_keys, "menu")
-        cal_col = _find_col(sample_keys, "cal")
-        srv_col = _find_col(sample_keys, "srv")
-
-        if not date_col or not menu_col:
-            self.msg = "필수 컬럼 누락: '날짜'와 '메뉴' 컬럼이 필요합니다."
-            self.msg_ok = False
-            return
-
-        # ── 행별 저장 ──
-        ok_count = 0
-        fail_count = 0
-        total = len(rows)
-
-        for idx, r in enumerate(rows):
-            date_val = str(r.get(date_col, "")).strip()
-            menu_val = str(r.get(menu_col, "")).strip()
-
-            # 빈 행 스킵
-            if not date_val or not menu_val:
-                fail_count += 1
-                continue
-
-            # 날짜 형식 정리 (YYYY-MM-DD)
-            date_val = date_val[:10]
-
-            # 칼로리/인원 파싱
-            cal = safe_int(r.get(cal_col, "0")) if cal_col else 0
-            srv = safe_int(r.get(srv_col, "0")) if srv_col else 0
-
-            # 범위 검증
-            cal = max(0, min(cal, 5000))
-            srv = max(0, min(srv, 10000))
-
-            # 메뉴를 JSON 배열로 변환
-            menu_list = [m.strip() for m in menu_val.split(",") if m.strip()]
-            menu_json = _json.dumps(menu_list, ensure_ascii=False)
-
-            ok = meal_save_menu(
-                self.site_name, date_val, "중식",
-                menu_json, cal, srv,
-            )
-            if ok:
-                ok_count += 1
-            else:
-                fail_count += 1
-
-            # 진행률 업데이트
-            self.upload_progress = int((idx + 1) / total * 100)
-            yield  # Reflex에서 중간 상태 업데이트
-
-        # ── 결과 메시지 ──
-        self.upload_progress = 0
-        if fail_count == 0:
-            self.msg = f"총 {ok_count}건 식단 일괄 등록 완료"
-            self.msg_ok = True
-        else:
-            self.msg = f"완료: {ok_count}건 성공, {fail_count}건 실패"
-            self.msg_ok = ok_count > 0
-
-        # 목록 새로고침
-        self.load_menus()
-
     # ══════════════════════════════
-    #  수정2: NEIS 엑셀 업로드 파싱
+    #  NEIS 엑셀 파서 헬퍼
     # ══════════════════════════════
 
     NUTRITION_KEYS = ["에너지(kcal)", "탄수화물(g)", "단백질(g)", "지방(g)",
@@ -784,141 +632,6 @@ class MealState(AuthState):
             except (ValueError, TypeError):
                 return 0
         return 0
-
-    async def handle_neis_upload(self, files: list[rx.UploadFile]):
-        """NEIS 엑셀 파일 업로드 파싱 — 급식일자/요리명 컬럼 자동 감지"""
-        import json as _json
-        import re as _re
-        if not files:
-            self.msg = "파일을 선택하세요."
-            self.msg_ok = False
-            return
-        file = files[0]
-        fname = file.filename.lower() if file.filename else ""
-        if not fname.endswith((".xlsx", ".xls")):
-            self.msg = "NEIS 엑셀 파일(.xlsx)만 지원합니다."
-            self.msg_ok = False
-            return
-        try:
-            raw = await file.read()
-        except Exception as e:
-            logger.warning(f"NEIS 파일 읽기 실패: {e}")
-            self.msg = "파일 읽기 실패"
-            self.msg_ok = False
-            return
-
-        try:
-            import openpyxl, io as _io
-            wb = openpyxl.load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
-            ws = wb.active
-            # 헤더 행 찾기 (급식일자, 요리명 컬럼 검색)
-            header_row_idx = None
-            headers: list = []
-            for row_idx, row in enumerate(ws.iter_rows(max_row=20, values_only=True), start=1):
-                cells = [str(c or "").strip() for c in row]
-                if any("급식일자" in c or "날짜" in c for c in cells) and \
-                   any("요리명" in c or "식단" in c or "메뉴" in c for c in cells):
-                    header_row_idx = row_idx
-                    headers = cells
-                    break
-            if header_row_idx is None:
-                self.msg = "NEIS 형식 헤더를 찾지 못했습니다. '급식일자', '요리명' 컬럼이 필요합니다."
-                self.msg_ok = False
-                wb.close()
-                return
-
-            # 컬럼 인덱스 매핑
-            def _col_idx(keywords: list) -> int:
-                for kw in keywords:
-                    for i, h in enumerate(headers):
-                        if kw in h:
-                            return i
-                return -1
-
-            date_col = _col_idx(["급식일자", "날짜"])
-            menu_col = _col_idx(["요리명", "식단", "메뉴"])
-            cal_col = _col_idx(["에너지", "열량", "칼로리", "kcal"])
-            nutrition_cols: dict = {}
-            for nk in self.NUTRITION_KEYS:
-                idx = _col_idx([nk.split("(")[0]])
-                if idx >= 0:
-                    nutrition_cols[nk] = idx
-
-            if date_col < 0 or menu_col < 0:
-                self.msg = "급식일자 또는 요리명 컬럼을 찾지 못했습니다."
-                self.msg_ok = False
-                wb.close()
-                return
-
-            # 기본 학생수 조회
-            default_srv = meal_get_school_student_count(self.site_name)
-
-            ok_count = 0
-            fail_count = 0
-            for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
-                cells = list(row)
-                date_raw = str(cells[date_col] if date_col < len(cells) else "").strip()
-                menu_raw = str(cells[menu_col] if menu_col < len(cells) else "").strip()
-                if not date_raw or not menu_raw or date_raw in ("None", ""):
-                    continue
-                # 날짜 정규화 (YYYYMMDD / YYYY-MM-DD / YYYY.MM.DD)
-                date_clean = _re.sub(r"[.\-/]", "", date_raw)
-                if len(date_clean) == 8 and date_clean.isdigit():
-                    date_str = f"{date_clean[:4]}-{date_clean[4:6]}-{date_clean[6:8]}"
-                else:
-                    # 이미 YYYY-MM-DD 형태이거나 파싱 불가
-                    date_str = date_raw[:10]
-                # 메뉴 파싱
-                menu_list = self._parse_menu_items(menu_raw)
-                if not menu_list:
-                    fail_count += 1
-                    continue
-                menu_json = _json.dumps(menu_list, ensure_ascii=False)
-                # 칼로리
-                cal_raw = str(cells[cal_col] if cal_col >= 0 and cal_col < len(cells) else "").strip()
-                cal = self._parse_calories(cal_raw)
-                cal = max(0, min(cal, 5000))
-                # 영양정보
-                nutrition: dict = {}
-                for nk, ni in nutrition_cols.items():
-                    if ni < len(cells):
-                        nutrition[nk] = str(cells[ni] or "")
-                nutrition_json = _json.dumps(nutrition, ensure_ascii=False)
-                # 배식인원 (기본값 적용)
-                srv = default_srv if default_srv > 0 else 0
-                ok = meal_save_menu(
-                    self.site_name, date_str, "중식",
-                    menu_json, cal, srv, nutrition_json,
-                )
-                if ok:
-                    ok_count += 1
-                else:
-                    fail_count += 1
-            wb.close()
-        except Exception as e:
-            logger.warning(f"NEIS 파싱 오류: {e}")
-            self.msg = f"NEIS 파싱 오류: {e}"
-            self.msg_ok = False
-            return
-
-        if fail_count == 0:
-            self.msg = f"NEIS 식단 {ok_count}건 등록 완료"
-            self.msg_ok = True
-        else:
-            self.msg = f"완료: {ok_count}건 성공, {fail_count}건 실패"
-            self.msg_ok = ok_count > 0
-        # 수정2: 수거일정 초안 생성
-        if ok_count > 0:
-            saved_dates = [
-                str(r.get(date_col, "")).strip()[:10]
-                for r in rows
-                if str(r.get(date_col, "")).strip()
-            ]
-            draft_n = save_meal_schedule_drafts(self.site_name, saved_dates)
-            if draft_n > 0:
-                self.msg += f" (수거일정 초안 {draft_n}건 생성)"
-        self.load_menus()
-        self.load_meal_calendar()
 
     # ══════════════════════════════
     #  탭2: 스마트잔반분석
@@ -1259,18 +972,6 @@ class MealState(AuthState):
                 filename=f"AI월말명세서_{self.site_name}_{y}-{str(m).zfill(2)}.pdf",
             )
         return None
-
-    # ══════════════════════════════
-    #  탭4: 수거현황
-    # ══════════════════════════════
-
-    def load_collections(self):
-        try:
-            y = int(self.selected_year)
-            m = int(self.selected_month)
-        except (ValueError, TypeError):
-            return
-        self.collection_rows = school_filter_collections(self.site_name, y, m)
 
     # ══════════════════════════════
     #  탭5: 정산확인
