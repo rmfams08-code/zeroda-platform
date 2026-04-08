@@ -361,25 +361,14 @@ def _carbon_tab() -> rx.Component:
 
 def _esg_tab() -> rx.Component:
     return rx.vstack(
-        # ── 헤더 + PDF 다운로드 (Phase 5) ──
-        rx.hstack(
-            _section_header("file_text", "ESG 종합 보고서"),
-            rx.spacer(),
-            rx.button(
-                rx.icon("file_text", size=14), "PDF",
-                size="1", variant="outline", color_scheme="red",
-                on_click=EduState.download_esg_pdf,
-                disabled=~AuthState.is_user_active,
-            ),
-            width="100%", align="center",
-        ),
+        _section_header("leaf", "ESG 종합 보고서 (관할 학교 통합)"),
         rx.hstack(
             rx.select(
                 EduState.school_name_options,
                 value=EduState.esg_school,
                 on_change=EduState.set_esg_school,
-                placeholder="학교 선택",
-                size="2", width="200px",
+                placeholder="학교 선택 (미선택 시 관할 통합)",
+                size="2", width="220px",
             ),
             rx.select(
                 get_year_options(),
@@ -419,6 +408,89 @@ def _esg_tab() -> rx.Component:
                         rx.text("나무 환산: 21.77 kgCO₂/그루 (소나무 기준)",
                                  font_size="12px", color="#64748b"),
                         spacing="1", width="100%",
+                    ),
+                ),
+                # ── 카드1: 기본 ESG 보고서 ──
+                _card_box(
+                    rx.vstack(
+                        rx.hstack(
+                            _section_header("file_text", "📊 기본 ESG 보고서 (관할 학교 통합)"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.icon("download", size=14), "기본 PDF 다운로드",
+                                size="2", color_scheme="blue", variant="solid",
+                                on_click=EduState.download_esg_pdf,
+                                disabled=~AuthState.is_user_active,
+                            ),
+                            width="100%", align="center",
+                        ),
+                        rx.text(
+                            "학교 미선택 시 관할 전체 통합 보고서, 학교 선택 시 해당 학교 단건 보고서.",
+                            font_size="12px", color="#64748b",
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                ),
+                # ── 카드2: AI ESG 보고서 ──
+                _card_box(
+                    rx.vstack(
+                        rx.hstack(
+                            _section_header("sparkles", "🤖 AI ESG 보고서"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.cond(
+                                    EduState.ai_esg_loading,
+                                    rx.spinner(size="1"),
+                                    rx.icon("wand_2", size=14),
+                                ),
+                                rx.cond(
+                                    EduState.ai_esg_loading,
+                                    rx.text("작성 중..."),
+                                    rx.text("AI 보고서 작성"),
+                                ),
+                                size="2", color_scheme="violet", variant="solid",
+                                on_click=EduState.run_ai_esg,
+                                disabled=EduState.ai_esg_loading | ~AuthState.is_user_active,
+                            ),
+                            rx.cond(
+                                EduState.ai_esg_text != "",
+                                rx.button(
+                                    rx.icon("download", size=14), "AI PDF 다운로드",
+                                    size="2", color_scheme="violet", variant="outline",
+                                    on_click=EduState.download_ai_esg_pdf,
+                                ),
+                                rx.fragment(),
+                            ),
+                            width="100%", align="center", spacing="2",
+                        ),
+                        rx.text(
+                            "Claude AI 가 수거 데이터 + 탄소 감축 수치를 해석해 5개 섹션 보고서로 자동 작성합니다. "
+                            "선택 학교 미선택 시 교육청 관할 통합 기준으로 작성됩니다.",
+                            font_size="12px", color="#64748b",
+                        ),
+                        rx.cond(
+                            EduState.ai_esg_error != "",
+                            rx.callout(
+                                EduState.ai_esg_error,
+                                icon="circle_alert", color_scheme="red", size="1",
+                            ),
+                            rx.fragment(),
+                        ),
+                        rx.cond(
+                            EduState.ai_esg_text != "",
+                            rx.box(
+                                rx.markdown(EduState.ai_esg_text),
+                                bg="#fafaf9",
+                                border="1px solid #e7e5e4",
+                                border_radius="8px",
+                                padding="14px",
+                                width="100%",
+                                max_height="500px",
+                                overflow="auto",
+                            ),
+                            rx.fragment(),
+                        ),
+                        spacing="3", width="100%",
                     ),
                 ),
                 spacing="4", width="100%",
