@@ -203,23 +203,44 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
 
     font = _get_korean_font()
 
-    # ── 직인 경로 탐색 ─────────────────────
-    _base = pathlib.Path(__file__).resolve().parent.parent
-    _stamp_candidates = [
-        _base / 'assets' / 'stamp.png',
-        pathlib.Path('assets') / 'stamp.png',
-        pathlib.Path('assets/stamp.png'),
-    ]
-    _stamp_path = None
-    for _p in _stamp_candidates:
-        if _p.exists():
-            _stamp_path = str(_p)
-            break
+    # ── 직인 경로 해석 (업체별 멀티테넌트 + 레거시 폴백) ─────────────────────
+    def _resolve_stamp_path(vi: dict) -> str:
+        """업체별 직인 경로 해석.
+        우선순위:
+          1. vendor_info['stamp_path'] (절대경로, storage/stamps/ 하위만 허용)
+          2. /opt/zeroda-platform/assets/stamp.png (하영자원 레거시 폴백)
+          3. "" (직인 생략)
+        """
+        import os as _os
+        ALLOWED_ROOT = "/opt/zeroda-platform/storage/stamps/"
+        candidate = (vi or {}).get("stamp_path", "") or ""
+        if candidate:
+            try:
+                real = _os.path.realpath(candidate)
+                if real.startswith(ALLOWED_ROOT) and _os.path.isfile(real):
+                    return real
+            except Exception:
+                pass
+        legacy = "/opt/zeroda-platform/assets/stamp.png"
+        if _os.path.isfile(legacy):
+            return legacy
+        return ""
+
+    _stamp_path = _resolve_stamp_path(vendor_info)
+    stamp_img = None
+    if _stamp_path:
+        try:
+            from reportlab.lib.utils import ImageReader
+            stamp_img = ImageReader(_stamp_path)
+        except Exception as e:
+            import logging
+            logging.warning(f"직인 로드 실패 ({_stamp_path}): {e}")
+            stamp_img = None
 
     class _StampDoc(SimpleDocTemplate):
         """afterPage에서 직인을 그려서 테이블 위에 오버레이"""
         def afterPage(self):
-            if not _stamp_path or self.page != 1:
+            if self.page != 1 or stamp_img is None:
                 return
             try:
                 stamp_size = 14 * mm
@@ -228,7 +249,7 @@ def generate_statement_pdf(vendor: str, school_name: str, year: int, month: int,
                 y = A4[1] - 15*mm - 23*mm - 16*mm - stamp_size + 3*mm
                 self.canv.saveState()
                 self.canv.setFillAlpha(0.85)
-                self.canv.drawImage(_stamp_path, x, y,
+                self.canv.drawImage(stamp_img, x, y,
                                     width=stamp_size, height=stamp_size,
                                     mask='auto', preserveAspectRatio=True)
                 self.canv.restoreState()
