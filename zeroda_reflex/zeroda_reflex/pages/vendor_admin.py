@@ -3670,23 +3670,32 @@ def _settings_info_panel() -> rx.Component:
                     ),
                 ),
                 rx.upload(
-                    rx.vstack(
-                        rx.icon("upload", size=20, color="#64748b"),
-                        rx.text("클릭 또는 드래그하여 직인 이미지 업로드",
-                                font_size="12px", color="#64748b"),
-                        align="center", spacing="2",
+                    rx.button(
+                        rx.icon("upload", size=16),
+                        "직인 이미지 선택 (PNG/JPG)",
+                        size="2",
+                        variant="soft",
+                        color_scheme="gray",
+                        width="100%",
                     ),
                     id="stamp_upload_vendor",
-                    accept={"image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"]},
+                    accept={"image/*": [".png", ".jpg", ".jpeg"]},
                     max_files=1,
-                    on_drop=VendorState.handle_stamp_upload(
-                        rx.upload_files(upload_id="stamp_upload_vendor")
-                    ),
+                    multiple=False,
                     border="2px dashed #cbd5e1",
                     border_radius="8px",
-                    padding="20px",
+                    padding="8px",
                     width="100%",
-                    cursor="pointer",
+                ),
+                rx.button(
+                    rx.icon("upload", size=14),
+                    "직인 등록",
+                    on_click=VendorState.handle_stamp_upload(
+                        rx.upload_files(upload_id="stamp_upload_vendor")
+                    ),
+                    size="2",
+                    color_scheme="blue",
+                    width="100%",
                 ),
                 rx.cond(
                     VendorState.stamp_upload_loading,
