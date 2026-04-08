@@ -34,6 +34,8 @@ class VendorState(AuthState):
     # ── [수거데이터] 탭 ──
     col_school_filter: str = "전체"
     col_item_filter: str = "전체"        # P2-5: 품목 4단 필터
+    col_day_filter: str = "전체"
+    col_keyword: str = ""
     col_active_subtab: str = "수거내역"
 
     # ── [수거데이터] 수거입력 폼 ──
@@ -377,6 +379,18 @@ class VendorState(AuthState):
             result = [r for r in result if r.get("school_name") == self.col_school_filter]
         if self.col_item_filter != "전체":
             result = [r for r in result if r.get("item_type") == self.col_item_filter]
+        if self.col_day_filter != "전체":
+            day_str = self.col_day_filter.zfill(2)
+            result = [r for r in result if str(r.get("collect_date", ""))[-2:] == day_str]
+        if self.col_keyword:
+            kw = self.col_keyword.strip().lower()
+            result = [
+                r for r in result
+                if kw in str(r.get("school_name", "")).lower()
+                or kw in str(r.get("driver", "")).lower()
+                or kw in str(r.get("item_type", "")).lower()
+                or kw in str(r.get("status", "")).lower()
+            ]
         return result
 
     @rx.var
@@ -669,6 +683,8 @@ class VendorState(AuthState):
 
     def set_selected_year(self, year: str):
         self.selected_year = year
+        self.col_day_filter = "전체"
+        self.col_keyword = ""
         self.load_dashboard_data()
         self._compute_settlement()
         self.load_settlement()
@@ -676,6 +692,8 @@ class VendorState(AuthState):
 
     def set_selected_month(self, month: str):
         self.selected_month = month
+        self.col_day_filter = "전체"
+        self.col_keyword = ""
         self.load_dashboard_data()
         self._compute_settlement()
         self.load_settlement()
@@ -687,6 +705,12 @@ class VendorState(AuthState):
     def set_col_item_filter(self, v: str):
         """P2-5: 품목 필터"""
         self.col_item_filter = v
+
+    def set_col_day_filter(self, v: str):
+        self.col_day_filter = v
+
+    def set_col_keyword(self, v: str):
+        self.col_keyword = v
 
     def set_form_school_search(self, v: str):
         """P2-6: 수거입력 거래처 검색어"""
