@@ -87,37 +87,66 @@ def _calendar_cell(cell: dict) -> rx.Component:
 def _calendar_view() -> rx.Component:
     return _card(
         rx.vstack(
+            # ── 헤더 (클릭하면 접기/펴기) ──
             rx.hstack(
-                _header("calendar", "달력형 식단 보기"),
                 rx.button(
-                    rx.icon("refresh_cw", size=13), "새로고침",
-                    size="1", variant="ghost",
-                    on_click=MealState.load_meal_calendar,
+                    rx.cond(
+                        MealState.calendar_open,
+                        rx.icon("chevron_down", size=14),
+                        rx.icon("chevron_right", size=14),
+                    ),
+                    _header("calendar", "달력형 식단 보기"),
+                    variant="ghost",
+                    size="1",
+                    on_click=MealState.toggle_calendar_open,
+                    padding="0",
+                    color="#1e293b",
+                ),
+                rx.spacer(),
+                rx.cond(
+                    MealState.calendar_open,
+                    rx.hstack(
+                        rx.text(
+                            "✅식단  ❌미등록  🟢수거완료  ⚪수거없음",
+                            font_size="10px", color="#94a3b8",
+                        ),
+                        rx.button(
+                            rx.icon("refresh_cw", size=13),
+                            size="1", variant="ghost",
+                            on_click=MealState.load_meal_calendar,
+                        ),
+                        spacing="2", align="center",
+                    ),
+                    rx.fragment(),
                 ),
                 width="100%", align="center",
             ),
-            rx.text(
-                "✅ 식단등록  ❌ 미등록  🟢 수거완료  ⚪ 수거없음",
-                font_size="11px", color="#64748b",
-            ),
-            # 요일 헤더 (7칸 고정)
-            rx.hstack(
-                *[rx.text(h, font_size="11px", font_weight="700", color="#64748b",
-                           flex="1", text_align="center")
-                  for h in _WEEKDAY_LABELS],
-                spacing="0", width="100%",
-            ),
-            # 달력 셀 — flex-wrap으로 7열 그리드 구성
+            # ── 접힌 상태면 내용 숨김 ──
             rx.cond(
-                MealState.has_calendar,
-                rx.box(
-                    rx.foreach(MealState.calendar_cells, _calendar_cell),
-                    display="flex",
-                    flex_wrap="wrap",
-                    width="100%",
-                    gap="2px",
+                MealState.calendar_open,
+                rx.vstack(
+                    # 요일 헤더 (7칸 고정)
+                    rx.hstack(
+                        *[rx.text(h, font_size="11px", font_weight="700", color="#64748b",
+                                   flex="1", text_align="center")
+                          for h in _WEEKDAY_LABELS],
+                        spacing="0", width="100%",
+                    ),
+                    # 달력 셀 — flex-wrap으로 7열 그리드 구성
+                    rx.cond(
+                        MealState.has_calendar,
+                        rx.box(
+                            rx.foreach(MealState.calendar_cells, _calendar_cell),
+                            display="flex",
+                            flex_wrap="wrap",
+                            width="100%",
+                            gap="2px",
+                        ),
+                        rx.text("달력 데이터 없음", font_size="12px", color="#94a3b8"),
+                    ),
+                    spacing="2", width="100%",
                 ),
-                rx.text("달력 데이터 없음", font_size="12px", color="#94a3b8"),
+                rx.fragment(),
             ),
             spacing="2", width="100%",
         )
@@ -185,14 +214,15 @@ def _ym_filter() -> rx.Component:
 def _menu_tab() -> rx.Component:
     return rx.vstack(
         _header("calendar", "식단 등록"),
-        # 학사일정 갱신 버튼
+        # 급식식단 갱신 버튼
         rx.hstack(
             rx.button(
                 rx.icon("refresh_cw", size=14),
-                "학사일정 갱신",
+                "급식식단 갱신",
                 color_scheme="indigo",
                 variant="soft",
                 size="2",
+                disabled=~AuthState.is_user_active,
                 on_click=MealState.refresh_meal_dates,
             ),
             spacing="2", justify="end", width="100%",
