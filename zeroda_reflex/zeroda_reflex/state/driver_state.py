@@ -190,11 +190,27 @@ def _parse_voice_entries(
             failed.append(chunk)
             continue
 
+        # ── 2.5: 위치 지칭어 감지 + 노이즈 단어 제거 ──
+        # 긴 표현 먼저 제거(부분 치환 방지), gps_intent 플래그 세팅
+        _GPS_KWS = [
+            "여기서", "이곳에서", "이 학교", "이학교",
+            "이 거래처", "이거래처", "이 업체", "이업체",
+            "이 현장", "이현장", "이곳", "여기",
+        ]
+        _NOISE_WS = ["수거량", "수거", "킬로그램", "킬로", "키로"]
+        gps_intent = False
+        for _kw in _GPS_KWS:
+            if _kw in remaining:
+                remaining = remaining.replace(_kw, "", 1).strip()
+                gps_intent = True
+        for _nw in _NOISE_WS:
+            remaining = remaining.replace(_nw, "").strip()
+
         # ── 3. 거래처명 매칭 (섹션 2+3) ──
         name_text = remaining.strip()
 
-        # 섹션 6: 거래처명이 비어있으면 GPS fallback 플래그
-        if not name_text:
+        # 섹션 6: 거래처명이 비어있거나 위치 지칭어 발화 → GPS fallback 플래그
+        if not name_text or gps_intent:
             entries.append({
                 "date": d.strftime("%Y-%m-%d"),
                 "school": "",
@@ -909,7 +925,7 @@ class DriverState(AuthState):
                     if e.get("gps_needed") or not e.get("school"):
                         nearest = get_nearest_customer(
                             self.user_vendor, lat_f, lng_f,
-                            max_distance_m=200,
+                            max_distance_m=500,
                             schedule_names=sched_names,
                         )
                         if nearest:
