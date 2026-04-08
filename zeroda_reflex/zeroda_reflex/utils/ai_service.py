@@ -408,19 +408,66 @@ def extract_weigh_ticket(image_bytes: bytes, api_key: str = "") -> dict:
                 "gross_weight": None, "net_weight": None,
                 "vehicle_number": None, "processor_company": None}
 
-    _PROMPT = """이 이미지는 폐기물 수거 차량이 처리장에서 받은 계량표(대금표/계근표)입니다.
-아래 6개 항목을 이미지에서 추출하여 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력.
+    _PROMPT = """이 이미지는 폐기물 수거 차량이 처리장에서 발급받은 계량표(계근표/대금표/계량증명서)입니다.
+업체마다 양식·레이아웃·용어가 모두 다르므로, 단어 일치가 아닌 의미 기반으로 필드를 매핑하세요.
 
-추출 항목:
-- first_weigh_time: 1차 계근시간 (공차, 차량 진입 시각, 예: "2026-04-08 14:05", 없으면 null)
-- second_weigh_time: 2차 계근시간 (실차, 반출 후 시각, 예: "2026-04-08 14:23", 없으면 null)
-- gross_weight: 총중량 kg (숫자만, 톤 단위면 1000 곱해서 kg으로 환산, 없으면 null)
-- net_weight: 실중량 kg (총중량 - 공차중량, 숫자만, 없으면 null)
-- vehicle_number: 차량번호 (예: "12가3456", 없으면 null)
-- processor_company: 처분업체 상호명 (없으면 null)
+[STEP 1] 이미지에서 눈에 보이는 모든 레이블과 값을 자유롭게 열거하세요.
+[STEP 2] 열거한 항목을 아래 6개 필드에 매핑하여 JSON만 출력하세요. JSON 외 텍스트 절대 금지.
 
-응답 형식 예시:
-{"first_weigh_time": "2026-04-08 14:05", "second_weigh_time": "2026-04-08 14:23", "gross_weight": 7520.0, "net_weight": 3240.0, "vehicle_number": "12가3456", "processor_company": "OO자원"}"""
+=== 필드별 매핑 규칙 ===
+
+1. first_weigh_time — 1차 계근시각 (공차·진입 시각)
+   인식 키워드: "1차계량", "1차 계량시각", "진입시각", "입차시각", "IN TIME", "공차계량시각", "1차중량시각"
+   → 없으면 null. 시각만 있고 날짜 없으면 계량일자와 조합하여 "YYYY-MM-DD HH:MM:SS" 반환.
+
+2. second_weigh_time — 2차 계근시각 (실차·반출 시각)
+   인식 키워드: "2차계량", "2차 계량시각", "출차시각", "반출시각", "OUT TIME", "실중량계량시각", "2차중량시각"
+   → 없으면 null. 2차 시각이 1차보다 작으면(자정 초과) 날짜를 +1일 보정.
+
+3. gross_weight — 총중량 (kg, 숫자)
+   인식 키워드: "총중량", "총량", "Gross", "총무게", "입차중량", "적재중량", "전중량"
+   → t/톤 단위는 ×1000 환산. 콤마 제거. 음수/0이면 null.
+
+4. net_weight — 실중량·순중량 (kg, 숫자)
+   인식 키워드: "실중량", "Net", "실량", "반입중량", "순중량", "실적재량", "실물량", "처리량"
+   → 이미지에 명시된 값 우선. 없으면 (총중량 - 공차중량)으로 계산 가능할 때 계산. 음수/0이면 null.
+   ※ 공차(Tare/차량중량/공중량)는 이 계산에만 쓰고 출력 안 함.
+
+5. vehicle_number — 차량번호
+   인식 키워드: "차량번호", "차번", "번호판", "Plate", "차량"
+   → 한국 번호판 패턴(숫자2~3자리 + 한글1자 + 숫자4자리, 예: 80다3359) 우선 인식. 없으면 null.
+
+6. processor_company — 처분·처리 업체명
+   인식 키워드: "처리업체", "처리자", "업체명", "상호", "처리장", "수탁자", "현장명", "반입지"
+   → 없으면 null.
+
+=== 수치 정규화 규칙 ===
+- "10,800" → 10800 (콤마 제거)
+- "3.53 t" 또는 "3.53톤" → 3530 (×1000)
+- "3,530 kg" → 3530
+- 음수·0 → null
+
+=== 시각 포맷 규칙 ===
+- 항상 "YYYY-MM-DD HH:MM:SS" (예: "2026-04-09 23:51:03")
+- 날짜가 이미지에 없으면 현재 날짜 추정 금지 → null
+
+=== Few-shot 예시 ===
+
+예시 A (단순 양식):
+  이미지 내용: 계량일: 2026-04-09 / 차번: 80다3359 / 총중량: 10,800kg / 공차: 7,270kg / 실중량: 3,530kg / 1차: 23:51:03 / 2차: 00:00:37 / 처리장: 한솔환경
+  출력: {"first_weigh_time":"2026-04-09 23:51:03","second_weigh_time":"2026-04-10 00:00:37","gross_weight":10800,"net_weight":3530,"vehicle_number":"80다3359","processor_company":"한솔환경"}
+
+예시 B (영문 혼재 양식):
+  이미지 내용: Date: 2026-03-15 / Plate: 12가3456 / Gross: 8.2t / Tare: 4.1t / Net: 4.1t / IN TIME: 09:05:22 / OUT TIME: 09:18:44 / 처리자: 그린리사이클
+  출력: {"first_weigh_time":"2026-03-15 09:05:22","second_weigh_time":"2026-03-15 09:18:44","gross_weight":8200,"net_weight":4100,"vehicle_number":"12가3456","processor_company":"그린리사이클"}
+
+예시 C (복잡한 양식, 일부 필드 없음):
+  이미지 내용: 계근일자: 2026-02-20 / 차량번호: 34나5678 / 입차: 14:30:00 / 반출: 15:10:00 / 적재중량: 6,450 kg / 실적재량: 2,980 kg (업체명 없음)
+  출력: {"first_weigh_time":"2026-02-20 14:30:00","second_weigh_time":"2026-02-20 15:10:00","gross_weight":6450,"net_weight":2980,"vehicle_number":"34나5678","processor_company":null}
+
+=== 최종 출력 스키마 (반드시 준수) ===
+{"first_weigh_time":…,"second_weigh_time":…,"gross_weight":…,"net_weight":…,"vehicle_number":…,"processor_company":…}
+누락 필드는 null. JSON 이외의 텍스트·설명·마크다운 절대 출력 금지."""
 
     try:
         b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
