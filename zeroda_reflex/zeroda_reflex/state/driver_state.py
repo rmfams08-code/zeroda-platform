@@ -392,6 +392,10 @@ class DriverState(AuthState):
     photo_upload_msg: str = ""
     today_photos: list[dict] = []
 
+    # ── 섹션 접기/펼치기 ──
+    recent_expanded: bool = True
+    weighslip_expanded: bool = True
+
     # ── 계근표(처리확인) ──
     proc_weight: str = ""
     proc_location: str = ""
@@ -1373,6 +1377,14 @@ class DriverState(AuthState):
             yield rx.toast.error(f"{school} 위치 저장 실패")
 
     # ── 스쿨존 핸들러 ──
+
+    def toggle_recent_expanded(self):
+        """최근 수거 기록 섹션 접기/펼치기"""
+        self.recent_expanded = not self.recent_expanded
+
+    def toggle_weighslip_expanded(self):
+        """계근표(처리확인) 섹션 접기/펼치기"""
+        self.weighslip_expanded = not self.weighslip_expanded
 
     def toggle_schoolzone(self, value: bool):
         """스쿨존 알림 토글"""
