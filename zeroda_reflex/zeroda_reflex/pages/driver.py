@@ -682,7 +682,7 @@ def _voice_pick_candidate_row(c: dict) -> rx.Component:
             rx.text(c["name"], font_size="14px", font_weight="600", color="#1e293b"),
             rx.spacer(),
             rx.badge(
-                c["distance_m"].to(str) + "m",
+                rx.text(c["distance_m"].to(str), "m", as_="span"),
                 color_scheme="green", variant="soft", size="1",
             ),
             width="100%",
