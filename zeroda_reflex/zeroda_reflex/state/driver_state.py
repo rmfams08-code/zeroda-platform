@@ -404,6 +404,9 @@ class DriverState(AuthState):
     today_processing: list[dict] = []
 
     # ── 계근표 OCR ──
+    weighslip_image_bytes: bytes = b""      # 원본 이미지 (OCR용)
+    weighslip_preview_data_url: str = ""    # 리사이즈 썸네일 data URL
+    weighslip_image_ready: bool = False     # 사진 등록 완료 플래그
     weighslip_ocr_loading: bool = False
     weighslip_ocr_error: str = ""
     weighslip_ocr_first_time: str = ""    # 1차 계근시간
@@ -414,7 +417,6 @@ class DriverState(AuthState):
     weighslip_ocr_company: str = ""
     weighslip_photo_path: str = ""
     weighslip_ocr_done: bool = False
-    weighslip_preview_data_url: str = ""  # base64 썸네일 미리보기
 
     # ── 거래처별 수거 입력 (일정 카드 통합) ──
     # 입력값은 schedule_schools 각 아이템에 직접 포함:
@@ -1542,69 +1544,99 @@ class DriverState(AuthState):
     def today_proc_count(self) -> int:
         return len(self.today_processing)
 
-    async def handle_weighslip_upload(self, files: list[rx.UploadFile]):
-        """계량표 사진 업로드 → Claude Vision OCR → 폼 자동 채우기"""
-        import asyncio
+    async def register_weighslip_image(self, files: list[rx.UploadFile]):
+        """Step 1: 사진 등록 — 썸네일 표시 + 원본 바이트 stash"""
+        import base64
+        import io
         import os
-        import uuid
-        from zeroda_reflex.utils.ai_service import extract_weigh_ticket
 
-        print(f"[WEIGHSLIP] upload handler entered, files count={len(files) if files else 0}")
+        print(f"[WEIGHSLIP-REG] entered, files count={len(files) if files else 0}")
 
-        STAMP_DIR = "/opt/zeroda-platform/storage/weighslips"
         MAX_SIZE = 10 * 1024 * 1024
         ALLOWED_EXT = {".jpg", ".jpeg", ".png"}
 
-        self.weighslip_ocr_loading = True
         self.weighslip_ocr_error = ""
-        self.weighslip_ocr_done = False
+        self.weighslip_image_ready = False
         self.weighslip_preview_data_url = ""
         yield
 
         try:
             if not files:
                 self.weighslip_ocr_error = "선택된 파일이 없습니다. 사진 선택 후 다시 시도하세요."
-                self.weighslip_ocr_loading = False
                 return
 
             f = files[0]
             raw = await f.read()
-            print(f"[WEIGHSLIP] file read OK, size={len(raw)}, name={f.filename}")
-
-            # 썸네일 data URL 생성 (OCR 중 미리보기)
-            import base64 as _b64
-            _ext = os.path.splitext(f.filename or "")[1].lower()
-            _mime = "image/png" if _ext == ".png" else "image/jpeg"
-            self.weighslip_preview_data_url = (
-                "data:" + _mime + ";base64," + _b64.b64encode(raw).decode()
-            )
-            yield
+            print(f"[WEIGHSLIP-REG] file read OK, size={len(raw)}, name={f.filename}")
 
             if len(raw) > MAX_SIZE:
                 self.weighslip_ocr_error = "파일 크기 10MB 초과."
-                self.weighslip_ocr_loading = False
                 return
 
             ext = os.path.splitext(f.filename or "")[1].lower()
             if ext not in ALLOWED_EXT:
                 self.weighslip_ocr_error = "JPG/PNG 파일만 가능합니다."
-                self.weighslip_ocr_loading = False
                 return
 
-            # 이미지 저장
+            # 원본 바이트 stash (OCR에서 사용)
+            self.weighslip_image_bytes = raw
+
+            # PIL로 400px 썸네일 리사이즈 → base64 data URL
+            try:
+                from PIL import Image
+                img = Image.open(io.BytesIO(raw))
+                img.thumbnail((400, 400))
+                buf = io.BytesIO()
+                img.convert("RGB").save(buf, format="JPEG", quality=70)
+                thumb = buf.getvalue()
+            except Exception:
+                # PIL 실패 시 원본 그대로 (크기 제한 있는 경우)
+                thumb = raw
+
+            encoded = base64.b64encode(thumb).decode()
+            self.weighslip_preview_data_url = "data:image/jpeg;base64," + encoded
+            self.weighslip_image_ready = True
+            print(f"[WEIGHSLIP-REG] thumbnail ready, thumb_size={len(thumb)}")
+
+        except Exception as e:
+            print(f"[WEIGHSLIP-REG] exception: {e}")
+            self.weighslip_ocr_error = f"사진 등록 오류: {e}"
+
+    async def run_weighslip_ocr(self):
+        """Step 2: OCR 실행 — stash된 원본 바이트로 Claude Vision 호출"""
+        import asyncio
+        import os
+        import uuid
+        from zeroda_reflex.utils.ai_service import extract_weigh_ticket
+
+        print("[WEIGHSLIP-OCR] triggered")
+
+        if not self.weighslip_image_bytes:
+            self.weighslip_ocr_error = "등록된 사진이 없습니다. 먼저 사진을 등록하세요."
+            return
+
+        STAMP_DIR = "/opt/zeroda-platform/storage/weighslips"
+
+        self.weighslip_ocr_loading = True
+        self.weighslip_ocr_error = ""
+        self.weighslip_ocr_done = False
+        yield
+
+        try:
+            raw = self.weighslip_image_bytes
+
+            # 이미지 파일 저장
             os.makedirs(STAMP_DIR, exist_ok=True)
-            fname = f"weighslip_{uuid.uuid4().hex[:12]}{ext}"
+            fname = "weighslip_" + uuid.uuid4().hex[:12] + ".jpg"
             fpath = os.path.join(STAMP_DIR, fname)
             with open(fpath, "wb") as w:
                 w.write(raw)
             self.weighslip_photo_path = fpath
-            yield
 
-            # OCR 호출 (동기 함수 → executor로 이벤트루프 블록 방지)
-            print("[WEIGHSLIP] calling OCR...")
+            # OCR 호출 (동기 함수 → executor)
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(None, extract_weigh_ticket, raw)
-            print(f"[WEIGHSLIP] OCR result={result}")
+            print(f"[WEIGHSLIP-OCR] result={result}")
 
             if result.get("error"):
                 self.weighslip_ocr_error = result["error"]
@@ -1617,19 +1649,17 @@ class DriverState(AuthState):
                 self.weighslip_ocr_net_weight = str(int(nw)) if nw else ""
                 self.weighslip_ocr_vehicle_number = str(result.get("vehicle_number") or "")
                 self.weighslip_ocr_company = str(result.get("processor_company") or "")
-                # 실중량을 처리량 폼에 자동 채우기
                 if nw and nw > 0:
                     self.proc_weight = str(int(nw))
                 elif gw and gw > 0:
                     self.proc_weight = str(int(gw))
-                # 처분업체명 → 처리장명 자동 채우기
                 if result.get("processor_company"):
                     self.proc_location = str(result["processor_company"])
                 self.weighslip_ocr_done = True
 
         except Exception as e:
-            print(f"[WEIGHSLIP] exception: {e}")
-            self.weighslip_ocr_error = f"업로드 오류: {e}"
+            print(f"[WEIGHSLIP-OCR] exception: {e}")
+            self.weighslip_ocr_error = f"OCR 오류: {e}"
         finally:
             self.weighslip_ocr_loading = False
 
@@ -1683,7 +1713,9 @@ class DriverState(AuthState):
             self.weighslip_ocr_vehicle_number = ""
             self.weighslip_ocr_company = ""
             self.weighslip_photo_path = ""
+            self.weighslip_image_bytes = b""
             self.weighslip_preview_data_url = ""
+            self.weighslip_image_ready = False
             self.weighslip_ocr_done = False
             self._load_today_processing()
         else:

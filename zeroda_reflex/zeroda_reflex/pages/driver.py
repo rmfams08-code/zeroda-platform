@@ -1160,10 +1160,11 @@ def _processing_section() -> rx.Component:
                             font_weight="600", color="#7c3aed"),
                     spacing="2", align="center",
                 ),
+                # Step 1: 파일 선택
                 rx.upload(
                     rx.button(
                         rx.icon("camera", size=16),
-                        "📷 사진 선택 (JPG/PNG)",
+                        "📷 사진 선택/촬영 (JPG/PNG)",
                         size="2",
                         variant="soft",
                         color_scheme="violet",
@@ -1186,36 +1187,39 @@ def _processing_section() -> rx.Component:
                         font_size="11px", color="#7c3aed",
                     ),
                 ),
-                rx.cond(
-                    DriverState.weighslip_preview_data_url != "",
-                    rx.image(
-                        src=DriverState.weighslip_preview_data_url,
-                        max_width="300px",
-                        max_height="400px",
-                        border_radius="8px",
-                        border="1px solid #e5e7eb",
-                        object_fit="contain",
-                    ),
-                    rx.fragment(),
-                ),
                 rx.button(
-                    rx.icon("scan", size=14),
-                    "OCR 자동 인식",
-                    on_click=DriverState.handle_weighslip_upload(
+                    rx.icon("image", size=14),
+                    "사진 등록",
+                    on_click=DriverState.register_weighslip_image(
                         rx.upload_files(upload_id="weighslip_upload")
                     ),
-                    loading=DriverState.weighslip_ocr_loading,
-                    disabled=DriverState.weighslip_ocr_loading,
                     size="2",
-                    color_scheme="violet",
+                    color_scheme="blue",
                     width="100%",
                 ),
+                # Step 2: 등록 완료 후 썸네일 + OCR 버튼
                 rx.cond(
-                    DriverState.weighslip_ocr_loading,
-                    rx.hstack(
-                        rx.spinner(size="2"),
-                        rx.text("OCR 인식 중...", font_size="12px", color="#7c3aed"),
-                        spacing="2", align="center",
+                    DriverState.weighslip_image_ready,
+                    rx.vstack(
+                        rx.image(
+                            src=DriverState.weighslip_preview_data_url,
+                            width="100%",
+                            max_width="400px",
+                            border_radius="8px",
+                            border="1px solid #e5e7eb",
+                            object_fit="contain",
+                        ),
+                        rx.button(
+                            rx.icon("scan", size=14),
+                            "OCR 자동 인식",
+                            on_click=DriverState.run_weighslip_ocr,
+                            loading=DriverState.weighslip_ocr_loading,
+                            disabled=DriverState.weighslip_ocr_loading,
+                            size="2",
+                            color_scheme="green",
+                            width="100%",
+                        ),
+                        spacing="2", width="100%",
                     ),
                     rx.fragment(),
                 ),
