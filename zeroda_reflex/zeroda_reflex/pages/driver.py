@@ -1204,10 +1204,20 @@ def _processing_section() -> rx.Component:
                                 font_size="12px", font_weight="600", color="#374151"),
                         rx.grid(
                             rx.vstack(
-                                rx.text("처리 일시", font_size="11px", color="#64748b"),
+                                rx.text("1차 계근시간", font_size="11px", color="#64748b"),
                                 rx.input(
-                                    value=DriverState.weighslip_ocr_process_time,
-                                    on_change=DriverState.set_weighslip_ocr_process_time,
+                                    value=DriverState.weighslip_ocr_first_time,
+                                    on_change=DriverState.set_weighslip_ocr_first_time,
+                                    placeholder="예: 2026-04-08 14:05",
+                                    size="2", width="100%",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("2차 계근시간", font_size="11px", color="#64748b"),
+                                rx.input(
+                                    value=DriverState.weighslip_ocr_second_time,
+                                    on_change=DriverState.set_weighslip_ocr_second_time,
                                     placeholder="예: 2026-04-08 14:23",
                                     size="2", width="100%",
                                 ),
