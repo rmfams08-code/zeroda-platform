@@ -1,10 +1,8 @@
 # zeroda_reflex/utils/database.py
-# 기존 zeroda Streamlit 앱의 DB를 공유하는 유틸리티
-# GitHub JSON API + SQLite 이중 구조 유지
+# 기존 zeroda 앱의 DB 어댑터 (SQLite ↔ PostgreSQL 듀얼 백엔드)
 
 import json
 import math
-import sqlite3
 import os
 import hashlib
 import hmac
@@ -14,8 +12,20 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── DB 경로 (서버 배포 시 환경변수로 오버라이드) ──
+# ── DB 백엔드 선택 (환경변수) ──
+DB_BACKEND = os.environ.get("ZERODA_DB_BACKEND", "sqlite").lower()
+
+# ── SQLite 경로 (백엔드=sqlite 또는 폴백용) ──
 DB_PATH = os.environ.get("ZERODA_DB_PATH", "zeroda.db")
+
+# ── PostgreSQL 연결 정보 (백엔드=postgres) ──
+PG_HOST = os.environ.get("ZERODA_PG_HOST", "")
+PG_PORT = int(os.environ.get("ZERODA_PG_PORT", "5432"))
+PG_DB = os.environ.get("ZERODA_PG_DB", "zeroda")
+PG_USER = os.environ.get("ZERODA_PG_USER", "zeroda")
+PG_PASSWORD = os.environ.get("ZERODA_PG_PASSWORD", "")
+PG_MIN_CONN = int(os.environ.get("ZERODA_PG_MIN_CONN", "2"))
+PG_MAX_CONN = int(os.environ.get("ZERODA_PG_MAX_CONN", "20"))
 
 # ══════════════════════════════════════════
 #  Phase 1-6: 매직넘버 상수화
@@ -28,11 +38,159 @@ CARBON_GENERAL = 0.09            # 일반폐기물 1kg당 탄소감축 계수 (k
 WASTE_REDUCTION_RATE = 0.1       # 잔반감축 목표 비율 (10%)
 
 
-def get_db():
-    """SQLite 연결 반환"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ══════════════════════════════════════════
+#  PostgreSQL 듀얼 백엔드 어댑터
+#  - sqlite3 호환 인터페이스로 PG psycopg을 감쌈
+# ══════════════════════════════════════════
+
+if DB_BACKEND == "postgres":
+    import sqlite3 as _sqlite_fallback  # 폴백 + 일부 타입 변환용
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
+    except ImportError as e:
+        logger.error("psycopg / psycopg_pool 미설치. pip install 'psycopg[binary]' psycopg_pool")
+        raise
+
+    # 모듈 전역 커넥션 풀 (앱 전체에서 1개)
+    _PG_POOL: Optional["ConnectionPool"] = None
+
+    def _get_pool() -> "ConnectionPool":
+        global _PG_POOL
+        if _PG_POOL is None:
+            conninfo = (
+                f"host={PG_HOST} port={PG_PORT} dbname={PG_DB} "
+                f"user={PG_USER} password={PG_PASSWORD} "
+                f"connect_timeout=5 application_name=zeroda_reflex"
+            )
+            _PG_POOL = ConnectionPool(
+                conninfo=conninfo,
+                min_size=PG_MIN_CONN,
+                max_size=PG_MAX_CONN,
+                kwargs={"row_factory": dict_row},
+                open=True,
+            )
+            logger.info(f"[PG POOL] created min={PG_MIN_CONN} max={PG_MAX_CONN}")
+        return _PG_POOL
+
+
+    class _PgCursorResult:
+        """sqlite3 cursor.fetchall() 호환 래퍼.
+        dict_row 결과를 반환하므로 dict(r) 로 변환 가능."""
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
+        def __iter__(self):
+            return iter(self._rows)
+
+
+    class PgWrapper:
+        """sqlite3.Connection 호환 어댑터.
+        - .execute(sql, params) 시 ? → %s 자동 치환
+        - 결과는 dict_row 형태 (sqlite3.Row 와 동일하게 dict() 가능)
+        - .commit() / .close() / context manager 지원
+        - row_factory 속성은 호환용 stub (실제 효과 없음)
+        """
+        def __init__(self):
+            pool = _get_pool()
+            self._conn = pool.getconn()
+            self._closed = False
+            self.row_factory = None  # sqlite3 호환 stub
+
+        @staticmethod
+        def _q(sql: str) -> str:
+            """? placeholder → %s 변환.
+            주의: 문자열 리터럴 안의 ? 는 거의 없지만, 만약 있으면
+                 자료 파일 05_syntax_fixes_diff.md 의 예외 목록 참조."""
+            return sql.replace("?", "%s")
+
+        def execute(self, sql: str, params=None):
+            cur = self._conn.cursor()
+            try:
+                cur.execute(self._q(sql), params or ())
+                # SELECT 면 결과 가져옴, 그 외엔 빈 리스트
+                if cur.description:
+                    rows = cur.fetchall()
+                    return _PgCursorResult(rows)
+                return _PgCursorResult([])
+            finally:
+                cur.close()
+
+        def executemany(self, sql: str, seq_of_params):
+            cur = self._conn.cursor()
+            try:
+                cur.executemany(self._q(sql), seq_of_params)
+                return _PgCursorResult([])
+            finally:
+                cur.close()
+
+        def commit(self):
+            self._conn.commit()
+
+        def rollback(self):
+            self._conn.rollback()
+
+        def close(self):
+            if self._closed:
+                return
+            try:
+                pool = _get_pool()
+                pool.putconn(self._conn)
+            except Exception as e:
+                logger.warning(f"[PG] putconn failed: {e}")
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+            finally:
+                self._closed = True
+
+        # context manager (with get_db() as conn:)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if exc_type is not None:
+                self.rollback()
+            else:
+                self.commit()
+            self.close()
+
+
+    def get_db():
+        """PostgreSQL 연결 반환 (sqlite3 호환 인터페이스)"""
+        return PgWrapper()
+
+else:
+    # 백엔드=sqlite (기존 동작 유지)
+    import sqlite3
+
+    def get_db():
+        """SQLite 연결 반환"""
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+
+# ══════════════════════════════════════════
+#  공용 헬퍼 (백엔드 무관)
+#  - SQL 문법 차이는 _q_helper 에서 흡수
+# ══════════════════════════════════════════
+
+def _q_helper(sql: str) -> str:
+    """헬퍼용 placeholder 변환. sqlite는 그대로, postgres만 ?→%s.
+    주의: 헬퍼 안에서는 SQL을 직접 만들기 때문에 PgWrapper.execute 의
+         _q 를 거치지 않으므로 여기서 처리."""
+    if DB_BACKEND == "postgres":
+        return sql.replace("?", "%s")
+    return sql
 
 
 def db_get(table: str, where: dict = None) -> list[dict]:
@@ -42,9 +200,8 @@ def db_get(table: str, where: dict = None) -> list[dict]:
         if where:
             clauses = " AND ".join(f"{k} = ?" for k in where)
             values = list(where.values())
-            rows = conn.execute(
-                f"SELECT * FROM {table} WHERE {clauses}", values
-            ).fetchall()
+            sql = f"SELECT * FROM {table} WHERE {clauses}"
+            rows = conn.execute(sql, values).fetchall()
         else:
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
         return [dict(r) for r in rows]
@@ -77,7 +234,9 @@ def db_insert(table: str, data: dict) -> bool:
 
 
 def db_upsert(table: str, data: dict, key_col: str = "id") -> bool:
-    """행 삽입 또는 업데이트"""
+    """행 삽입 또는 업데이트.
+    SQLite 와 PostgreSQL 모두 ON CONFLICT(...) DO UPDATE 지원하므로
+    문법 동일하게 사용."""
     conn = get_db()
     try:
         cols = ", ".join(data.keys())
@@ -115,7 +274,6 @@ def db_delete(table: str, where: dict) -> bool:
         return False
     finally:
         conn.close()
-
 
 # ── 인증 관련 ──
 
