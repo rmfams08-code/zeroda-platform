@@ -10,6 +10,8 @@ from zeroda_reflex.pages.hq_admin import hq_admin_page
 from zeroda_reflex.pages.school import school_page
 from zeroda_reflex.pages.edu_office import edu_office_page
 from zeroda_reflex.pages.meal_manager import meal_manager_page
+from zeroda_reflex.pages.privacy import privacy_page
+from zeroda_reflex.pages.terms import terms_page
 from zeroda_reflex.state.driver_state import DriverState
 from zeroda_reflex.state.vendor_state import VendorState
 from zeroda_reflex.state.admin_state import AdminState
@@ -67,3 +69,5 @@ app.add_page(
     title="ZERODA 급식담당",
     on_load=MealState.on_meal_load,
 )
+app.add_page(privacy_page, route="/privacy", title="ZERODA 개인정보처리방침")
+app.add_page(terms_page, route="/terms", title="ZERODA 이용약관")

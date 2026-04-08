@@ -2,6 +2,7 @@
 # 로그인 페이지 — 기존 Streamlit 디자인 재현
 import reflex as rx
 from zeroda_reflex.state.auth_state import AuthState
+from zeroda_reflex.components.footer import site_footer
 
 
 def login_page() -> rx.Component:
@@ -129,14 +130,8 @@ def login_page() -> rx.Component:
                     ),
                 ),
 
-                # ── 하단 카피라이트 ──
-                rx.text(
-                    "\u00a9 2026 ZERODA \u00b7 하영자원 폐기물데이터플랫폼",
-                    font_size="11px",
-                    color="#94a3b8",
-                    text_align="center",
-                    margin_top="28px",
-                ),
+                # ── 하단 Footer ──
+                site_footer(),
 
                 # ── 카드 스타일 ──
                 bg="white",
