@@ -1256,18 +1256,7 @@ def _settle_tab() -> rx.Component:
 
 def _esg_tab() -> rx.Component:
     return rx.vstack(
-        # ── 헤더 + PDF 다운로드 (Phase 5) ──
-        rx.hstack(
-            _header("leaf", "ESG 폐기물 감축 보고서"),
-            rx.spacer(),
-            rx.button(
-                rx.icon("file_text", size=14), "PDF",
-                size="1", variant="outline", color_scheme="red",
-                on_click=MealState.download_esg_pdf,
-                disabled=~AuthState.is_user_active,
-            ),
-            width="100%", align="center",
-        ),
+        _header("leaf", "ESG 폐기물 감축 보고서"),
         rx.select(get_year_options(),
                    value=MealState.selected_year,
                    on_change=MealState.set_selected_year,
@@ -1294,6 +1283,89 @@ def _esg_tab() -> rx.Component:
                         rx.text("나무 환산: 21.77 kgCO₂/그루 (소나무 기준)",
                                  font_size="12px", color="#64748b"),
                         spacing="1", width="100%")),
+                # ── 카드1: 기본 ESG 보고서 ──
+                _card(
+                    rx.vstack(
+                        rx.hstack(
+                            _header("file_text", "📊 기본 ESG 보고서 (전년 집계)"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.icon("download", size=14), "기본 PDF 다운로드",
+                                size="2", color_scheme="blue", variant="solid",
+                                on_click=MealState.download_esg_pdf,
+                                disabled=~AuthState.is_user_active,
+                            ),
+                            width="100%", align="center",
+                        ),
+                        rx.text(
+                            "수거 데이터 집계 기반의 표준 ESG 보고서 (KPI + 표).",
+                            font_size="12px", color="#64748b",
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                ),
+                # ── 카드2: AI ESG 보고서 ──
+                _card(
+                    rx.vstack(
+                        rx.hstack(
+                            _header("sparkles", "🤖 AI ESG 보고서"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.cond(
+                                    MealState.ai_esg_loading,
+                                    rx.spinner(size="1"),
+                                    rx.icon("wand_2", size=14),
+                                ),
+                                rx.cond(
+                                    MealState.ai_esg_loading,
+                                    rx.text("작성 중..."),
+                                    rx.text("AI 보고서 작성"),
+                                ),
+                                size="2", color_scheme="violet", variant="solid",
+                                on_click=MealState.run_ai_esg,
+                                disabled=MealState.ai_esg_loading | ~AuthState.is_user_active,
+                            ),
+                            rx.cond(
+                                MealState.ai_esg_text != "",
+                                rx.button(
+                                    rx.icon("download", size=14), "AI PDF 다운로드",
+                                    size="2", color_scheme="violet", variant="outline",
+                                    on_click=MealState.download_ai_esg_pdf,
+                                ),
+                                rx.fragment(),
+                            ),
+                            width="100%", align="center", spacing="2",
+                        ),
+                        rx.text(
+                            "Claude AI 가 수거 데이터 + 탄소 감축 수치를 해석해 5개 섹션 보고서로 자동 작성합니다. "
+                            "(요약 / 분류별 / 환경 영향 / 개선 권고 / 외부 공개 문구)",
+                            font_size="12px", color="#64748b",
+                        ),
+                        rx.cond(
+                            MealState.ai_esg_error != "",
+                            rx.callout(
+                                MealState.ai_esg_error,
+                                icon="circle_alert", color_scheme="red", size="1",
+                            ),
+                            rx.fragment(),
+                        ),
+                        rx.cond(
+                            MealState.ai_esg_text != "",
+                            rx.box(
+                                rx.markdown(MealState.ai_esg_text),
+                                bg="#fafaf9",
+                                border="1px solid #e7e5e4",
+                                border_radius="8px",
+                                padding="14px",
+                                width="100%",
+                                max_height="500px",
+                                overflow="auto",
+                            ),
+                            rx.fragment(),
+                        ),
+                        spacing="3", width="100%",
+                    ),
+                ),
                 spacing="4", width="100%"),
             rx.text("수거 데이터가 없습니다.", font_size="13px", color="#94a3b8",
                      padding="20px", text_align="center")),

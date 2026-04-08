@@ -301,26 +301,51 @@ class EduState(AuthState):
     # ══════════════════════════════
 
     def download_esg_pdf(self):
-        """교육청 ESG 보고서 PDF 다운로드 (선택된 학교 기준)"""
-        from zeroda_reflex.utils.pdf_export import build_school_esg_pdf
-        if not self.esg_school:
-            return None
+        """교육청 ESG 보고서 PDF 다운로드 (관할 학교 통합 또는 선택 학교 단건)."""
+        from zeroda_reflex.utils.pdf_export import (
+            build_edu_office_esg_pdf, build_school_esg_pdf,
+        )
+        from zeroda_reflex.utils.database import school_filter_collections
         try:
             y = int(self.selected_year)
         except (ValueError, TypeError):
             return None
-        from zeroda_reflex.utils.database import school_filter_collections
-        rows = school_filter_collections(self.esg_school, y, 0)
-        if not rows:
-            return None
         month_label = f"{y}년 전체"
-        pdf_bytes = build_school_esg_pdf(
-            self.esg_school, y, month_label, rows,
+
+        # 1) 특정 학교가 선택된 경우 → 단일 학교 보고서
+        if self.esg_school:
+            rows = school_filter_collections(self.esg_school, y, 0)
+            if not rows:
+                return None
+            pdf_bytes = build_school_esg_pdf(
+                self.esg_school, y, month_label, rows, "",
+            )
+            if pdf_bytes:
+                return rx.download(
+                    data=pdf_bytes,
+                    filename=f"ESG보고서_{self.esg_school}_{y}.pdf",
+                )
+            return None
+
+        # 2) 학교 미선택 → 관할 학교 통합 보고서
+        schools = list(self.managed_schools or [])
+        if not schools:
+            return None
+        school_data = []
+        for sch in schools:
+            rows = school_filter_collections(sch, y, 0)
+            if rows:
+                school_data.append({"school": sch, "rows": rows})
+        if not school_data:
+            return None
+        edu_name = self.user_edu_office or "교육청"
+        pdf_bytes = build_edu_office_esg_pdf(
+            edu_name, y, month_label, school_data, "",
         )
         if pdf_bytes:
             return rx.download(
                 data=pdf_bytes,
-                filename=f"ESG보고서_{self.esg_school}_{y}.pdf",
+                filename=f"ESG보고서_교육청_{edu_name}_{y}.pdf",
             )
         return None
 
