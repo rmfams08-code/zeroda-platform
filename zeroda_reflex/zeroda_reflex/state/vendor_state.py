@@ -161,6 +161,7 @@ class VendorState(AuthState):
     rcv_address: str = ""
     rcv_biz_type: str = ""
     rcv_biz_item: str = ""
+    rcv_recycler: str = ""       # 신규: 재활용자(처리자)
 
     # 미수금
     overdue_amount: str = "0"
@@ -928,6 +929,14 @@ class VendorState(AuthState):
                 '재활용': float(cust_info.get('price_recycle', 0) or 0),
                 '일반': float(cust_info.get('price_general', 0) or 0),
             }
+            _recycler = cust_info.get('recycler', '') or ''
+            _recycle_method_map = {
+                '음식물': '퇴비화및비료생산',
+                '음식물쓰레기': '퇴비화및비료생산',
+                '재활용': '선별 후 재활용',
+                '일반': '소각/매립',
+                '사업장폐기물': '소각/매립',
+            }
             for row in rows:
                 item = row.get('item_type', '음식물')
                 up = price_map.get(item, 0)
@@ -937,6 +946,9 @@ class VendorState(AuthState):
                 else:
                     row['unit_price'] = float(row.get('unit_price', 0) or 0)
                     row['amount'] = float(row.get('amount', 0) or 0)
+                row['recycler'] = _recycler
+                row['recycle_method'] = _recycle_method_map.get(item, '')
+                row['collector'] = vendor
             self.stmt_rows = rows
 
             # 세금 분류
@@ -959,18 +971,40 @@ class VendorState(AuthState):
                 self.stmt_grand_total = self.stmt_total_amount + self.stmt_vat
 
             # 수급자 정보 자동 채우기
-            self.rcv_rep = cust_info.get('rep_name', '') or ''
+            self.rcv_rep = cust_info.get('ceo', '') or ''
             self.rcv_biz_no = cust_info.get('biz_no', '') or ''
-            self.rcv_phone = cust_info.get('contact', cust_info.get('phone', '')) or ''
+            self.rcv_phone = cust_info.get('phone', '') or ''
             self.rcv_address = cust_info.get('address', '') or ''
             self.rcv_email = cust_info.get('email', '') or ''
             self.rcv_biz_type = cust_info.get('biz_type', '') or ''
             self.rcv_biz_item = cust_info.get('biz_item', '') or ''
+            self.rcv_recycler = cust_info.get('recycler', '') or ''
 
             self._build_email_template()
             self.stmt_load_msg = f"{len(rows)}건 로드 완료"
         except Exception as e:
             self.stmt_load_msg = f"로드 실패: {e}"
+
+    def _build_biz_info(self) -> dict:
+        """pdf_generator가 기대하는 한글 키로 수급자 정보 dict 구성."""
+        return {
+            '상호':       self.stmt_cust_sel,
+            '대표자':     self.rcv_rep,
+            '사업자번호':  self.rcv_biz_no,
+            '주소':       self.rcv_address,
+            '이메일':     self.rcv_email,
+            '연락처':     self.rcv_phone,
+            '업태':       self.rcv_biz_type,
+            '종목':       self.rcv_biz_item,
+            '재활용자':   self.rcv_recycler,
+            # 영문 키 방어적 함께 제공
+            'biz_no':         self.rcv_biz_no,
+            'representative': self.rcv_rep,
+            'address':        self.rcv_address,
+            'email':          self.rcv_email,
+            'phone':          self.rcv_phone,
+            'recycler':       self.rcv_recycler,
+        }
 
     def _build_email_template(self):
         """이메일 제목/본문 자동 생성"""
@@ -1030,6 +1064,12 @@ class VendorState(AuthState):
         self.rcv_phone = v
     def set_rcv_address(self, v: str):
         self.rcv_address = v
+    def set_rcv_recycler(self, v: str):
+        self.rcv_recycler = v
+    def set_rcv_biz_type(self, v: str):
+        self.rcv_biz_type = v
+    def set_rcv_biz_item(self, v: str):
+        self.rcv_biz_item = v
     def set_stmt_email_subject(self, v: str):
         self.stmt_email_subject = v
     def set_stmt_email_body(self, v: str):
@@ -1045,11 +1085,7 @@ class VendorState(AuthState):
             y = int(self.selected_year)
             m = int(self.selected_month)
             vinfo = get_vendor_info(self.user_vendor) or {}
-            biz_info = {
-                "biz_no": self.rcv_biz_no,
-                "representative": self.rcv_rep,
-                "address": self.rcv_address,
-            }
+            biz_info = self._build_biz_info()
             pdf_bytes = build_statement_pdf(
                 self.user_vendor, self.stmt_cust_sel, y, m,
                 self.stmt_rows, biz_info, vinfo,
@@ -1100,11 +1136,7 @@ class VendorState(AuthState):
             self.email_msg = "PDF 생성 중..."
             yield
             vinfo = get_vendor_info(self.user_vendor) or {}
-            biz_info = {
-                "biz_no": self.rcv_biz_no,
-                "representative": self.rcv_rep,
-                "address": self.rcv_address,
-            }
+            biz_info = self._build_biz_info()
             pdf_bytes = build_statement_pdf(
                 self.user_vendor, self.stmt_cust_sel, y, m,
                 self.stmt_rows, biz_info, vinfo,
@@ -2379,11 +2411,7 @@ class VendorState(AuthState):
             return None
         try:
             vinfo = get_vendor_info(self.user_vendor) or {}
-            biz_info = {
-                "biz_no": self.rcv_biz_no,
-                "representative": self.rcv_rep,
-                "address": self.rcv_address,
-            }
+            biz_info = self._build_biz_info()
             pdf_bytes = build_statement_pdf(
                 self.user_vendor, self.stmt_cust_sel, y, m,
                 self.stmt_rows, biz_info, vinfo,
@@ -2443,11 +2471,7 @@ class VendorState(AuthState):
             yield
             vendor = self.user_vendor
             vendor_info = get_vendor_info(vendor) or {}
-            biz_info = {
-                "biz_no": self.rcv_biz_no,
-                "representative": self.rcv_rep,
-                "address": self.rcv_address,
-            }
+            biz_info = self._build_biz_info()
             pdf_bytes = build_statement_pdf(
                 vendor, self.stmt_cust_sel, y, m,
                 self.stmt_rows, biz_info, vendor_info,
