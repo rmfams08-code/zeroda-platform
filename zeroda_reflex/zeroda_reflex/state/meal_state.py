@@ -104,6 +104,7 @@ class MealState(AuthState):
     calendar_month: str = ""
     # 평탄화 달력: 각 셀 dict에 row_end="1" 이면 주(週) 마지막 셀
     calendar_cells: list[dict] = []
+    calendar_open: bool = True   # 달력 섹션 접기/펴기
 
     # ══════════════════════════════
     #  수정3: 잔반 트렌드
@@ -450,9 +451,15 @@ class MealState(AuthState):
     # ══════════════════════════════
 
     def refresh_meal_dates(self):
-        """학사일정 갱신 후 현재 탭 데이터 새로고침."""
-        self.msg = ""
+        """급식식단 갱신 — 현재 탭 데이터 새로고침."""
+        self.msg = "급식 데이터 갱신 중..."
+        self.msg_ok = True
         self.load_tab_data()
+        self.msg = "갱신 완료"
+
+    def toggle_calendar_open(self):
+        """달력 섹션 접기/펴기."""
+        self.calendar_open = not self.calendar_open
 
     def set_active_tab(self, tab: str):
         self.active_tab = tab
