@@ -306,7 +306,13 @@ def _user_row(user: dict) -> rx.Component:
                 rx.cond(
                     status == "pending",
                     rx.hstack(
+                        rx.cond(
+                            user["_school_in_db"] == False,
+                            rx.badge("거래처 미등록", color_scheme="red", size="1"),
+                            rx.fragment(),
+                        ),
                         rx.button("승인", size="1", color_scheme="green",
+                                   disabled=user["_school_in_db"] == False,
                                    on_click=AdminState.approve_user(uid)),
                         rx.button("반려", size="1", color_scheme="red", variant="outline",
                                    on_click=AdminState.reject_user(uid)),
