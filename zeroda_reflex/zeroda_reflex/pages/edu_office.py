@@ -2,7 +2,7 @@
 # 교육청 사용자 대시보드 — 6탭
 import reflex as rx
 from zeroda_reflex.state.edu_state import EduState, EDU_TABS
-from zeroda_reflex.state.auth_state import get_year_options, MONTH_OPTIONS
+from zeroda_reflex.state.auth_state import AuthState, get_year_options, MONTH_OPTIONS
 # ── 공통 컴포넌트 import (Phase 0-A 모듈화) ──
 from zeroda_reflex.components.shared import (
     kpi_card_compact as _kpi_card,    # 교육청은 컴팩트형 KPI
@@ -369,6 +369,7 @@ def _esg_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=EduState.download_esg_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -443,6 +444,7 @@ def _safety_tab() -> rx.Component:
                 rx.icon("file_text", size=14), "PDF",
                 size="1", variant="outline", color_scheme="red",
                 on_click=EduState.download_safety_pdf,
+                disabled=~AuthState.is_user_active,
             ),
             width="100%", align="center",
         ),
@@ -648,6 +650,17 @@ def edu_office_page() -> rx.Component:
         _topbar(),
         _tab_nav(),
         rx.box(
+            rx.cond(
+                ~AuthState.is_user_active,
+                rx.callout(
+                    "본사 관리자 활성화 대기 중입니다. 활성화 전까지 기능 사용이 제한됩니다.",
+                    icon="info",
+                    color_scheme="amber",
+                    size="2",
+                    margin_bottom="12px",
+                ),
+                rx.fragment(),
+            ),
             _tab_content(),
             padding="24px",
             min_height="calc(100vh - 110px)",

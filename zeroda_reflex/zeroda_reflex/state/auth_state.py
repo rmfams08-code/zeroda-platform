@@ -35,6 +35,7 @@ class AuthState(rx.State):
     user_schools: str = ""      # 쉼표 구분 학교 목록 (school/edu_office 역할)
     user_edu_office: str = ""   # 교육청명 (edu_office 역할)
     is_authenticated: bool = False
+    is_user_active: bool = False
 
     # ── 로그인 폼 ──
     login_error: str = ""
@@ -200,11 +201,6 @@ class AuthState(rx.State):
             self.login_error = "회원가입이 거부되었습니다. 관리자에게 문의하세요."
             self.login_loading = False
             return
-        if int(_u.get("is_active", 1)) == 0:
-            self.login_error = "비활성화된 계정입니다. 관리자에게 문의하세요."
-            self.login_loading = False
-            return
-
         user = authenticate_user(uid, pw)
         if user is None:
             self.login_error = "아이디 또는 비밀번호가 올바르지 않습니다."
@@ -219,6 +215,7 @@ class AuthState(rx.State):
         self.user_schools = user.get("schools") or ""
         self.user_edu_office = user.get("edu_office") or ""
         self.is_authenticated = True
+        self.is_user_active = (int(_u.get("is_active", 0) or 0) == 1)
         self.login_loading = False
         self.login_error = ""
 
@@ -234,6 +231,7 @@ class AuthState(rx.State):
         self.user_schools = ""
         self.user_edu_office = ""
         self.is_authenticated = False
+        self.is_user_active = False
         return rx.redirect("/")
 
     def check_auth(self):

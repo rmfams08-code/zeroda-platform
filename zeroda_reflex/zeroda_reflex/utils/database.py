@@ -2236,7 +2236,7 @@ def validate_password(pw: str) -> tuple[bool, str]:
 
 
 def create_user(user_id, password, role, name, vendor="", schools="",
-                edu_office="", approval_status="pending", is_active=1,
+                edu_office="", approval_status="approved", is_active=0,
                 pending_vendor=None, pending_school_name=None,
                 neis_edu_pending=None, neis_school_pending=None):
     import bcrypt
