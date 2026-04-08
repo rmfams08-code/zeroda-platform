@@ -934,12 +934,22 @@ class AdminState(AuthState):
             self.acct_ok = False
 
     def reset_password(self, user_id: str):
-        """비밀번호 초기화 — 랜덤 8자리 임시비번 생성 (Phase 1-2 보안 강화)"""
+        """비밀번호 초기화 — 임시비번 생성 (정책: 대소문자+숫자+특수문자 각 1자 이상)"""
         import secrets
         import string
-        # 영문+숫자 조합 8자리 임시 비밀번호 생성
-        alphabet = string.ascii_letters + string.digits
-        temp_pw = ''.join(secrets.choice(alphabet) for _ in range(8))
+        # 정책 준수: 대문자·소문자·숫자·특수문자 각 1자 보장 + 나머지 6자 랜덤
+        specials = "!@#$%^&*"
+        pool = string.ascii_letters + string.digits + specials
+        required = [
+            secrets.choice(string.ascii_uppercase),
+            secrets.choice(string.ascii_lowercase),
+            secrets.choice(string.digits),
+            secrets.choice(specials),
+        ]
+        rest = [secrets.choice(pool) for _ in range(6)]
+        chars = required + rest
+        secrets.SystemRandom().shuffle(chars)
+        temp_pw = ''.join(chars)
         ok = reset_user_password(user_id, temp_pw)
         if ok:
             # 관리자에게 임시 비밀번호를 표시하여 사용자에게 전달할 수 있게 함

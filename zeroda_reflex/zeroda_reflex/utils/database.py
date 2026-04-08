@@ -2221,15 +2221,22 @@ def upsert_customer_neis_codes(vendor: str, school_name: str,
 
 
 def validate_password(pw: str) -> tuple[bool, str]:
+    """비밀번호 정책 검증.
+
+    규칙: 8자 이상, 대문자·소문자·숫자·특수문자 각 1자 이상 포함.
+    Returns (ok, error_message). ok=True 이면 msg="OK".
+    """
     import re
     if not pw or len(pw) < 8:
         return False, "비밀번호는 최소 8자 이상이어야 합니다."
     if not re.search(r"[A-Z]", pw):
         return False, "비밀번호에 영문 대문자가 1자 이상 포함되어야 합니다."
+    if not re.search(r"[a-z]", pw):
+        return False, "비밀번호에 영문 소문자가 1자 이상 포함되어야 합니다."
     if not re.search(r"[0-9]", pw):
         return False, "비밀번호에 숫자가 1자 이상 포함되어야 합니다."
     if not re.search(r"[^A-Za-z0-9]", pw):
-        return False, "비밀번호에 특수문자가 1자 이상 포함되어야 합니다."
+        return False, "비밀번호에 특수문자(!@#$%^&* 등)가 1자 이상 포함되어야 합니다."
     return True, "OK"
 
 
