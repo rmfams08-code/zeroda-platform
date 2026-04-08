@@ -371,18 +371,7 @@ def _settlement_tab() -> rx.Component:
 
 def _esg_tab() -> rx.Component:
     return rx.vstack(
-        # ── 헤더 + PDF 다운로드 (Phase 5) ──
-        rx.hstack(
-            _section_header("leaf", "ESG 폐기물 감축 보고서"),
-            rx.spacer(),
-            rx.button(
-                rx.icon("file_text", size=14), "PDF",
-                size="1", variant="outline", color_scheme="red",
-                on_click=SchoolState.download_esg_pdf,
-                disabled=~AuthState.is_user_active,
-            ),
-            width="100%", align="center",
-        ),
+        _section_header("leaf", "ESG 폐기물 감축 보고서"),
         _esg_year_month_filter(),
         rx.cond(
             SchoolState.has_esg,
@@ -402,14 +391,14 @@ def _esg_tab() -> rx.Component:
                     _kpi_card("수거 건수", SchoolState.esg_data.get("count", "0"), "건", "hash", "#8b5cf6"),
                     spacing="3", width="100%", flex_wrap="wrap",
                 ),
-                # 나무 환산 KPI (소나무 + 일반)
+                # 나무 환산 KPI
                 rx.hstack(
                     _kpi_card("소나무 환산", SchoolState.esg_pine_trees, "그루", "tree_pine", "#16a34a"),
                     _kpi_card("나무(일반) 환산", SchoolState.esg_tree_general, "그루", "tree_pine", "#38bd94"),
                     _kpi_card("기존 나무 환산", SchoolState.esg_data.get("tree_equivalent", "0"), "그루", "tree_pine", "#94a3b8"),
                     spacing="3", width="100%", flex_wrap="wrap",
                 ),
-                # 설명
+                # 산출 기준
                 _card_box(
                     rx.vstack(
                         _section_header("info", "산출 기준"),
@@ -420,6 +409,89 @@ def _esg_tab() -> rx.Component:
                         rx.text("나무(일반) 환산: 일반 나무 1그루 연간 CO₂ 흡수 6.6kg 기준", font_size="12px", color="#64748b"),
                         rx.text("기존 나무 환산: 21.77 kgCO₂/그루 (참고용)", font_size="12px", color="#94a3b8"),
                         spacing="1", width="100%",
+                    ),
+                ),
+                # ── 카드1: 기본 ESG 보고서 ──
+                _card_box(
+                    rx.vstack(
+                        rx.hstack(
+                            _section_header("file_text", "📊 기본 ESG 보고서"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.icon("download", size=14), "기본 PDF 다운로드",
+                                size="2", color_scheme="blue", variant="solid",
+                                on_click=SchoolState.download_esg_pdf,
+                                disabled=~AuthState.is_user_active,
+                            ),
+                            width="100%", align="center",
+                        ),
+                        rx.text(
+                            "수거 데이터 집계 기반의 표준 ESG 보고서 (KPI + 표).",
+                            font_size="12px", color="#64748b",
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                ),
+                # ── 카드2: AI ESG 보고서 ──
+                _card_box(
+                    rx.vstack(
+                        rx.hstack(
+                            _section_header("sparkles", "🤖 AI ESG 보고서"),
+                            rx.spacer(),
+                            rx.button(
+                                rx.cond(
+                                    SchoolState.ai_esg_loading,
+                                    rx.spinner(size="1"),
+                                    rx.icon("wand_2", size=14),
+                                ),
+                                rx.cond(
+                                    SchoolState.ai_esg_loading,
+                                    rx.text("작성 중..."),
+                                    rx.text("AI 보고서 작성"),
+                                ),
+                                size="2", color_scheme="violet", variant="solid",
+                                on_click=SchoolState.run_ai_esg,
+                                disabled=SchoolState.ai_esg_loading | ~AuthState.is_user_active,
+                            ),
+                            rx.cond(
+                                SchoolState.ai_esg_text != "",
+                                rx.button(
+                                    rx.icon("download", size=14), "AI PDF 다운로드",
+                                    size="2", color_scheme="violet", variant="outline",
+                                    on_click=SchoolState.download_ai_esg_pdf,
+                                ),
+                                rx.fragment(),
+                            ),
+                            width="100%", align="center", spacing="2",
+                        ),
+                        rx.text(
+                            "Claude AI 가 수거 데이터 + 탄소 감축 수치를 해석해 5개 섹션 보고서로 자동 작성합니다. "
+                            "(요약 / 분류별 / 환경 영향 / 개선 권고 / 외부 공개 문구)",
+                            font_size="12px", color="#64748b",
+                        ),
+                        rx.cond(
+                            SchoolState.ai_esg_error != "",
+                            rx.callout(
+                                SchoolState.ai_esg_error,
+                                icon="circle_alert", color_scheme="red", size="1",
+                            ),
+                            rx.fragment(),
+                        ),
+                        rx.cond(
+                            SchoolState.ai_esg_text != "",
+                            rx.box(
+                                rx.markdown(SchoolState.ai_esg_text),
+                                bg="#fafaf9",
+                                border="1px solid #e7e5e4",
+                                border_radius="8px",
+                                padding="14px",
+                                width="100%",
+                                max_height="500px",
+                                overflow="auto",
+                            ),
+                            rx.fragment(),
+                        ),
+                        spacing="3", width="100%",
                     ),
                 ),
                 spacing="4", width="100%",

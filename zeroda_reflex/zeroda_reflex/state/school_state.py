@@ -58,6 +58,9 @@ class SchoolState(AuthState):
     #  ESG보고서 (탭4)
     # ══════════════════════════════
     esg_data: dict = {}
+    ai_esg_text: str = ""
+    ai_esg_loading: bool = False
+    ai_esg_error: str = ""
 
     # ══════════════════════════════
     #  안전관리보고서 (탭5)
@@ -364,6 +367,73 @@ class SchoolState(AuthState):
             return rx.download(
                 data=pdf_bytes,
                 filename=f"ESG보고서_{self.current_school}_{y}-{str(m).zfill(2) if m else '전체'}.pdf",
+            )
+        return None
+
+    async def run_ai_esg(self):
+        """학교 모드 AI ESG 보고서 생성."""
+        from zeroda_reflex.utils.ai_service import build_esg_ai_prompt, call_claude_api
+        if not self.has_esg:
+            self.ai_esg_error = "ESG 데이터가 없습니다. 먼저 KPI 카드를 로드하세요."
+            return
+        self.ai_esg_loading = True
+        self.ai_esg_error = ""
+        self.ai_esg_text = ""
+        yield
+        try:
+            y = int(self.selected_year)
+            m = int(self.selected_month) if self.selected_month != "전체" else 0
+        except (ValueError, TypeError):
+            y, m = 0, 0
+        month_label = f"{y}년 {m}월" if m > 0 else f"{y}년 전체"
+        rows = school_filter_collections(self.current_school, y, m) if y else []
+        vendor = ""
+        try:
+            vendors_list = school_get_vendors(self.current_school)
+            vendor = vendors_list[0] if vendors_list else ""
+        except Exception:
+            pass
+        prompt = build_esg_ai_prompt(
+            org_name=self.current_school, org_type="학교",
+            year=y, month_label=month_label,
+            esg_data=dict(self.esg_data), rows=rows, vendor=vendor,
+        )
+        result = call_claude_api(prompt, "")
+        self.ai_esg_loading = False
+        if result.startswith("[ERROR]"):
+            self.ai_esg_error = result.replace("[ERROR] ", "")
+        else:
+            self.ai_esg_text = result
+
+    def download_ai_esg_pdf(self):
+        """학교 모드 AI ESG PDF 다운로드."""
+        from zeroda_reflex.utils.pdf_export import build_ai_esg_pdf
+        if not self.ai_esg_text:
+            return None
+        try:
+            y = int(self.selected_year)
+            m = int(self.selected_month) if self.selected_month != "전체" else 0
+        except (ValueError, TypeError):
+            return None
+        month_label = f"{y}년 {m}월" if m > 0 else f"{y}년 전체"
+        vendor = ""
+        try:
+            vendors_list = school_get_vendors(self.current_school)
+            vendor = vendors_list[0] if vendors_list else ""
+        except Exception:
+            pass
+        pdf_bytes = build_ai_esg_pdf(
+            org_name=self.current_school, org_type="학교",
+            year=y, month_label=month_label,
+            ai_markdown=self.ai_esg_text,
+            esg_summary=dict(self.esg_data),
+            vendor=vendor,
+        )
+        if pdf_bytes:
+            month_part = str(m).zfill(2) if m else "전체"
+            return rx.download(
+                data=pdf_bytes,
+                filename=f"AI_ESG보고서_{self.current_school}_{y}-{month_part}.pdf",
             )
         return None
 
