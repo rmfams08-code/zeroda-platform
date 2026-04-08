@@ -674,6 +674,79 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
     )
 
 
+def _voice_pick_candidate_row(c: dict) -> rx.Component:
+    """GPS 복수 후보 선택 다이얼로그 — 개별 거래처 버튼 행"""
+    return rx.button(
+        rx.hstack(
+            rx.icon("map_pin", size=14, color="#16a34a"),
+            rx.text(c["name"], font_size="14px", font_weight="600", color="#1e293b"),
+            rx.spacer(),
+            rx.badge(
+                c["distance_m"].to(str) + "m",
+                color_scheme="green", variant="soft", size="1",
+            ),
+            width="100%",
+            align="center",
+            spacing="2",
+        ),
+        on_click=DriverState.pick_voice_candidate(c["name"]),
+        variant="outline",
+        width="100%",
+        cursor="pointer",
+        color_scheme="gray",
+    )
+
+
+def _voice_pick_dialog() -> rx.Component:
+    """GPS 복수 후보 선택 다이얼로그"""
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.dialog.title("거래처를 선택하세요"),
+            rx.dialog.description(
+                rx.hstack(
+                    rx.icon("map_pin", size=14, color="#64748b"),
+                    rx.text(
+                        "현재 위치 반경 내 ",
+                        rx.text.strong(DriverState.voice_pick_candidates.length().to(str)),
+                        "개의 거래처가 등록되어 있습니다.",
+                        font_size="13px",
+                        color="#64748b",
+                    ),
+                    spacing="1",
+                    align="center",
+                ),
+                margin_bottom="12px",
+            ),
+            rx.vstack(
+                rx.foreach(
+                    DriverState.voice_pick_candidates,
+                    _voice_pick_candidate_row,
+                ),
+                spacing="2",
+                width="100%",
+            ),
+            rx.divider(margin_y="12px"),
+            rx.hstack(
+                rx.dialog.close(
+                    rx.button(
+                        "취소",
+                        on_click=DriverState.cancel_voice_pick,
+                        variant="ghost",
+                        color_scheme="gray",
+                        size="2",
+                        cursor="pointer",
+                    ),
+                ),
+                justify="end",
+                width="100%",
+            ),
+            max_width="400px",
+        ),
+        open=DriverState.voice_pick_open,
+        on_open_change=DriverState.cancel_voice_pick,
+    )
+
+
 def _voice_confirm_dialog() -> rx.Component:
     """음성 인식 결과 확인 다이얼로그 — 항상 표시 (성공/실패 무관)
     섹션 1: 정규화된 텍스트 표시
@@ -1377,6 +1450,7 @@ def driver_page() -> rx.Component:
             _safety_section(),
             _schedule_section(),
             _voice_confirm_dialog(),
+            _voice_pick_dialog(),
             _floating_voice_button(),
             _processing_section(),
             _checkout_section(),
