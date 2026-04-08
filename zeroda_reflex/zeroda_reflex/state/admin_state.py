@@ -282,6 +282,12 @@ class AdminState(AuthState):
     vendor_msg: str = ""
     vendor_ok: bool = False
 
+    # ── 직인 관리 (멀티테넌트) ──
+    stamp_vendor_select: str = ""
+    stamp_upload_status: str = ""
+    stamp_upload_loading: bool = False
+    stamp_current_path: str = ""
+
     # 업체 등록/수정 폼
     vf_vendor: str = ""
     vf_biz_name: str = ""
@@ -3518,3 +3524,85 @@ class AdminState(AuthState):
                 filename=f"탄소감축_{self.selected_year}.xlsx"
             )
         return None
+
+    # ══════════════════════════════
+    #  직인 관리 (본사관리자 — 모든 업체)
+    # ══════════════════════════════
+
+    def set_stamp_vendor_select(self, v: str):
+        self.stamp_vendor_select = v
+
+    def load_current_stamp(self):
+        """선택한 업체의 현재 직인 경로 조회."""
+        from zeroda_reflex.utils.database import get_vendor_info
+        if not self.stamp_vendor_select:
+            self.stamp_current_path = ""
+            return
+        info = get_vendor_info(self.stamp_vendor_select)
+        self.stamp_current_path = info.get("stamp_path", "")
+
+    async def handle_stamp_upload(self, files: list):
+        """본사관리자 직인 업로드 (모든 업체 가능)."""
+        import os
+        import uuid
+        from zeroda_reflex.utils.database import set_vendor_stamp, get_vendor_info
+
+        STAMP_DIR = "/opt/zeroda-platform/storage/stamps"
+        MAX_SIZE = 2 * 1024 * 1024
+        ALLOWED_EXT = {".png", ".jpg", ".jpeg"}
+
+        vendor = (self.stamp_vendor_select or "").strip()
+        if not vendor:
+            self.stamp_upload_status = "❌ 업체를 먼저 선택하세요."
+            return
+        if not files:
+            self.stamp_upload_status = "❌ 파일이 없습니다."
+            return
+
+        self.stamp_upload_loading = True
+        self.stamp_upload_status = ""
+        yield
+
+        try:
+            f = files[0]
+            raw = await f.read()
+            if len(raw) > MAX_SIZE:
+                self.stamp_upload_status = "❌ 파일 크기 2MB 초과."
+                self.stamp_upload_loading = False
+                return
+
+            ext = os.path.splitext(f.filename or "")[1].lower()
+            if ext not in ALLOWED_EXT:
+                self.stamp_upload_status = "❌ PNG/JPG 만 가능합니다."
+                self.stamp_upload_loading = False
+                return
+
+            os.makedirs(STAMP_DIR, exist_ok=True)
+            safe_slug = "".join(c for c in vendor if c.isalnum() or c in "-_")[:20] or "vendor"
+            fname = f"{safe_slug}_{uuid.uuid4().hex[:8]}{ext}"
+            target = os.path.join(STAMP_DIR, fname)
+
+            with open(target, "wb") as w:
+                w.write(raw)
+
+            try:
+                from PIL import Image
+                img = Image.open(target)
+                img.verify()
+            except Exception:
+                os.remove(target)
+                self.stamp_upload_status = "❌ 유효한 이미지가 아닙니다."
+                self.stamp_upload_loading = False
+                return
+
+            updated_by = self.user_name or self.user_id or "admin"
+            ok = set_vendor_stamp(vendor, target, updated_by)
+            if ok:
+                self.stamp_upload_status = f"✅ {vendor} 직인 등록 완료"
+                self.stamp_current_path = target
+            else:
+                self.stamp_upload_status = "❌ DB 저장 실패"
+        except Exception as e:
+            self.stamp_upload_status = f"❌ 업로드 오류: {e}"
+        finally:
+            self.stamp_upload_loading = False
