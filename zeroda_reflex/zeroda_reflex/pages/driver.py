@@ -1151,6 +1151,130 @@ def _processing_section() -> rx.Component:
             color="#64748b",
         ),
 
+        # ── 계량표 사진 OCR ──
+        rx.box(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("scan", size=15, color="#7c3aed"),
+                    rx.text("계량표 사진 OCR 자동입력", font_size="13px",
+                            font_weight="600", color="#7c3aed"),
+                    spacing="2", align="center",
+                ),
+                rx.upload(
+                    rx.vstack(
+                        rx.icon("camera", size=20, color="#7c3aed"),
+                        rx.text("촬영 또는 사진 선택",
+                                font_size="12px", color="#7c3aed"),
+                        align="center", spacing="1",
+                    ),
+                    id="weighslip_upload",
+                    accept={"image/jpeg": [".jpg", ".jpeg"], "image/png": [".png"]},
+                    max_files=1,
+                    on_drop=DriverState.handle_weighslip_upload(
+                        rx.upload_files(upload_id="weighslip_upload")
+                    ),
+                    border="2px dashed #c4b5fd",
+                    border_radius="8px",
+                    padding="12px",
+                    width="100%",
+                    cursor="pointer",
+                ),
+                rx.cond(
+                    DriverState.weighslip_ocr_loading,
+                    rx.hstack(
+                        rx.spinner(size="2"),
+                        rx.text("OCR 인식 중...", font_size="12px", color="#7c3aed"),
+                        spacing="2", align="center",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.cond(
+                    DriverState.weighslip_ocr_error != "",
+                    rx.callout(
+                        DriverState.weighslip_ocr_error,
+                        color="red", size="1",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.cond(
+                    DriverState.weighslip_ocr_done,
+                    rx.vstack(
+                        rx.divider(),
+                        rx.text("📋 OCR 인식 결과 (수정 가능)",
+                                font_size="12px", font_weight="600", color="#374151"),
+                        rx.grid(
+                            rx.vstack(
+                                rx.text("처리 일시", font_size="11px", color="#64748b"),
+                                rx.input(
+                                    value=DriverState.weighslip_ocr_process_time,
+                                    on_change=DriverState.set_weighslip_ocr_process_time,
+                                    placeholder="예: 2026-04-08 14:23",
+                                    size="2", width="100%",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("차량번호", font_size="11px", color="#64748b"),
+                                rx.input(
+                                    value=DriverState.weighslip_ocr_vehicle_number,
+                                    on_change=DriverState.set_weighslip_ocr_vehicle_number,
+                                    placeholder="예: 12가3456",
+                                    size="2", width="100%",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("총중량 (kg)", font_size="11px", color="#64748b"),
+                                rx.input(
+                                    value=DriverState.weighslip_ocr_gross_weight,
+                                    on_change=DriverState.set_weighslip_ocr_gross_weight,
+                                    placeholder="예: 7520",
+                                    type="number", size="2", width="100%",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("실중량 (kg)", font_size="11px", color="#64748b"),
+                                rx.input(
+                                    value=DriverState.weighslip_ocr_net_weight,
+                                    on_change=DriverState.set_weighslip_ocr_net_weight,
+                                    placeholder="예: 3240",
+                                    type="number", size="2", width="100%",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("처분업체", font_size="11px", color="#64748b"),
+                                rx.input(
+                                    value=DriverState.weighslip_ocr_company,
+                                    on_change=DriverState.set_weighslip_ocr_company,
+                                    placeholder="처분업체명",
+                                    size="2", width="100%",
+                                ),
+                                spacing="1",
+                                grid_column="1 / -1",
+                            ),
+                            columns="2",
+                            spacing="2",
+                            width="100%",
+                        ),
+                        rx.callout(
+                            "실중량이 처리량에 자동 반영됩니다. 아래 폼에서 수정 후 전송하세요.",
+                            color="violet", size="1",
+                        ),
+                        spacing="2", width="100%",
+                    ),
+                    rx.fragment(),
+                ),
+                spacing="2", width="100%",
+            ),
+            bg="#faf5ff",
+            border="1px solid #e9d5ff",
+            border_radius="8px",
+            padding="12px",
+            width="100%",
+        ),
+
         # ── 처리량 + 처리장명 ──
         rx.hstack(
             rx.vstack(
