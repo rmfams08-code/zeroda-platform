@@ -271,6 +271,88 @@ JSON 형식으로 답변하세요:
     return prompt
 
 
+def build_esg_ai_prompt(
+    org_name: str,
+    org_type: str,            # "학교" | "급식소" | "교육청"
+    year: int,
+    month_label: str,         # 예) "2026년 전체", "2026년 4월"
+    esg_data: dict,           # school_get_esg / meal_get_esg 반환값
+    rows: list,               # real_collection raw rows (선택)
+    vendor: str = "",
+) -> str:
+    """ESG 보고서 AI 작성용 프롬프트.
+
+    출력 지침: 마크다운, 한국어, 5개 섹션(요약/상세/시사점/개선안/외부공개문구).
+    PDF 변환 시 헤더 레벨이 잘 보이도록 ## / ### 위주로 작성하도록 유도.
+    """
+    total_kg = esg_data.get("total_kg", "0")
+    food_kg = esg_data.get("food_kg", "0")
+    recycle_kg = esg_data.get("recycle_kg", "0")
+    general_kg = esg_data.get("general_kg", "0")
+    carbon = esg_data.get("carbon_reduced", "0")
+    tree = esg_data.get("tree_equivalent", "0")
+    carbon_t = esg_data.get("carbon_tons", "0")
+    count = esg_data.get("count", "0")
+
+    sample_lines = []
+    for r in (rows or [])[:8]:
+        sample_lines.append(
+            f"- {r.get('collect_date','')} | {r.get('item_type','')} | "
+            f"{r.get('weight','0')}kg | {r.get('vendor','')}"
+        )
+    sample_block = "\n".join(sample_lines) if sample_lines else "- (수거 원본 데이터 표본 없음)"
+
+    vendor_line = f"- 협력 수거업체: {vendor}\n" if vendor else ""
+
+    return f"""당신은 학교·공공기관 ESG 폐기물 감축 보고서를 작성하는 환경경영 컨설턴트입니다.
+아래 실측 데이터를 토대로 외부 공개 가능한 ESG 보고서 본문을 작성하세요.
+
+# 기관 정보
+- 기관 유형: {org_type}
+- 기관명: {org_name}
+- 보고 기간: {month_label}
+{vendor_line}- 보고 작성일 기준연도: {year}
+
+# 실측 집계 (zeroda 수거 데이터 기반)
+- 총 수거량: {total_kg} kg
+- 음식물 폐기물: {food_kg} kg
+- 재활용 폐기물: {recycle_kg} kg
+- 일반 폐기물: {general_kg} kg
+- 탄소 감축량: {carbon} kg CO₂ ({carbon_t} tCO₂)
+- 나무 환산: {tree} 그루
+- 수거 건수: {count} 건
+
+# 수거 원본 표본 (최대 8건)
+{sample_block}
+
+# 작성 지침
+1. **마크다운**으로 작성, 한국어, 5개 섹션 고정.
+2. 모든 섹션 제목은 `## 1. 요약` 형태의 H2 사용. 본문은 일반 단락.
+3. 숫자는 위에 제공된 값만 사용. 임의 추정 금지.
+4. 비교/벤치마크 수치를 만들어내지 말 것 (없으면 "비교 데이터 미제공"으로 명시).
+5. 톤: 공공기관·학부모 대상의 신뢰감 있는 어조.
+6. 분량: 섹션당 3~6 문장.
+
+# 필수 섹션
+## 1. 요약
+보고 기간 동안의 핵심 성과를 3~4문장으로 압축. 총 수거량, 탄소 감축 효과, 나무 환산 1건씩 포함.
+
+## 2. 폐기물 분류별 상세
+음식물/재활용/일반 각각의 배출량과 비중(%)을 계산해서 서술. 비중은 위 숫자로 직접 산출.
+
+## 3. 환경 영향 시사점
+탄소 감축량과 나무 환산 결과가 갖는 의미. 사회적·환경적 함의 1~2문단.
+
+## 4. 개선 권고
+이 데이터를 바탕으로 다음 분기에 시도해볼 만한 실행 과제 3개. 각 과제는 한 줄 제목 + 1~2문장 설명.
+
+## 5. 외부 공개 문구 (그대로 인용 가능)
+학부모 안내문·홈페이지 게시용으로 그대로 복사해서 쓸 수 있는 4~5문장 단락. 인용부호 없이 평문으로.
+
+지금 작성 시작.
+"""
+
+
 def call_claude_api(prompt: str, api_key: str = "") -> str:
     """Claude API 호출. 성공 시 응답 텍스트, 실패 시 에러 메시지 반환."""
     key = api_key or _get_api_key()
