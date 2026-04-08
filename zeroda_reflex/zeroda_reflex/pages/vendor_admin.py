@@ -2353,6 +2353,16 @@ def _stmt_send_panel() -> rx.Component:
                 rx.input(value=VendorState.rcv_address, on_change=VendorState.set_rcv_address, size="2"),
                 spacing="1",
             ),
+            rx.vstack(
+                rx.text("재활용자(처리자)", font_size="12px", color="#64748b", font_weight="600"),
+                rx.input(
+                    placeholder="재활용 처리업체명",
+                    value=VendorState.rcv_recycler,
+                    on_change=VendorState.set_rcv_recycler,
+                    size="2", width="100%",
+                ),
+                spacing="1", align="start", flex="1",
+            ),
             columns="2", spacing="3", width="100%",
         ),
 
