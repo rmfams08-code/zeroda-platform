@@ -1074,7 +1074,7 @@ def _schedule_section() -> rx.Component:
                             size="1",
                             variant="ghost",
                             color_scheme="red",
-                            on_click=DriverState.delete_collection_entry(c["rowid"]),
+                            on_click=DriverState.delete_collection_entry(c["id"]),
                             disabled=~AuthState.is_user_active,
                         ),
                         width="100%",

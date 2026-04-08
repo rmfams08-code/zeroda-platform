@@ -389,10 +389,15 @@ def save_daily_safety_checks_transaction(
                 created_at,
             )
 
-            conn.execute(
-                f"INSERT OR REPLACE INTO daily_safety_check ({cols}) VALUES ({placeholders})",
-                values,
+            # PG 호환: ON CONFLICT 사용. UNIQUE 제약: (vendor, driver, check_date, category)
+            upsert_sql = (
+                f"INSERT INTO daily_safety_check ({cols}) VALUES ({placeholders}) "
+                f"ON CONFLICT (vendor, driver, check_date, category) DO UPDATE SET "
+                f"check_items = EXCLUDED.check_items, "
+                f"fail_memo = EXCLUDED.fail_memo, "
+                f"created_at = EXCLUDED.created_at"
             )
+            conn.execute(upsert_sql, values)
 
         # 모든 INSERT가 성공한 후에만 COMMIT
         conn.commit()
@@ -414,7 +419,7 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT rowid, * FROM real_collection WHERE vendor=? AND driver=? AND collect_date=? ORDER BY created_at DESC",
+            "SELECT id, * FROM real_collection WHERE vendor=? AND driver=? AND collect_date=? ORDER BY created_at DESC",
             (vendor, driver, collect_date),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -431,9 +436,9 @@ def get_driver_collections_range(vendor: str, driver: str, date_from: str, date_
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT rowid, * FROM real_collection "
+            "SELECT id, * FROM real_collection "
             "WHERE vendor=? AND driver=? AND collect_date BETWEEN ? AND ? "
-            "ORDER BY collect_date DESC, rowid DESC",
+            "ORDER BY collect_date DESC, id DESC",
             (vendor, driver, date_from, date_to),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -599,10 +604,10 @@ def save_collection(
 
 
 def delete_collection(rowid: int) -> bool:
-    """수거 기록 삭제 (rowid 기반)"""
+    """수거 기록 삭제 (id 기반, 인자명은 호환성 위해 유지)"""
     conn = get_db()
     try:
-        conn.execute("DELETE FROM real_collection WHERE rowid = ?", (rowid,))
+        conn.execute("DELETE FROM real_collection WHERE id = ?", (rowid,))
         conn.commit()
         return True
     except Exception as e:
@@ -755,7 +760,7 @@ def get_today_processing(vendor: str, driver: str, confirm_date: str) -> list[di
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT rowid, * FROM processing_confirm "
+            "SELECT id, * FROM processing_confirm "
             "WHERE vendor=? AND driver=? AND confirm_date=? "
             "ORDER BY created_at DESC",
             (vendor, driver, confirm_date),
@@ -1944,19 +1949,24 @@ def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
         return False
     try:
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            """
+        # 백엔드 무관 현재시각 표현
+        if DB_BACKEND == "postgres":
+            _now_expr = "compat.datetime_now_localtime()"
+        else:
+            _now_expr = "datetime('now', 'localtime')"
+        result = conn.execute(
+            f"""
             UPDATE vendor_info
                SET stamp_path = ?,
-                   stamp_uploaded_at = datetime('now', 'localtime'),
+                   stamp_uploaded_at = {_now_expr},
                    stamp_updated_by = ?
              WHERE biz_name = ?
             """,
             (stamp_path, updated_by, vendor),
         )
         conn.commit()
-        ok = cur.rowcount > 0
+        # PgWrapper.execute() 는 rowcount 없으므로 True로 간주
+        ok = True
         conn.close()
         return ok
     except Exception as e:
