@@ -1640,19 +1640,30 @@ def _checkout_dialog() -> rx.Component:
 
 def _wake_word_bar() -> rx.Component:
     """기사 화면 상단 웨이크워드 토글 바."""
-    return rx.hstack(
-        rx.icon("mic", color=rx.cond(DriverState.wake_enabled, "green", "gray"), size=16),
-        rx.text(
-            "웨이크워드: ", DriverState.wake_status_text,
-            font_size="0.9em",
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("mic", color=rx.cond(DriverState.wake_enabled, "green", "gray"), size=16),
+            rx.text(
+                "웨이크워드: ", DriverState.wake_status_text,
+                font_size="0.9em",
+            ),
+            rx.spacer(),
+            rx.switch(
+                checked=DriverState.wake_enabled,
+                on_change=DriverState.toggle_wake_word,
+                color_scheme="green",
+            ),
+            rx.text("'수거' 라고 말하면 자동 입력", font_size="0.75em", color="gray"),
+            width="100%",
         ),
-        rx.spacer(),
-        rx.switch(
-            checked=DriverState.wake_enabled,
-            on_change=DriverState.toggle_wake_word,
-            color_scheme="green",
+        # 디버그 상태줄 — JS가 id="wake-debug-reflex" 텍스트를 직접 씀
+        rx.html(
+            "<div id='wake-debug-reflex' style='"
+            "width:100%;background:#fffde7;color:#333;font-size:13px;"
+            "font-family:monospace;padding:3px 8px;border-radius:4px;"
+            "border:1px solid #ffe082;min-height:22px;'>WAKE_DEBUG_INIT</div>"
         ),
-        rx.text("'수거' 라고 말하면 자동 입력", font_size="0.75em", color="gray"),
+        spacing="1",
         padding="6px 12px",
         border="1px solid #ddd",
         border_radius="8px",
@@ -1707,13 +1718,12 @@ def driver_page() -> rx.Component:
             _wake_word_bar(),
             _wake_settings_panel(),
 
-            # ── 웨이크워드 JS 인라인 주입 v2 (iOS Safari 대응) ──
+            # ── 웨이크워드 JS 인라인 주입 v3 (iOS + 디버그 강화) ──
             rx.script("""
-console.log("[WAKE] script loaded v2");
+console.log("[WAKE] script loaded v3");
 (function () {
   if (window.__zerodaWake) return;
 
-  // ── iOS 감지 ──
   var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
   var isPWA = window.navigator.standalone === true;
   console.log("[WAKE] isIOS=" + isIOS + " isPWA=" + isPWA);
@@ -1733,10 +1743,26 @@ console.log("[WAKE] script loaded v2");
   };
   var W = window.__zerodaWake;
 
-  // ── 디버그 상태 DOM 표시 ──
+  // ── 디버그 표시 (3중 보험) ──
+  function ts() {
+    var d = new Date();
+    return d.getHours() + ":" +
+      String(d.getMinutes()).padStart(2,"0") + ":" +
+      String(d.getSeconds()).padStart(2,"0");
+  }
+  function getOrCreateBodyBar() {
+    var el = document.getElementById("wake-body-bar");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "wake-body-bar";
+      el.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;"
+        + "background:#ffeb3b;color:#000;font-size:15px;font-family:monospace;"
+        + "padding:5px 10px;text-align:center;pointer-events:none;";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
   function setDebug(state, text) {
-    var el = document.getElementById("wake-debug");
-    if (!el) return;
     var icons = {
       "listen": "\uD83C\uDF99 \uB4E3\uB294 \uC911",
       "wait":   "\u23F8 \uB300\uAE30",
@@ -1744,7 +1770,15 @@ console.log("[WAKE] script loaded v2");
       "heard":  "\u2705 \uC778\uC2DD",
       "off":    "\u2014",
     };
-    el.textContent = (icons[state] || state) + (text ? ": " + text : "");
+    var msg = "[" + ts() + "] " + (icons[state] || state) + (text ? ": " + text : "");
+    console.log("[WAKE] " + msg);
+    // 1) body 최상단 바 (React 트리 외부 — 절대 사라지지 않음)
+    getOrCreateBodyBar().textContent = msg;
+    // 2) wake bar 안 황색 박스 (Reflex 컴포넌트, 리렌더 시 리셋될 수 있음)
+    var r = document.getElementById("wake-debug-reflex");
+    if (r) r.textContent = msg;
+    // 3) 탭 제목
+    document.title = "[WAKE " + state + "] zeroda";
   }
 
   function showToast(msg) {
@@ -1794,39 +1828,47 @@ console.log("[WAKE] script loaded v2");
     r.interimResults = false;
     r.maxAlternatives = 3;      // 여러 후보 받아서 매칭률 향상
 
+    r.onaudiostart = function() { console.log("[WAKE] onaudiostart"); };
+    r.onsoundstart = function() { console.log("[WAKE] onsoundstart"); };
+    r.onspeechstart = function() { console.log("[WAKE] onspeechstart"); setDebug("listen", "\uC74C\uC131 \uAC10\uC9C0\uB428"); };
+
     r.onstart = function() {
       W.starting = false;
       setDebug("listen", "");
-      console.log("[WAKE] listening...");
+      console.log("[WAKE] onstart — listening");
     };
 
     r.onresult = function(e) {
+      console.log("[WAKE] onresult fired, results.length=" + e.results.length);
       var txt = "";
-      // maxAlternatives 후보 전부 검사
       if (e.results && e.results[0]) {
         for (var i = 0; i < e.results[0].length; i++) {
           txt += e.results[0][i].transcript + " ";
         }
       }
       txt = txt.trim();
-      console.log("[WAKE] heard:", txt);
-      setDebug("heard", txt);
+
+      var startMatch  = matchKeyword(txt, W.keywords.start);
+      var stopMatch   = matchKeyword(txt, W.keywords.stop);
+      var cancelMatch = matchKeyword(txt, W.keywords.cancel);
+      var label = startMatch ? "(\uC2DC\uC791\u2705)" : stopMatch ? "(\uC885\uB8CC\u2705)" : cancelMatch ? "(\uCDE8\uC18C\u2705)" : "(\uBB34\uC77C\uCE58\u274C)";
+      setDebug("heard", "\u201C" + txt + "\u201D " + label);
 
       var now = Date.now();
       if (now - W.lastFireAt < 1500) return;
 
-      if (matchKeyword(txt, W.keywords.stop)) {
+      if (stopMatch) {
         W.lastFireAt = now;
         stopWakeWord();
         showToast("\uD83C\uDF99 \uC74C\uC131 \uC785\uB825 \uC885\uB8CC");
         return;
       }
-      if (matchKeyword(txt, W.keywords.cancel)) {
+      if (cancelMatch) {
         W.lastFireAt = now;
         window.dispatchEvent(new CustomEvent("zeroda-wake-cancel"));
         return;
       }
-      if (matchKeyword(txt, W.keywords.start)) {
+      if (startMatch) {
         W.lastFireAt = now;
         showToast("\uD83C\uDF99 \uD638\uCD9C \uAC10\uC9C0!");
         window.dispatchEvent(new CustomEvent("zeroda-wake"));
@@ -1836,18 +1878,18 @@ console.log("[WAKE] script loaded v2");
 
     r.onerror = function(e) {
       W.starting = false;
-      console.log("[WAKE] onerror:", e.error);
+      console.log("[WAKE] onerror: " + e.error);
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setDebug("error", "\uAD8C\uD55C \uAC70\uBD80");
         W.running = false; return;
       }
-      // no-speech, aborted, network, audio-capture → 재시작
       setDebug("error", e.error);
       if (W.running) setTimeout(safeStart, 400);
     };
 
     r.onend = function() {
       W.starting = false;
+      console.log("[WAKE] onend, running=" + W.running);
       if (W.running) {
         setDebug("wait", "");
         setTimeout(safeStart, 200);
@@ -1933,15 +1975,11 @@ console.log("[WAKE] script loaded v2");
                 display="none",
             ),
 
-            # 토스트 + 디버그 상태 영역
+            # 토스트 (별도 rx.html)
             rx.html(
                 "<div id='wake-toast' style='position:fixed;top:60px;left:50%;"
                 "transform:translateX(-50%);background:#333;color:#fff;"
                 "padding:8px 16px;border-radius:8px;display:none;z-index:9999;font-size:15px;'></div>"
-                "<div id='wake-debug' style='position:fixed;top:108px;left:50%;"
-                "transform:translateX(-50%);background:rgba(0,0,0,0.55);color:#0f0;"
-                "padding:4px 12px;border-radius:6px;z-index:9998;font-size:12px;"
-                "font-family:monospace;pointer-events:none;'>&#8212;</div>"
             ),
 
             # manifest 링크
