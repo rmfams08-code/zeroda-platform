@@ -1708,9 +1708,40 @@ def _sched_form_sub() -> rx.Component:
     )
 
 
+def _sched_sync_card() -> rx.Component:
+    """학사일정 NEIS 동기화 카드 (본사관리자)"""
+    return _card_box(
+        rx.vstack(
+            _section_header("calendar_sync", "학사일정 NEIS 동기화"),
+            rx.text(
+                "NEIS API에서 전체 학교 학사일정(방학·개학·공휴일 등)을 가져와 DB에 저장합니다.",
+                font_size="12px", color="#94a3b8",
+            ),
+            rx.hstack(
+                rx.button(
+                    rx.icon("refresh_cw", size=14),
+                    "학사일정 지금 갱신",
+                    color_scheme="indigo",
+                    size="2",
+                    loading=AdminState.sched_sync_running,
+                    on_click=AdminState.sync_all_school_schedules,
+                ),
+                rx.cond(
+                    AdminState.sched_sync_msg != "",
+                    rx.text(AdminState.sched_sync_msg, font_size="12px", color="#64748b"),
+                    rx.fragment(),
+                ),
+                spacing="3", align="center",
+            ),
+            spacing="3", width="100%",
+        ),
+    )
+
+
 def _neis_sub() -> rx.Component:
     """NEIS 급식일정 연동"""
     return rx.vstack(
+        _sched_sync_card(),
         _card_box(
             rx.vstack(
                 _section_header("utensils", "NEIS 급식일정 → 수거일정 자동 생성"),

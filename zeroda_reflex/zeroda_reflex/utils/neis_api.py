@@ -12,6 +12,7 @@ from datetime import datetime
 # ── API 설정 ──
 NEIS_BASE_URL = "https://open.neis.go.kr/hub"
 MEAL_ENDPOINT = "/mealServiceDietInfo"
+SCHED_ENDPOINT = "/SchoolSchedule"
 
 
 def _get_api_key() -> str:
@@ -147,6 +148,58 @@ def _parse_meal_response(data: dict, year: int, month: int) -> dict:
     except Exception as e:
         result["message"] = f"응답 파싱 오류: {e}"
 
+    return result
+
+
+def fetch_school_schedule(edu_code: str, school_code: str, from_ymd: str, to_ymd: str) -> list[dict]:
+    """NEIS 학사일정 API 조회 (SchoolSchedule).
+
+    Args:
+        edu_code: ATPT_OFCDC_SC_CODE (교육청코드 7자리)
+        school_code: SD_SCHUL_CODE (학교코드 7자리)
+        from_ymd: 조회 시작일 'YYYYMMDD'
+        to_ymd: 조회 종료일 'YYYYMMDD'
+
+    Returns:
+        [{'sched_date': 'YYYY-MM-DD', 'event_name': str, 'event_type': str, 'content': str}, ...]
+    """
+    key = _get_api_key()
+    if not key:
+        return []
+    params = {
+        "KEY": key,
+        "Type": "json",
+        "pIndex": 1,
+        "pSize": 500,
+        "ATPT_OFCDC_SC_CODE": edu_code,
+        "SD_SCHUL_CODE": school_code,
+        "AA_FROM_YMD": from_ymd,
+        "AA_TO_YMD": to_ymd,
+    }
+    url = NEIS_BASE_URL + SCHED_ENDPOINT + "?" + urllib.parse.urlencode(params)
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[neis_api] school_schedule 조회 실패: {e}")
+        return []
+    return _parse_sched_response(data)
+
+
+def _parse_sched_response(data: dict) -> list[dict]:
+    """NEIS 학사일정 API 응답 파싱."""
+    result = []
+    rows = (data.get("SchoolSchedule") or [{}, {}])[1].get("row") or []
+    for r in rows:
+        ymd = str(r.get("AA_YMD", ""))
+        if len(ymd) != 8:
+            continue
+        result.append({
+            "sched_date": f"{ymd[0:4]}-{ymd[4:6]}-{ymd[6:8]}",
+            "event_name": r.get("EVENT_NM", "") or "",
+            "event_type": r.get("SBTR_DD_SC_NM", "") or "",
+            "content": r.get("EVENT_CNTNT", "") or "",
+        })
     return result
 
 

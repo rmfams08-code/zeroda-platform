@@ -16,6 +16,10 @@ class VendorState(AuthState):
     selected_year: str = str(datetime.now().year)
     selected_month: str = str(datetime.now().month)
 
+    # ── 학사일정 동기화 ──
+    sched_sync_msg: str = ""
+    sched_sync_running: bool = False
+
     # ── 현재 활성 탭 ──
     active_tab: str = "수거현황"
 
@@ -3157,6 +3161,36 @@ class VendorState(AuthState):
                 filename=f"안전관리_{self.user_vendor}.xlsx"
             )
         return None
+
+    # ════════════════════════════════════════════
+    #  학사일정 동기화
+    # ════════════════════════════════════════════
+
+    @rx.event(background=True)
+    async def sync_my_school_schedules(self):
+        """소속 업체 학교 학사일정 NEIS 동기화 (백그라운드)."""
+        async with self:
+            if self.sched_sync_running:
+                return
+            self.sched_sync_running = True
+            self.sched_sync_msg = "학사일정 동기화 중..."
+        try:
+            from zeroda_reflex.utils.neis_sync_service import sync_all_schools
+            vendor = self.user_vendor
+            stats = sync_all_schools(vendor=vendor)
+            async with self:
+                self.sched_sync_msg = (
+                    f"완료: {stats['success']}/{stats['total_schools']}교, "
+                    f"일정 {stats['events']}건"
+                )
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).error(f"[vendor] sync_my_school_schedules 실패: {e}", exc_info=True)
+            async with self:
+                self.sched_sync_msg = f"동기화 실패: {e}"
+        finally:
+            async with self:
+                self.sched_sync_running = False
 
     # ════════════════════════════════════════════
     #  페이지 로드

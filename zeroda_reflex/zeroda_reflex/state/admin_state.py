@@ -187,6 +187,12 @@ class AdminState(AuthState):
     dash_tree_equivalent: str = "0"
 
     # ══════════════════════════════
+    #  학사일정 동기화
+    # ══════════════════════════════
+    sched_sync_msg: str = ""
+    sched_sync_running: bool = False
+
+    # ══════════════════════════════
     #  계정관리
     # ══════════════════════════════
     all_users: list[dict] = []
@@ -1043,6 +1049,34 @@ class AdminState(AuthState):
         self.acct_ok = ok
         self.acct_delete_open = False
         self.load_users()
+
+    # ══════════════════════════════
+    #  이벤트 — 학사일정 동기화
+    # ══════════════════════════════
+
+    @rx.event(background=True)
+    async def sync_all_school_schedules(self):
+        """전체 학교 학사일정 NEIS 동기화 (백그라운드)."""
+        async with self:
+            if self.sched_sync_running:
+                return
+            self.sched_sync_running = True
+            self.sched_sync_msg = "학사일정 동기화 중..."
+        try:
+            from zeroda_reflex.utils.neis_sync_service import sync_all_schools
+            stats = sync_all_schools()
+            async with self:
+                self.sched_sync_msg = (
+                    f"완료: {stats['success']}/{stats['total_schools']}교, "
+                    f"일정 {stats['events']}건"
+                )
+        except Exception as e:
+            logger.error(f"[admin] sync_all_school_schedules 실패: {e}", exc_info=True)
+            async with self:
+                self.sched_sync_msg = f"동기화 실패: {e}"
+        finally:
+            async with self:
+                self.sched_sync_running = False
 
     # ══════════════════════════════
     #  이벤트 — 수거데이터 (섹션B)
