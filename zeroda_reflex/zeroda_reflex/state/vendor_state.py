@@ -1235,24 +1235,29 @@ class VendorState(AuthState):
             except Exception:
                 od_amt = 0.0
             overdue_line = f"\n[미납] {int(od_amt):,}원" if od_amt > 0 else ""
+            contact = vinfo.get("contact", "") or ""
+            담당_line = f"\n담당: {self.user_vendor}"
+            if contact:
+                담당_line += f" {contact}"
             text = (
                 f"[{self.user_vendor}] 거래명세서\n"
                 f"거래처: {self.stmt_cust_sel}\n"
                 f"기간: {y}-{str(m).zfill(2)}\n"
                 f"합계: {int(self.stmt_grand_total):,}원"
-                f"{overdue_line}\n"
+                f"{overdue_line}"
+                f"{담당_line}\n"
                 f"\n▼ 명세서 PDF (7일간 유효)\n"
                 f"{url}"
             )
 
-            # [4] SMS 발송
+            # [4] SMS 발송 — vendor_name="" 로 footer 자동추가 차단 (URL이 마지막 줄 유지)
             self.detail_sms_msg = "SMS 발송 중..."
             yield
             ok, msg = _send_sms(
                 to_phone=self.rcv_phone,
                 message=text,
-                vendor_name=self.user_vendor,
-                vendor_contact=vinfo.get("contact", ""),
+                vendor_name="",
+                vendor_contact="",
             )
             self.detail_sms_ok = ok
             self.detail_sms_msg = "✅ PDF 링크 SMS 발송 완료" if ok else f"❌ {msg}"
