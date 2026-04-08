@@ -52,11 +52,16 @@ def register_page() -> rx.Component:
                 rx.vstack(
                     rx.text("비밀번호 *", size="2", weight="bold"),
                     rx.input(
-                        placeholder="최소 8자, 대문자+숫자+특수문자 포함",
+                        placeholder="최소 8자, 대·소문자+숫자+특수문자 포함",
                         type="password",
                         value=AuthState.reg_pw,
                         on_change=AuthState.set_reg_pw,
                         width="100%",
+                    ),
+                    rx.text(
+                        "8자 이상 · 대문자 · 소문자 · 숫자 · 특수문자(!@#$%^&* 등) 각 1자 이상",
+                        size="1",
+                        color="gray",
                     ),
                     spacing="1", width="100%",
                 ),
