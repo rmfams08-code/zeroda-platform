@@ -367,7 +367,7 @@ def call_claude_api(prompt: str, api_key: str = "") -> str:
     try:
         client = anthropic.Anthropic(api_key=key)
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=4000,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -431,7 +431,7 @@ def extract_weigh_ticket(image_bytes: bytes, api_key: str = "") -> dict:
 
         client = anthropic.Anthropic(api_key=key)
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=512,
             messages=[{
                 "role": "user",
