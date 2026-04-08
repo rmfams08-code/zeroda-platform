@@ -45,52 +45,62 @@ def _grade_badge(grade) -> rx.Component:
 # ══════════════════════════════════════════
 
 def _calendar_cell(cell: dict) -> rx.Component:
-    """달력 한 칸 렌더링 — 클릭 시 펼침/접힘."""
+    """달력 한 칸 렌더링 — 미니멀 디자인, 클릭 시 펼침/접힘."""
     is_selected = cell["date"] == MealState.expanded_date
     return rx.box(
         rx.vstack(
-            rx.text(
-                cell["day"],
-                font_size="12px",
-                font_weight="600",
-                color=rx.cond(
-                    cell["day"] == "", "transparent",
-                    rx.cond(is_selected, "#1d4ed8", "#1e293b"),
+            # 날짜 숫자 + 수거 dot (우상단)
+            rx.hstack(
+                rx.text(
+                    cell["day"],
+                    font_size="13px",
+                    font_weight="700",
+                    color=rx.cond(
+                        cell["day"] == "", "transparent",
+                        rx.cond(is_selected, "#1d4ed8", "#374151"),
+                    ),
+                    line_height="1.2",
                 ),
+                rx.spacer(),
+                rx.box(
+                    width="7px", height="7px",
+                    border_radius="50%",
+                    bg=rx.cond(cell["has_collect"] == "1", "#22c55e", "transparent"),
+                    flex_shrink="0",
+                ),
+                width="100%", align="center",
             ),
+            # 식단 등록 dot (하단 중앙)
             rx.cond(
                 cell["day"] != "",
-                rx.vstack(
-                    rx.cond(
-                        cell["has_menu"] == "1",
-                        rx.text("✅", font_size="10px"),
-                        rx.text("❌", font_size="10px", color="#ef4444"),
+                rx.hstack(
+                    rx.box(
+                        width="7px", height="7px",
+                        border_radius="50%",
+                        bg=rx.cond(cell["has_menu"] == "1", "#3b82f6", "#e2e8f0"),
                     ),
-                    rx.cond(
-                        cell["has_collect"] == "1",
-                        rx.text("🟢", font_size="10px"),
-                        rx.text("⚪", font_size="10px"),
-                    ),
-                    spacing="0",
+                    justify="center", width="100%",
                 ),
-                rx.text(""),
+                rx.box(height="7px"),
             ),
-            spacing="0",
-            align="center",
+            spacing="2", align="center", width="100%",
+            padding="6px 5px",
         ),
         on_click=MealState.toggle_day(cell["date"]),
         width="calc(100% / 7)",
-        min_height="58px",
-        border=rx.cond(is_selected, "2px solid #3b82f6", "1px solid #e2e8f0"),
-        border_radius="6px",
+        min_height="64px",
+        border=rx.cond(is_selected, "1.5px solid #3b82f6", "1px solid #e8ecf0"),
+        border_radius="8px",
         bg=rx.cond(
-            is_selected, "#dbeafe",
+            is_selected, "#eff6ff",
             rx.cond(cell["has_menu"] == "1", "#f0fdf4", "#ffffff"),
         ),
-        padding="3px",
         box_sizing="border-box",
         cursor=rx.cond(cell["day"] == "", "default", "pointer"),
-        _hover=rx.cond(cell["day"] == "", {}, {"opacity": "0.85"}),
+        _hover={
+            "box_shadow": rx.cond(cell["day"] == "", "none", "0 1px 4px rgba(0,0,0,0.08)"),
+            "border_color": rx.cond(cell["day"] == "", "#e8ecf0", "#93c5fd"),
+        },
     )
 
 
@@ -116,16 +126,21 @@ def _calendar_view() -> rx.Component:
                 rx.cond(
                     MealState.calendar_open,
                     rx.hstack(
-                        rx.text(
-                            "✅식단  ❌미등록  🟢수거완료  ⚪수거없음",
-                            font_size="10px", color="#94a3b8",
-                        ),
+                        rx.box(width="8px", height="8px", border_radius="50%",
+                               bg="#3b82f6", flex_shrink="0"),
+                        rx.text("식단", font_size="10px", color="#64748b"),
+                        rx.box(width="8px", height="8px", border_radius="50%",
+                               bg="#e2e8f0", flex_shrink="0"),
+                        rx.text("미등록", font_size="10px", color="#64748b"),
+                        rx.box(width="8px", height="8px", border_radius="50%",
+                               bg="#22c55e", flex_shrink="0"),
+                        rx.text("수거", font_size="10px", color="#64748b"),
                         rx.button(
                             rx.icon("refresh_cw", size=13),
                             size="1", variant="ghost",
                             on_click=MealState.load_meal_calendar,
                         ),
-                        spacing="2", align="center",
+                        spacing="1", align="center",
                     ),
                     rx.fragment(),
                 ),
@@ -150,7 +165,7 @@ def _calendar_view() -> rx.Component:
                             display="flex",
                             flex_wrap="wrap",
                             width="100%",
-                            gap="2px",
+                            gap="4px",
                         ),
                         rx.text("달력 데이터 없음", font_size="12px", color="#94a3b8"),
                     ),
@@ -348,6 +363,14 @@ def _menu_tab() -> rx.Component:
                 on_click=MealState.refresh_meal_dates,
             ),
             spacing="2", justify="end", width="100%",
+        ),
+        rx.callout(
+            "식단 날짜는 NEIS 원본 날짜 기준으로 등록됩니다. "
+            "수거 날짜(토→금 보정)와 식단 날짜가 다를 수 있으며 이는 정상입니다. "
+            "과거에 잘못된 날짜로 저장된 식단이 있다면 해당 항목을 삭제 후 재입력하거나 '급식식단 갱신'을 눌러 다시 불러오세요.",
+            icon="info",
+            color_scheme="blue",
+            size="1",
         ),
         _ym_filter(),
         # ── 달력형 식단 보기 (일별 시각화) ──
