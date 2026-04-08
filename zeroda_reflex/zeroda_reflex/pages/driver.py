@@ -1639,8 +1639,11 @@ def _checkout_dialog() -> rx.Component:
 
 
 def _wake_word_bar() -> rx.Component:
-    """기사 화면 상단 웨이크워드 토글 바."""
+    """기사 화면 상단 웨이크워드 토글 바.
+    JS가 isIOS 감지 후 wake-android-bar / wake-ios-notice 를 교체함.
+    """
     return rx.vstack(
+        # ── 안드로이드/데스크탑용 바 (iOS에서 JS가 숨김) ──
         rx.hstack(
             rx.icon("mic", color=rx.cond(DriverState.wake_enabled, "green", "gray"), size=16),
             rx.text(
@@ -1655,13 +1658,21 @@ def _wake_word_bar() -> rx.Component:
             ),
             rx.text("'수거' 라고 말하면 자동 입력", font_size="0.75em", color="gray"),
             width="100%",
+            id="wake-android-bar",
         ),
-        # 디버그 상태줄 — JS가 id="wake-debug-reflex" 텍스트를 직접 씀
+        # ── iOS 안내 (기본 숨김, JS가 isIOS 시 표시) ──
         rx.html(
-            "<div id='wake-debug-reflex' style='"
-            "width:100%;background:#fffde7;color:#333;font-size:13px;"
-            "font-family:monospace;padding:3px 8px;border-radius:4px;"
-            "border:1px solid #ffe082;min-height:22px;'>WAKE_DEBUG_INIT</div>"
+            "<div id='wake-ios-notice' style='display:none;width:100%;"
+            "background:#fff3e0;color:#5d4037;font-size:13px;padding:6px 10px;"
+            "border-radius:6px;border:1px solid #ffb74d;'>"
+            "\U0001f34e iPhone\uc740 \uc6e8\uc774\ud06c\uc6cc\ub4dc\ub97c \uc9c0\uc6d0\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. "
+            "\uc6b0\uce21 \U0001f3a4 \ubc84\ud2bc\uc744 \ub208\ub7ec \uc74c\uc131 \uc785\ub825\ud558\uc138\uc694.</div>"
+        ),
+        # ── 개발자 디버그줄 (?debug=1 일 때만 JS가 표시) ──
+        rx.html(
+            "<div id='wake-debug-reflex' style='display:none;width:100%;"
+            "background:#fffde7;color:#333;font-size:12px;font-family:monospace;"
+            "padding:3px 8px;border-radius:4px;border:1px solid #ffe082;'></div>"
         ),
         spacing="1",
         padding="6px 12px",
@@ -1673,7 +1684,7 @@ def _wake_word_bar() -> rx.Component:
 
 
 def _wake_settings_panel() -> rx.Component:
-    """호출명령 사용자 정의 — 웨이크워드 ON 시에만 표시."""
+    """호출명령 사용자 정의 — 웨이크워드 ON 시에만 표시 (iOS에서 JS가 숨김)."""
     return rx.cond(
         DriverState.wake_enabled,
         rx.vstack(
@@ -1718,16 +1729,40 @@ def driver_page() -> rx.Component:
             _wake_word_bar(),
             _wake_settings_panel(),
 
-            # ── 웨이크워드 JS 인라인 주입 v3 (iOS + 디버그 강화) ──
+            # ── 웨이크워드 JS 인라인 주입 v4 (iOS 차단 + debug ?debug=1) ──
             rx.script("""
-console.log("[WAKE] script loaded v3");
+console.log("[WAKE] script loaded v4");
 (function () {
   if (window.__zerodaWake) return;
 
-  var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  // ── iOS 감지 (iPhone/iPad/iPod + iPad desktop mode) ──
+  var ua = navigator.userAgent;
+  var isIOS = /iPhone|iPad|iPod/.test(ua) ||
+              (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   var isPWA = window.navigator.standalone === true;
-  console.log("[WAKE] isIOS=" + isIOS + " isPWA=" + isPWA);
+  var isDebug = window.location.search.indexOf("debug=1") !== -1;
+  console.log("[WAKE] isIOS=" + isIOS + " isPWA=" + isPWA + " isDebug=" + isDebug);
 
+  // ── iOS면 UI 교체 후 종료 ──
+  if (isIOS) {
+    document.addEventListener("DOMContentLoaded", applyIOS);
+    if (document.readyState !== "loading") applyIOS();
+    function applyIOS() {
+      var android = document.getElementById("wake-android-bar");
+      var notice  = document.getElementById("wake-ios-notice");
+      if (android) android.style.display = "none";
+      if (notice)  notice.style.display  = "block";
+    }
+    // 더미 객체만 등록 (startWakeWord 호출 시 아무것도 안 함)
+    window.__zerodaWake = { running: false };
+    window.zerodaWake   = {
+      start: function() { console.log("[WAKE] iOS — blocked"); },
+      stop:  function() {},
+    };
+    return;   // 이하 안드로이드 코드 실행 안 함
+  }
+
+  // ── 안드로이드 / 데스크탑 ──
   window.__zerodaWake = {
     recognition: null,
     running: false,
@@ -1743,7 +1778,7 @@ console.log("[WAKE] script loaded v3");
   };
   var W = window.__zerodaWake;
 
-  // ── 디버그 표시 (3중 보험) ──
+  // ── 디버그 (?debug=1 일 때만) ──
   function ts() {
     var d = new Date();
     return d.getHours() + ":" +
@@ -1756,8 +1791,8 @@ console.log("[WAKE] script loaded v3");
       el = document.createElement("div");
       el.id = "wake-body-bar";
       el.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;"
-        + "background:#ffeb3b;color:#000;font-size:15px;font-family:monospace;"
-        + "padding:5px 10px;text-align:center;pointer-events:none;";
+        + "background:#ffeb3b;color:#000;font-size:14px;font-family:monospace;"
+        + "padding:4px 10px;text-align:center;pointer-events:none;";
       document.body.appendChild(el);
     }
     return el;
@@ -1772,12 +1807,10 @@ console.log("[WAKE] script loaded v3");
     };
     var msg = "[" + ts() + "] " + (icons[state] || state) + (text ? ": " + text : "");
     console.log("[WAKE] " + msg);
-    // 1) body 최상단 바 (React 트리 외부 — 절대 사라지지 않음)
+    if (!isDebug) return;
     getOrCreateBodyBar().textContent = msg;
-    // 2) wake bar 안 황색 박스 (Reflex 컴포넌트, 리렌더 시 리셋될 수 있음)
     var r = document.getElementById("wake-debug-reflex");
-    if (r) r.textContent = msg;
-    // 3) 탭 제목
+    if (r) { r.textContent = msg; r.style.display = "block"; }
     document.title = "[WAKE " + state + "] zeroda";
   }
 
