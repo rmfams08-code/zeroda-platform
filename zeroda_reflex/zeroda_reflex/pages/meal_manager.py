@@ -45,14 +45,18 @@ def _grade_badge(grade) -> rx.Component:
 # ══════════════════════════════════════════
 
 def _calendar_cell(cell: dict) -> rx.Component:
-    """달력 한 칸 렌더링 (flat list용)"""
+    """달력 한 칸 렌더링 — 클릭 시 펼침/접힘."""
+    is_selected = cell["date"] == MealState.expanded_date
     return rx.box(
         rx.vstack(
             rx.text(
                 cell["day"],
                 font_size="12px",
                 font_weight="600",
-                color=rx.cond(cell["day"] == "", "transparent", "#1e293b"),
+                color=rx.cond(
+                    cell["day"] == "", "transparent",
+                    rx.cond(is_selected, "#1d4ed8", "#1e293b"),
+                ),
             ),
             rx.cond(
                 cell["day"] != "",
@@ -74,13 +78,19 @@ def _calendar_cell(cell: dict) -> rx.Component:
             spacing="0",
             align="center",
         ),
+        on_click=MealState.toggle_day(cell["date"]),
         width="calc(100% / 7)",
         min_height="58px",
-        border="1px solid #e2e8f0",
+        border=rx.cond(is_selected, "2px solid #3b82f6", "1px solid #e2e8f0"),
         border_radius="6px",
-        bg=rx.cond(cell["has_menu"] == "1", "#f0fdf4", "#ffffff"),
+        bg=rx.cond(
+            is_selected, "#dbeafe",
+            rx.cond(cell["has_menu"] == "1", "#f0fdf4", "#ffffff"),
+        ),
         padding="3px",
         box_sizing="border-box",
+        cursor=rx.cond(cell["day"] == "", "default", "pointer"),
+        _hover=rx.cond(cell["day"] == "", {}, {"opacity": "0.85"}),
     )
 
 
@@ -143,6 +153,118 @@ def _calendar_view() -> rx.Component:
                             gap="2px",
                         ),
                         rx.text("달력 데이터 없음", font_size="12px", color="#94a3b8"),
+                    ),
+                    # ── 선택된 날짜 상세 패널 ──
+                    rx.cond(
+                        MealState.expanded_date != "",
+                        rx.box(
+                            rx.vstack(
+                                # 헤더
+                                rx.hstack(
+                                    rx.icon("calendar_days", size=14, color="#3b82f6"),
+                                    rx.text(MealState.expanded_date,
+                                            font_size="14px", font_weight="700", color="#1e293b"),
+                                    rx.spacer(),
+                                    rx.button(
+                                        rx.icon("x", size=12),
+                                        size="1", variant="ghost", color_scheme="gray",
+                                        on_click=MealState.clear_expanded_date,
+                                    ),
+                                    spacing="2", align="center", width="100%",
+                                ),
+                                rx.divider(),
+                                # 식단 상세
+                                rx.cond(
+                                    MealState.has_selected_menu,
+                                    rx.vstack(
+                                        rx.hstack(
+                                            rx.text("🍽 메뉴", font_size="12px",
+                                                    font_weight="600", color="#64748b", width="72px"),
+                                            rx.text(MealState.selected_menu_items,
+                                                    font_size="13px", color="#1e293b"),
+                                            spacing="2", align="start", width="100%",
+                                        ),
+                                        rx.hstack(
+                                            rx.text("🔥 칼로리", font_size="12px",
+                                                    font_weight="600", color="#64748b", width="72px"),
+                                            rx.hstack(
+                                                rx.text(MealState.selected_calories,
+                                                        font_size="13px", color="#1e293b"),
+                                                rx.text("kcal", font_size="12px", color="#64748b"),
+                                                spacing="1",
+                                            ),
+                                            spacing="2", align="center", width="100%",
+                                        ),
+                                        rx.hstack(
+                                            rx.text("👥 배식", font_size="12px",
+                                                    font_weight="600", color="#64748b", width="72px"),
+                                            rx.hstack(
+                                                rx.text(MealState.selected_servings,
+                                                        font_size="13px", color="#1e293b"),
+                                                rx.text("명", font_size="12px", color="#64748b"),
+                                                spacing="1",
+                                            ),
+                                            spacing="2", align="center", width="100%",
+                                        ),
+                                        rx.hstack(
+                                            rx.spacer(),
+                                            rx.button(
+                                                rx.icon("trash_2", size=12), "식단 삭제",
+                                                size="1", variant="outline", color_scheme="red",
+                                                on_click=MealState.delete_selected_menu,
+                                                disabled=~AuthState.is_user_active,
+                                            ),
+                                            width="100%",
+                                        ),
+                                        spacing="2", width="100%",
+                                    ),
+                                    rx.text("이 날 식단이 등록되지 않았습니다.",
+                                            font_size="13px", color="#94a3b8"),
+                                ),
+                                rx.divider(),
+                                # 수거 상세
+                                rx.cond(
+                                    MealState.has_selected_collections,
+                                    rx.vstack(
+                                        rx.text("🚛 수거 기록",
+                                                font_size="12px", font_weight="600", color="#64748b"),
+                                        rx.foreach(
+                                            MealState.selected_collection_items,
+                                            lambda r: rx.hstack(
+                                                rx.text(r["item_type"],
+                                                        font_size="12px", color="#374151",
+                                                        min_width="60px"),
+                                                rx.hstack(
+                                                    rx.text(r["weight"],
+                                                            font_size="12px", font_weight="600",
+                                                            color="#1e293b"),
+                                                    rx.text("kg", font_size="11px", color="#64748b"),
+                                                    spacing="1",
+                                                ),
+                                                rx.badge(
+                                                    r["status"], size="1",
+                                                    color_scheme=rx.cond(
+                                                        r["status"] == "confirmed", "green",
+                                                        rx.cond(r["status"] == "submitted",
+                                                                "blue", "gray")),
+                                                ),
+                                                spacing="3", align="center", width="100%",
+                                            ),
+                                        ),
+                                        spacing="2", width="100%",
+                                    ),
+                                    rx.text("이 날 수거 기록이 없습니다.",
+                                            font_size="13px", color="#94a3b8"),
+                                ),
+                                spacing="3", padding="12px", width="100%",
+                            ),
+                            bg="#f8fafc",
+                            border="1px solid #bfdbfe",
+                            border_radius="8px",
+                            margin_top="4px",
+                            width="100%",
+                        ),
+                        rx.fragment(),
                     ),
                     spacing="2", width="100%",
                 ),
@@ -208,99 +330,8 @@ def _ym_filter() -> rx.Component:
 
 
 # ══════════════════════════════════════════
-#  탭1: 식단등록 (업로드 삭제 + 일별 아코디언)
+#  탭1: 식단등록 (달력 클릭 확장 + 상세 패널)
 # ══════════════════════════════════════════
-
-def _day_accordion_item(r) -> rx.Component:
-    """일별 식단 카드 — 클릭 시 펼침/접힘."""
-    is_open = r["meal_date"] == MealState.expanded_date
-    return rx.box(
-        # 헤더 (항상 표시, 클릭 가능)
-        rx.hstack(
-            rx.cond(
-                is_open,
-                rx.icon("chevron_down", size=14, color="#3b82f6"),
-                rx.icon("chevron_right", size=14, color="#64748b"),
-            ),
-            rx.text(r["meal_date"], font_size="13px", font_weight="600", color="#1e293b"),
-            rx.text(
-                r["menu_items"],
-                font_size="12px",
-                color="#64748b",
-                overflow="hidden",
-                white_space="nowrap",
-                text_overflow="ellipsis",
-                flex="1",
-            ),
-            rx.spacer(),
-            rx.hstack(
-                rx.icon("utensils", size=12, color="#94a3b8"),
-                rx.text(r["servings"], font_size="11px", color="#94a3b8"),
-                rx.text("명", font_size="11px", color="#94a3b8"),
-                spacing="1", align="center",
-            ),
-            on_click=MealState.toggle_day(r["meal_date"]),
-            cursor="pointer",
-            width="100%",
-            align="center",
-            spacing="2",
-            padding="10px 12px",
-            _hover={"bg": "#f1f5f9"},
-        ),
-        # 펼침 영역
-        rx.cond(
-            is_open,
-            rx.vstack(
-                rx.divider(),
-                rx.vstack(
-                    rx.hstack(
-                        rx.text("🍽 메뉴", font_size="12px", font_weight="600",
-                                color="#64748b", width="80px"),
-                        rx.text(r["menu_items"], font_size="13px", color="#1e293b"),
-                        spacing="2", align="start", width="100%",
-                    ),
-                    rx.hstack(
-                        rx.text("🔥 칼로리", font_size="12px", font_weight="600",
-                                color="#64748b", width="80px"),
-                        rx.hstack(
-                            rx.text(r["calories"], font_size="13px", color="#1e293b"),
-                            rx.text("kcal", font_size="12px", color="#64748b"),
-                            spacing="1",
-                        ),
-                        spacing="2", align="center", width="100%",
-                    ),
-                    rx.hstack(
-                        rx.text("👥 배식", font_size="12px", font_weight="600",
-                                color="#64748b", width="80px"),
-                        rx.hstack(
-                            rx.text(r["servings"], font_size="13px", color="#1e293b"),
-                            rx.text("명", font_size="12px", color="#64748b"),
-                            spacing="1",
-                        ),
-                        spacing="2", align="center", width="100%",
-                    ),
-                    spacing="2", width="100%", padding="10px 12px",
-                ),
-                rx.hstack(
-                    rx.spacer(),
-                    rx.button(
-                        rx.icon("trash_2", size=12), "삭제",
-                        size="1", variant="outline", color_scheme="red",
-                        on_click=MealState.delete_menu(r["meal_date"]),
-                        disabled=~AuthState.is_user_active,
-                    ),
-                    width="100%", padding="0 12px 10px 12px",
-                ),
-                spacing="0", width="100%", bg="#f8fafc",
-            ),
-            rx.fragment(),
-        ),
-        border="1px solid #e2e8f0",
-        border_radius="8px",
-        width="100%",
-        overflow="hidden",
-    )
-
 
 def _menu_tab() -> rx.Component:
     return rx.vstack(
@@ -396,25 +427,6 @@ def _menu_tab() -> rx.Component:
                 rx.button(rx.icon("save", size=14), "저장",
                            color_scheme="blue", size="2", on_click=MealState.save_menu,
                            disabled=~AuthState.is_user_active),
-                spacing="3", width="100%")),
-        # ── 일별 식단 (아코디언, 등록된 식단 테이블 대체) ──
-        _card(
-            rx.vstack(
-                rx.hstack(
-                    rx.text("일별 식단", font_size="14px", font_weight="600"),
-                    rx.badge(MealState.menu_count, color_scheme="blue", size="1"),
-                    rx.spacer(),
-                    rx.text("행을 클릭하면 상세가 펼쳐집니다",
-                            font_size="11px", color="#94a3b8"),
-                    spacing="2", align="center", width="100%"),
-                rx.cond(
-                    MealState.has_menus,
-                    rx.vstack(
-                        rx.foreach(MealState.menu_rows, _day_accordion_item),
-                        spacing="2", width="100%",
-                    ),
-                    rx.text("등록된 식단이 없습니다.", font_size="13px", color="#94a3b8",
-                             padding="20px", text_align="center")),
                 spacing="3", width="100%")),
         spacing="4", width="100%")
 
