@@ -1890,84 +1890,118 @@ class DriverState(AuthState):
     # ============================================================
     # 웨이크워드 P2-1 — 사용자 설정 로드/저장
     # ============================================================
+    @staticmethod
+    def _ensure_wake_tables(conn) -> None:
+        """wake_settings / wake_stats 테이블 없으면 자동 생성 (idempotent)."""
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS wake_settings ("
+            "  username TEXT PRIMARY KEY,"
+            "  keywords_start TEXT NOT NULL DEFAULT '수거,입력,기록,제로다',"
+            "  keywords_stop  TEXT NOT NULL DEFAULT '완료,끝,종료',"
+            "  keywords_cancel TEXT NOT NULL DEFAULT '취소',"
+            "  enabled_default INTEGER DEFAULT 0,"
+            "  updated_at TEXT DEFAULT (datetime('now','localtime'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS wake_stats ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  username TEXT NOT NULL,"
+            "  event_type TEXT NOT NULL,"
+            "  heard_text TEXT,"
+            "  matched_keyword TEXT,"
+            "  occurred_at TEXT DEFAULT (datetime('now','localtime'))"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wake_stats_user_date "
+            "ON wake_stats(username, occurred_at DESC)"
+        )
+        conn.commit()
+
     async def load_wake_settings(self):
         """로그인 직후 또는 driver_page mount 시 호출 — 사용자 호출명령 로드."""
-        from ..utils.database import get_db
-        auth = await self.get_state(AuthState)
-        username = auth.username or ""
-        if not username:
-            return
-        conn = get_db()
         try:
-            row = conn.execute(
-                "SELECT keywords_start, keywords_stop, enabled_default "
-                "FROM wake_settings WHERE username=?", (username,),
-            ).fetchone()
+            from ..utils.database import get_db
+            auth = await self.get_state(AuthState)
+            username = (auth.username or "").strip()
+            if not username:
+                return
+            conn = get_db()
+            try:
+                self._ensure_wake_tables(conn)
+                row = conn.execute(
+                    "SELECT keywords_start, keywords_stop, enabled_default "
+                    "FROM wake_settings WHERE username=?", (username,),
+                ).fetchone()
+            finally:
+                conn.close()
+            if row:
+                self.wake_keywords_start = row["keywords_start"] or self.wake_keywords_start
+                self.wake_keywords_stop = row["keywords_stop"] or self.wake_keywords_stop
+                if int(row["enabled_default"] or 0) == 1 and not self.wake_enabled:
+                    self.wake_enabled = True
+                    self.wake_status_text = "대기중"
         except Exception:
-            row = None
-        finally:
-            conn.close()
-        if row:
-            self.wake_keywords_start = row["keywords_start"] or self.wake_keywords_start
-            self.wake_keywords_stop = row["keywords_stop"] or self.wake_keywords_stop
-            if int(row["enabled_default"] or 0) == 1 and not self.wake_enabled:
-                self.wake_enabled = True
-                self.wake_status_text = "대기중"
+            pass  # 테이블 미생성 / auth 미초기화 등 — 기본값 유지
 
     async def save_wake_settings(self):
         """기사가 입력 폼에서 [저장] 누름 → DB upsert + JS 키워드 즉시 갱신."""
         import json as _json
-        from ..utils.database import get_db
-        auth = await self.get_state(AuthState)
-        username = auth.username or ""
-        if not username:
-            yield rx.toast.error("로그인 정보가 없습니다")
-            return
-
-        starts = ",".join([s.strip() for s in (self.wake_keywords_start or "").split(",") if s.strip()])
-        stops = ",".join([s.strip() for s in (self.wake_keywords_stop or "").split(",") if s.strip()])
-        if not starts:
-            starts = "수거,입력,기록,제로다"
-        if not stops:
-            stops = "완료,끝,종료"
-        self.wake_keywords_start = starts
-        self.wake_keywords_stop = stops
-
-        conn = get_db()
         try:
-            conn.execute(
-                "INSERT INTO wake_settings (username, keywords_start, keywords_stop, updated_at) "
-                "VALUES (?, ?, ?, datetime('now','localtime')) "
-                "ON CONFLICT(username) DO UPDATE SET "
-                "keywords_start=excluded.keywords_start, "
-                "keywords_stop=excluded.keywords_stop, "
-                "updated_at=excluded.updated_at",
-                (username, starts, stops),
-            )
-            conn.commit()
-        except Exception:
-            pass
-        finally:
-            conn.close()
+            from ..utils.database import get_db
+            auth = await self.get_state(AuthState)
+            username = (auth.username or "").strip()
+            if not username:
+                yield rx.toast.error("로그인 정보가 없습니다")
+                return
 
-        payload = _json.dumps(
-            {"start": starts.split(","), "stop": stops.split(","), "cancel": ["취소"]},
-            ensure_ascii=False,
-        )
-        yield rx.call_script(
-            "if(window.zerodaWake && window.__zerodaWake){"
-            "  Object.assign(window.__zerodaWake.keywords, " + payload + ");"
-            "}"
-        )
-        yield rx.toast.success("호출명령이 저장되었습니다")
+            starts = ",".join([s.strip() for s in (self.wake_keywords_start or "").split(",") if s.strip()])
+            stops = ",".join([s.strip() for s in (self.wake_keywords_stop or "").split(",") if s.strip()])
+            if not starts:
+                starts = "수거,입력,기록,제로다"
+            if not stops:
+                stops = "완료,끝,종료"
+            self.wake_keywords_start = starts
+            self.wake_keywords_stop = stops
+
+            conn = get_db()
+            try:
+                self._ensure_wake_tables(conn)
+                conn.execute(
+                    "INSERT INTO wake_settings (username, keywords_start, keywords_stop, updated_at) "
+                    "VALUES (?, ?, ?, datetime('now','localtime')) "
+                    "ON CONFLICT(username) DO UPDATE SET "
+                    "keywords_start=excluded.keywords_start, "
+                    "keywords_stop=excluded.keywords_stop, "
+                    "updated_at=excluded.updated_at",
+                    (username, starts, stops),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            payload = _json.dumps(
+                {"start": starts.split(","), "stop": stops.split(","), "cancel": ["취소"]},
+                ensure_ascii=False,
+            )
+            yield rx.call_script(
+                "if(window.zerodaWake && window.__zerodaWake){"
+                "  Object.assign(window.__zerodaWake.keywords, " + payload + ");"
+                "}"
+            )
+            yield rx.toast.success("호출명령이 저장되었습니다")
+        except Exception:
+            yield rx.toast.error("설정 저장 실패. 다시 시도해주세요.")
 
     async def log_wake_event(self, event_type: str, heard: str = "", matched: str = ""):
         """P2-3 — 인식 통계 저장 (wake_fired/voice_success/voice_failed/cancel)."""
-        from ..utils.database import get_db
         try:
+            from ..utils.database import get_db
             auth = await self.get_state(AuthState)
             conn = get_db()
             try:
+                self._ensure_wake_tables(conn)
                 conn.execute(
                     "INSERT INTO wake_stats (username, event_type, heard_text, matched_keyword) "
                     "VALUES (?, ?, ?, ?)",
