@@ -922,7 +922,7 @@ class AdminState(AuthState):
         user = next((u for u in self.all_users if u.get("user_id") == user_id), None)
         if not user:
             return
-        current = int(user.get("is_active", 1) or 1)
+        current = 1 if user.get("is_active") == 1 else 0
         new_val = 0 if current == 1 else 1
         ok = update_user_active(user_id, new_val)
         self.all_users = get_all_users()
