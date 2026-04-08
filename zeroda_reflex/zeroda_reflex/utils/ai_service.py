@@ -377,6 +377,112 @@ def call_claude_api(prompt: str, api_key: str = "") -> str:
         return f"[ERROR] API 호출 실패: {str(e)}"
 
 
+def extract_weigh_ticket(image_bytes: bytes, api_key: str = "") -> dict:
+    """계량표(대금표) 이미지 → OCR → 5개 필드 dict 반환.
+
+    반환 형식:
+    {
+        "process_time": "2026-04-08 14:23",  # 처리 일시 (없으면 null)
+        "gross_weight": 7520.0,               # 총중량 kg (없으면 null)
+        "net_weight": 3240.0,                 # 실중량 kg (없으면 null)
+        "vehicle_number": "12가3456",         # 차량번호 (없으면 null)
+        "processor_company": "OO자원",        # 처분업체 상호 (없으면 null)
+        "error": null                         # 오류 메시지 (성공 시 null)
+    }
+    """
+    import base64
+
+    key = api_key or _get_api_key()
+    if not key:
+        return {"error": "API 키가 설정되지 않았습니다. 서버 .env에 ANTHROPIC_API_KEY를 등록하세요.",
+                "process_time": None, "gross_weight": None, "net_weight": None,
+                "vehicle_number": None, "processor_company": None}
+
+    try:
+        import anthropic
+    except ImportError:
+        return {"error": "anthropic 패키지가 설치되지 않았습니다.",
+                "process_time": None, "gross_weight": None, "net_weight": None,
+                "vehicle_number": None, "processor_company": None}
+
+    _PROMPT = """이 이미지는 폐기물 수거 차량이 처리장에서 받은 계량표(대금표/계근표)입니다.
+아래 5개 항목을 이미지에서 추출하여 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력.
+
+추출 항목:
+- process_time: 처리 일시 (예: "2026-04-08 14:23", 날짜만 있으면 날짜만, 없으면 null)
+- gross_weight: 총중량 kg (숫자만, 톤 단위면 1000 곱해서 kg으로 환산, 없으면 null)
+- net_weight: 실중량 kg (총중량 - 공차중량, 숫자만, 없으면 null)
+- vehicle_number: 차량번호 (예: "12가3456", 없으면 null)
+- processor_company: 처분업체 상호명 (없으면 null)
+
+응답 형식 예시:
+{"process_time": "2026-04-08 14:23", "gross_weight": 7520.0, "net_weight": 3240.0, "vehicle_number": "12가3456", "processor_company": "OO자원"}"""
+
+    try:
+        b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
+        # 이미지 타입 추론 (JPEG/PNG)
+        media_type = "image/jpeg"
+        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+            media_type = "image/png"
+
+        client = anthropic.Anthropic(api_key=key)
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=512,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": b64,
+                        },
+                    },
+                    {"type": "text", "text": _PROMPT},
+                ],
+            }],
+        )
+        raw = message.content[0].text.strip()
+
+        # JSON 블록 추출
+        if "```json" in raw:
+            raw = raw[raw.index("```json") + 7: raw.index("```", raw.index("```json") + 7)]
+        elif "```" in raw:
+            raw = raw[raw.index("```") + 3: raw.rindex("```")]
+
+        parsed = json.loads(raw.strip())
+
+        # 숫자 필드 float 변환
+        for field in ("gross_weight", "net_weight"):
+            v = parsed.get(field)
+            if v is not None:
+                try:
+                    parsed[field] = float(v)
+                except (ValueError, TypeError):
+                    parsed[field] = None
+
+        parsed.setdefault("process_time", None)
+        parsed.setdefault("gross_weight", None)
+        parsed.setdefault("net_weight", None)
+        parsed.setdefault("vehicle_number", None)
+        parsed.setdefault("processor_company", None)
+        parsed["error"] = None
+        return parsed
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"계량표 OCR JSON 파싱 실패: {e} / raw={raw!r}")
+        return {"error": f"OCR 결과 파싱 실패: {e}",
+                "process_time": None, "gross_weight": None, "net_weight": None,
+                "vehicle_number": None, "processor_company": None}
+    except Exception as e:
+        logger.error(f"계량표 OCR API 오류: {e}")
+        return {"error": f"OCR 오류: {str(e)}",
+                "process_time": None, "gross_weight": None, "net_weight": None,
+                "vehicle_number": None, "processor_company": None}
+
+
 def parse_recommend_json(response: str) -> list[dict]:
     """AI 추천식단 응답에서 JSON 파싱"""
     try:
