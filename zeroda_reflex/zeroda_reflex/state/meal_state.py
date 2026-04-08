@@ -101,6 +101,7 @@ class MealState(AuthState):
     calendar_cells: list[dict] = []
     calendar_open: bool = True   # 달력 섹션 접기/펴기
     expanded_date: str = ""  # 일별 식단 펼침 (한 번에 한 날짜만)
+    collection_rows: list[dict] = []  # 달력 수거 상세 표시용
 
     # ══════════════════════════════
     #  수정3: 잔반 트렌드
@@ -196,6 +197,41 @@ class MealState(AuthState):
     @rx.var
     def has_calendar(self) -> bool:
         return len(self.calendar_cells) > 0
+
+    # ── 선택된 날짜 상세 (달력 펼침 패널용) ──
+
+    @rx.var
+    def has_selected_menu(self) -> bool:
+        return any(r.get("meal_date") == self.expanded_date for r in self.menu_rows)
+
+    @rx.var
+    def selected_menu_items(self) -> str:
+        for r in self.menu_rows:
+            if r.get("meal_date") == self.expanded_date:
+                return str(r.get("menu_items", ""))
+        return ""
+
+    @rx.var
+    def selected_calories(self) -> str:
+        for r in self.menu_rows:
+            if r.get("meal_date") == self.expanded_date:
+                return str(r.get("calories", "0"))
+        return "0"
+
+    @rx.var
+    def selected_servings(self) -> str:
+        for r in self.menu_rows:
+            if r.get("meal_date") == self.expanded_date:
+                return str(r.get("servings", "0"))
+        return "0"
+
+    @rx.var
+    def selected_collection_items(self) -> list[dict]:
+        return [r for r in self.collection_rows if r.get("collect_date") == self.expanded_date]
+
+    @rx.var
+    def has_selected_collections(self) -> bool:
+        return any(r.get("collect_date") == self.expanded_date for r in self.collection_rows)
 
     @rx.var
     def has_monthly_trend(self) -> bool:
@@ -460,6 +496,25 @@ class MealState(AuthState):
         else:
             self.expanded_date = date
 
+    def clear_expanded_date(self):
+        """달력 상세 패널 닫기."""
+        self.expanded_date = ""
+
+    def delete_selected_menu(self):
+        """expanded_date 식단 삭제."""
+        if not self.expanded_date:
+            return
+        ok = meal_delete_menu(self.site_name, self.expanded_date)
+        if ok:
+            self.msg = f"{self.expanded_date} 식단 삭제"
+            self.msg_ok = True
+            self.expanded_date = ""
+            self.load_menus()
+            self.load_meal_calendar()
+        else:
+            self.msg = "삭제 실패"
+            self.msg_ok = False
+
     def set_active_tab(self, tab: str):
         self.active_tab = tab
         self.msg = ""
@@ -480,6 +535,7 @@ class MealState(AuthState):
         if tab == "식단등록":
             self.load_menus()
             self.load_meal_calendar()
+            self.load_collections()
         elif tab == "스마트잔반분석":
             self.load_analysis()
         elif tab == "AI잔반분석":
@@ -972,6 +1028,15 @@ class MealState(AuthState):
                 filename=f"AI월말명세서_{self.site_name}_{y}-{str(m).zfill(2)}.pdf",
             )
         return None
+
+    def load_collections(self):
+        """달력 수거 상세용 — 현재 년/월 수거 기록 로드."""
+        try:
+            y = int(self.selected_year)
+            m = int(self.selected_month)
+        except (ValueError, TypeError):
+            return
+        self.collection_rows = school_filter_collections(self.site_name, y, m)
 
     # ══════════════════════════════
     #  탭5: 정산확인
