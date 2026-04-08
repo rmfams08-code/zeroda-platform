@@ -1186,6 +1186,18 @@ def _processing_section() -> rx.Component:
                         font_size="11px", color="#7c3aed",
                     ),
                 ),
+                rx.cond(
+                    DriverState.weighslip_preview_data_url != "",
+                    rx.image(
+                        src=DriverState.weighslip_preview_data_url,
+                        max_width="300px",
+                        max_height="400px",
+                        border_radius="8px",
+                        border="1px solid #e5e7eb",
+                        object_fit="contain",
+                    ),
+                    rx.fragment(),
+                ),
                 rx.button(
                     rx.icon("scan", size=14),
                     "OCR 자동 인식",
