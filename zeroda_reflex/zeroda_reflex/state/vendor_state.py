@@ -1236,13 +1236,13 @@ class VendorState(AuthState):
                 od_amt = 0.0
             overdue_line = f"\n[미납] {int(od_amt):,}원" if od_amt > 0 else ""
             text = (
-                f"[{self.user_vendor}]\n"
-                f"{y}년 {m}월 거래명세서\n"
+                f"[{self.user_vendor}] 거래명세서\n"
                 f"거래처: {self.stmt_cust_sel}\n"
+                f"기간: {y}-{str(m).zfill(2)}\n"
                 f"합계: {int(self.stmt_grand_total):,}원"
                 f"{overdue_line}\n"
-                f"\n명세서(PDF): {url}\n"
-                f"(링크는 7일간 유효)"
+                f"\n▼ 명세서 PDF (7일간 유효)\n"
+                f"{url}"
             )
 
             # [4] SMS 발송
