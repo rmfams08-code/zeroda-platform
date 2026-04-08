@@ -29,6 +29,7 @@ def save_statement_pdf_to_storage(pdf_bytes: bytes) -> tuple[str, str]:
         fpath = os.path.join(_STATEMENT_STORAGE_DIR, fname)
         with open(fpath, "wb") as f:
             f.write(pdf_bytes)
+        os.chmod(fpath, 0o644)  # www-data(nginx) 읽기 허용
         url = f"{_STATEMENT_URL_BASE}/{fname}"
         return url, fpath
     except Exception as e:
