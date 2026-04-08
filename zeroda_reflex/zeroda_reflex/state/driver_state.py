@@ -414,6 +414,7 @@ class DriverState(AuthState):
     weighslip_ocr_company: str = ""
     weighslip_photo_path: str = ""
     weighslip_ocr_done: bool = False
+    weighslip_preview_data_url: str = ""  # base64 썸네일 미리보기
 
     # ── 거래처별 수거 입력 (일정 카드 통합) ──
     # 입력값은 schedule_schools 각 아이템에 직접 포함:
@@ -1557,6 +1558,7 @@ class DriverState(AuthState):
         self.weighslip_ocr_loading = True
         self.weighslip_ocr_error = ""
         self.weighslip_ocr_done = False
+        self.weighslip_preview_data_url = ""
         yield
 
         try:
@@ -1568,6 +1570,15 @@ class DriverState(AuthState):
             f = files[0]
             raw = await f.read()
             print(f"[WEIGHSLIP] file read OK, size={len(raw)}, name={f.filename}")
+
+            # 썸네일 data URL 생성 (OCR 중 미리보기)
+            import base64 as _b64
+            _ext = os.path.splitext(f.filename or "")[1].lower()
+            _mime = "image/png" if _ext == ".png" else "image/jpeg"
+            self.weighslip_preview_data_url = (
+                "data:" + _mime + ";base64," + _b64.b64encode(raw).decode()
+            )
+            yield
 
             if len(raw) > MAX_SIZE:
                 self.weighslip_ocr_error = "파일 크기 10MB 초과."
@@ -1672,6 +1683,7 @@ class DriverState(AuthState):
             self.weighslip_ocr_vehicle_number = ""
             self.weighslip_ocr_company = ""
             self.weighslip_photo_path = ""
+            self.weighslip_preview_data_url = ""
             self.weighslip_ocr_done = False
             self._load_today_processing()
         else:
