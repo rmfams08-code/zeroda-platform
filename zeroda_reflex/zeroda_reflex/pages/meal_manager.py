@@ -185,6 +185,18 @@ def _ym_filter() -> rx.Component:
 def _menu_tab() -> rx.Component:
     return rx.vstack(
         _header("calendar", "식단 등록"),
+        # 학사일정 갱신 버튼
+        rx.hstack(
+            rx.button(
+                rx.icon("refresh_cw", size=14),
+                "학사일정 갱신",
+                color_scheme="indigo",
+                variant="soft",
+                size="2",
+                on_click=MealState.refresh_meal_dates,
+            ),
+            spacing="2", justify="end", width="100%",
+        ),
         _ym_filter(),
         # 수정1: 달력형 식단 보기
         _calendar_view(),

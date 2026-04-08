@@ -449,6 +449,11 @@ class MealState(AuthState):
     #  탭 전환 / 필터
     # ══════════════════════════════
 
+    def refresh_meal_dates(self):
+        """학사일정 갱신 후 현재 탭 데이터 새로고침."""
+        self.msg = ""
+        self.load_tab_data()
+
     def set_active_tab(self, tab: str):
         self.active_tab = tab
         self.msg = ""

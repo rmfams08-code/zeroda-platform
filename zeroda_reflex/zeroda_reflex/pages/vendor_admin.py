@@ -1532,6 +1532,24 @@ def _sched_neis_panel() -> rx.Component:
     label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
     return rx.vstack(
         _section_header("link", "NEIS 급식일정 연동"),
+        # ── 학사일정 동기화 ──
+        rx.hstack(
+            rx.button(
+                rx.icon("refresh_cw", size=14),
+                "학사일정 지금 갱신",
+                color_scheme="indigo",
+                size="2",
+                loading=VendorState.sched_sync_running,
+                on_click=VendorState.sync_my_school_schedules,
+            ),
+            rx.cond(
+                VendorState.sched_sync_msg != "",
+                rx.text(VendorState.sched_sync_msg, font_size="12px", color="#64748b"),
+                rx.fragment(),
+            ),
+            spacing="3", align="center",
+        ),
+        rx.separator(),
         rx.hstack(
             rx.vstack(
                 rx.text("조회 월 (YYYY-MM)", **label_st),
