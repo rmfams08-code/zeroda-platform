@@ -2888,6 +2888,45 @@ def _daily_check_sub() -> rx.Component:
     )
 
 
+def _wake_stats_panel() -> rx.Component:
+    """웨이크워드 인식 정확도 통계 카드."""
+    return rx.vstack(
+        rx.heading("웨이크워드 사용 통계", size="5"),
+        rx.hstack(
+            rx.button(
+                "최근 1일",
+                on_click=[AdminState.set_wake_stats_period("1d"), AdminState.load_wake_stats],
+                size="1",
+            ),
+            rx.button(
+                "최근 7일",
+                on_click=[AdminState.set_wake_stats_period("7d"), AdminState.load_wake_stats],
+                size="1",
+            ),
+            rx.button(
+                "최근 30일",
+                on_click=[AdminState.set_wake_stats_period("30d"), AdminState.load_wake_stats],
+                size="1",
+            ),
+            spacing="2",
+        ),
+        rx.foreach(
+            AdminState.wake_stats_rows,
+            lambda r: rx.hstack(
+                rx.text(r["username"], width="120px", font_weight="bold"),
+                rx.text("호출 ", r["fired"], "회", width="100px"),
+                rx.text("성공 ", r["success"], "회", width="100px", color="green"),
+                rx.text("실패 ", r["failed"], "회", width="100px", color="red"),
+                rx.text("취소 ", r["cancel"], "회", width="100px", color="gray"),
+                rx.text("정확도 ", r["accuracy"], width="120px", font_weight="bold"),
+                spacing="2",
+            ),
+        ),
+        spacing="2",
+        width="100%",
+    )
+
+
 def _driver_monitor_sub() -> rx.Component:
     """기사 활동 모니터링 서브탭"""
     return rx.vstack(
@@ -2935,6 +2974,7 @@ def _driver_monitor_sub() -> rx.Component:
                 spacing="3", width="100%",
             ),
         ),
+        _card_box(_wake_stats_panel()),
         spacing="3", width="100%",
     )
 
