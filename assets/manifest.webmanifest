@@ -1,0 +1,16 @@
+{
+  "name": "zeroda 기사모드",
+  "short_name": "zeroda",
+  "description": "폐기물 수집·운반 기사 전용 음성 입력 앱",
+  "start_url": "/driver",
+  "scope": "/driver",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1e7e34",
+  "background_color": "#ffffff",
+  "lang": "ko-KR",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

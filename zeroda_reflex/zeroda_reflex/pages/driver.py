@@ -1638,10 +1638,112 @@ def _checkout_dialog() -> rx.Component:
     )
 
 
+def _wake_word_bar() -> rx.Component:
+    """기사 화면 상단 웨이크워드 토글 바."""
+    return rx.hstack(
+        rx.icon("mic", color=rx.cond(DriverState.wake_enabled, "green", "gray"), size=16),
+        rx.text(
+            "웨이크워드: ", DriverState.wake_status_text,
+            font_size="0.9em",
+        ),
+        rx.spacer(),
+        rx.switch(
+            checked=DriverState.wake_enabled,
+            on_change=DriverState.toggle_wake_word,
+            color_scheme="green",
+        ),
+        rx.text("'수거' 라고 말하면 자동 입력", font_size="0.75em", color="gray"),
+        padding="6px 12px",
+        border="1px solid #ddd",
+        border_radius="8px",
+        width="100%",
+        background="#fafafa",
+    )
+
+
+def _wake_settings_panel() -> rx.Component:
+    """호출명령 사용자 정의 — 웨이크워드 ON 시에만 표시."""
+    return rx.cond(
+        DriverState.wake_enabled,
+        rx.vstack(
+            rx.hstack(
+                rx.text("시작 명령:", font_size="0.85em", width="80px"),
+                rx.input(
+                    value=DriverState.wake_keywords_start,
+                    on_change=DriverState.set_wake_keywords_start,
+                    placeholder="수거,입력,기록,제로다",
+                    width="60%",
+                ),
+            ),
+            rx.hstack(
+                rx.text("종료 명령:", font_size="0.85em", width="80px"),
+                rx.input(
+                    value=DriverState.wake_keywords_stop,
+                    on_change=DriverState.set_wake_keywords_stop,
+                    placeholder="완료,끝,종료",
+                    width="60%",
+                ),
+            ),
+            rx.button(
+                "저장",
+                on_click=DriverState.save_wake_settings,
+                size="1",
+                color_scheme="green",
+            ),
+            spacing="1",
+            padding="6px 12px",
+            background="#f5f5f5",
+            border_radius="6px",
+            width="100%",
+        ),
+    )
+
+
 def driver_page() -> rx.Component:
     """기사 대시보드 메인 페이지"""
     return rx.box(
         rx.vstack(
+            # ── 웨이크워드 (페이지 최상단) ──
+            _wake_word_bar(),
+            _wake_settings_panel(),
+
+            # ── 외부 JS + 이벤트 브릿지 (사례5: src 고정 경로, Var 결합 없음) ──
+            rx.script(src="/wake_word.js"),
+            rx.script(
+                "window.addEventListener('zeroda-wake-relay', function(){"
+                "  var btn = document.getElementById('wake-trigger-btn');"
+                "  if (btn) btn.click();"
+                "});"
+                "window.addEventListener('zeroda-wake-cancel', function(){"
+                "  var btn = document.getElementById('wake-cancel-btn');"
+                "  if (btn) btn.click();"
+                "});"
+            ),
+
+            # 숨김 트리거 버튼 (JS 이벤트 → Reflex state 브릿지)
+            rx.button(
+                "wake-trigger",
+                id="wake-trigger-btn",
+                on_click=DriverState.on_wake_triggered,
+                display="none",
+            ),
+            rx.button(
+                "wake-cancel",
+                id="wake-cancel-btn",
+                on_click=DriverState.on_wake_cancel,
+                display="none",
+            ),
+
+            # 토스트 영역
+            rx.html(
+                "<div id='wake-toast' style='position:fixed;top:60px;left:50%;"
+                "transform:translateX(-50%);background:#333;color:#fff;"
+                "padding:8px 16px;border-radius:8px;display:none;z-index:9999;'></div>"
+            ),
+
+            # manifest 링크
+            rx.html("<link rel='manifest' href='/manifest.webmanifest'>"),
+
             rx.cond(
                 ~AuthState.is_user_active,
                 rx.callout(
@@ -1680,6 +1782,7 @@ def driver_page() -> rx.Component:
             max_width="500px",
             margin="0 auto",
             padding="16px",
+            on_mount=DriverState.load_wake_settings,
         ),
         bg="#f1f5f9",
         min_height="100vh",

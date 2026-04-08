@@ -385,6 +385,12 @@ class DriverState(AuthState):
     voice_pick_weight: str = ""
     voice_pick_date: str = ""
 
+    # ── 웨이크워드 ──
+    wake_enabled: bool = False
+    wake_status_text: str = "꺼짐"
+    wake_keywords_start: str = "수거,입력,기록,제로다"
+    wake_keywords_stop: str = "완료,끝,종료"
+
     # ── 스쿨존 ──
     schoolzone_enabled: bool = False
 
@@ -897,7 +903,7 @@ class DriverState(AuthState):
             callback=DriverState.handle_global_voice_result,
         )
 
-    def handle_global_voice_result(self, combined: str):
+    async def handle_global_voice_result(self, combined: str):
         """전역 음성 인식 결과 → 파싱 → 확인 다이얼로그 표시.
         combined 형식: 'lat,lng|transcript' (섹션 6)
         """
@@ -914,6 +920,7 @@ class DriverState(AuthState):
 
         if not text or text in ("지원안됨", ""):
             self.voice_result = "음성 인식 실패"
+            await self.log_wake_event("voice_failed", heard=text)
             yield rx.toast.warning("음성 인식에 실패했습니다. 다시 시도해 주세요.")
             return
 
@@ -1002,6 +1009,7 @@ class DriverState(AuthState):
             return
 
         self.voice_match_failed = False
+        await self.log_wake_event("voice_success", heard=text)
         self.voice_confirm_open = True
 
     def confirm_voice_apply(self):
@@ -1846,3 +1854,135 @@ class DriverState(AuthState):
             self.checkout_time = datetime.now().strftime("%H:%M:%S")
 
         self.checkout_dialog_open = False
+
+    # ============================================================
+    # 웨이크워드 P1 — 토글 ON/OFF + 이벤트 핸들러
+    # ============================================================
+    def toggle_wake_word(self):
+        """기사가 토글 버튼을 누름 → JS startWakeWord/stopWakeWord 호출."""
+        self.wake_enabled = not self.wake_enabled
+        if self.wake_enabled:
+            self.wake_status_text = "대기중"
+            yield rx.call_script(
+                "(function(){"
+                "  if (window.zerodaWake) {"
+                "    window.zerodaWake.start();"
+                "    window.addEventListener('zeroda-wake', function(){"
+                "      window.dispatchEvent(new CustomEvent('zeroda-wake-relay'));"
+                "    }, {once: false});"
+                "  } else { console.warn('wake_word.js 미로딩'); }"
+                "})()"
+            )
+        else:
+            self.wake_status_text = "꺼짐"
+            yield rx.call_script(
+                "if (window.zerodaWake) window.zerodaWake.stop();"
+            )
+
+    async def on_wake_triggered(self):
+        """JS 'zeroda-wake' 이벤트가 감지되면 자동 호출 — 기존 음성입력 시작."""
+        if not self.wake_enabled:
+            return
+        self.wake_status_text = "인식중"
+        await self.log_wake_event("wake_fired")
+        return DriverState.start_global_voice
+
+    # ============================================================
+    # 웨이크워드 P2-1 — 사용자 설정 로드/저장
+    # ============================================================
+    async def load_wake_settings(self):
+        """로그인 직후 또는 driver_page mount 시 호출 — 사용자 호출명령 로드."""
+        from ..utils.database import get_db
+        auth = await self.get_state(AuthState)
+        username = auth.username or ""
+        if not username:
+            return
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT keywords_start, keywords_stop, enabled_default "
+                "FROM wake_settings WHERE username=?", (username,),
+            ).fetchone()
+        except Exception:
+            row = None
+        finally:
+            conn.close()
+        if row:
+            self.wake_keywords_start = row["keywords_start"] or self.wake_keywords_start
+            self.wake_keywords_stop = row["keywords_stop"] or self.wake_keywords_stop
+            if int(row["enabled_default"] or 0) == 1 and not self.wake_enabled:
+                self.wake_enabled = True
+                self.wake_status_text = "대기중"
+
+    async def save_wake_settings(self):
+        """기사가 입력 폼에서 [저장] 누름 → DB upsert + JS 키워드 즉시 갱신."""
+        import json as _json
+        from ..utils.database import get_db
+        auth = await self.get_state(AuthState)
+        username = auth.username or ""
+        if not username:
+            return rx.toast.error("로그인 정보가 없습니다")
+
+        starts = ",".join([s.strip() for s in (self.wake_keywords_start or "").split(",") if s.strip()])
+        stops = ",".join([s.strip() for s in (self.wake_keywords_stop or "").split(",") if s.strip()])
+        if not starts:
+            starts = "수거,입력,기록,제로다"
+        if not stops:
+            stops = "완료,끝,종료"
+        self.wake_keywords_start = starts
+        self.wake_keywords_stop = stops
+
+        conn = get_db()
+        try:
+            conn.execute(
+                "INSERT INTO wake_settings (username, keywords_start, keywords_stop, updated_at) "
+                "VALUES (?, ?, ?, datetime('now','localtime')) "
+                "ON CONFLICT(username) DO UPDATE SET "
+                "keywords_start=excluded.keywords_start, "
+                "keywords_stop=excluded.keywords_stop, "
+                "updated_at=excluded.updated_at",
+                (username, starts, stops),
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+        payload = _json.dumps(
+            {"start": starts.split(","), "stop": stops.split(","), "cancel": ["취소"]},
+            ensure_ascii=False,
+        )
+        yield rx.call_script(
+            "if(window.zerodaWake && window.__zerodaWake){"
+            "  Object.assign(window.__zerodaWake.keywords, " + payload + ");"
+            "}"
+        )
+        return rx.toast.success("호출명령이 저장되었습니다")
+
+    async def log_wake_event(self, event_type: str, heard: str = "", matched: str = ""):
+        """P2-3 — 인식 통계 저장 (wake_fired/voice_success/voice_failed/cancel)."""
+        from ..utils.database import get_db
+        try:
+            auth = await self.get_state(AuthState)
+            conn = get_db()
+            try:
+                conn.execute(
+                    "INSERT INTO wake_stats (username, event_type, heard_text, matched_keyword) "
+                    "VALUES (?, ?, ?, ?)",
+                    (auth.username or "", event_type, heard[:200], matched[:50]),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass  # 통계 실패는 무시
+
+    # ============================================================
+    # 웨이크워드 P2-3 — 취소 이벤트 핸들러
+    # ============================================================
+    async def on_wake_cancel(self):
+        """JS 'zeroda-wake-cancel' 이벤트 → 통계 기록 + 토스트."""
+        await self.log_wake_event("cancel")
+        self.voice_active = False
+        return rx.toast.info("음성 입력이 취소되었습니다")

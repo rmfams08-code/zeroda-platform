@@ -3606,3 +3606,39 @@ class AdminState(AuthState):
             self.stamp_upload_status = f"❌ 업로드 오류: {e}"
         finally:
             self.stamp_upload_loading = False
+
+    # ============================================================
+    # 웨이크워드 P2-3 — 사용 통계 조회
+    # ============================================================
+    wake_stats_rows: list[dict] = []
+    wake_stats_period: str = "7d"
+
+    async def load_wake_stats(self):
+        """기간별 사용자 호출 통계."""
+        from ..utils.database import get_db
+        days = {"1d": 1, "7d": 7, "30d": 30}.get(self.wake_stats_period, 7)
+        conn = get_db()
+        try:
+            cur = conn.execute(
+                "SELECT username, "
+                "  SUM(CASE WHEN event_type='wake_fired'    THEN 1 ELSE 0 END) AS fired, "
+                "  SUM(CASE WHEN event_type='voice_success' THEN 1 ELSE 0 END) AS success, "
+                "  SUM(CASE WHEN event_type='voice_failed'  THEN 1 ELSE 0 END) AS failed, "
+                "  SUM(CASE WHEN event_type='cancel'        THEN 1 ELSE 0 END) AS cancel "
+                "FROM wake_stats "
+                "WHERE occurred_at >= datetime('now', ?) "
+                "GROUP BY username ORDER BY fired DESC",
+                (f"-{days} days",),
+            )
+            rows = []
+            for r in cur.fetchall():
+                d = dict(r)
+                fired = int(d.get("fired") or 0)
+                succ = int(d.get("success") or 0)
+                d["accuracy"] = f"{(succ * 100 / fired):.1f}%" if fired else "-"
+                rows.append(d)
+            self.wake_stats_rows = rows
+        except Exception:
+            self.wake_stats_rows = []
+        finally:
+            conn.close()
