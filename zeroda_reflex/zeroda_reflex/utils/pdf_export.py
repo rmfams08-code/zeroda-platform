@@ -184,7 +184,37 @@ def build_edu_office_esg_pdf(
 
 
 # ══════════════════════════════════════════
-#  6. 안전관리 보고서 PDF (학교 · 교육청 공용)
+#  6. AI ESG 보고서 PDF (모드 공용)
+# ══════════════════════════════════════════
+
+def build_ai_esg_pdf(
+    org_name: str,
+    org_type: str,        # "학교" | "급식소" | "교육청"
+    year: int,
+    month_label: str,
+    ai_markdown: str,
+    esg_summary: dict,
+    vendor: str = "",
+) -> bytes | None:
+    """AI ESG 보고서 PDF 바이트 반환.
+    ai_markdown: build_esg_ai_prompt → call_claude_api 결과 텍스트.
+    esg_summary: school_get_esg / meal_get_esg 반환 dict.
+    """
+    gen = _import_generator()
+    if not gen:
+        return None
+    try:
+        return gen.generate_ai_esg_pdf(
+            org_name, org_type, year, month_label,
+            ai_markdown, esg_summary, vendor,
+        )
+    except Exception as e:
+        logger.error(f"AI ESG PDF 생성 실패: {e}")
+        return None
+
+
+# ══════════════════════════════════════════
+#  7. 안전관리 보고서 PDF (학교 · 교육청 공용)
 # ══════════════════════════════════════════
 
 def build_safety_report_pdf(

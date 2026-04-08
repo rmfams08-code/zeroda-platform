@@ -1632,6 +1632,144 @@ def generate_school_esg_pdf(school_name: str, year: int, month_label: str,
     return buffer.getvalue()
 
 
+def generate_ai_esg_pdf(
+    org_name: str,
+    org_type: str,
+    year: int,
+    month_label: str,
+    ai_markdown: str,
+    esg_summary: dict,
+    vendor: str = "",
+) -> bytes:
+    """AI ESG 보고서 PDF 생성 (마크다운 → 단순 PDF).
+
+    구성:
+      1) 표지: 기관명, 기간, 작성일
+      2) 핵심 KPI 표 (총 수거량, 탄소 감축, 나무 환산)
+      3) AI 본문 (마크다운 변환)
+      4) 푸터: zeroda 작성 표기
+    """
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    )
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    # ── 한글 폰트 등록 ──
+    try:
+        pdfmetrics.registerFont(TTFont("Nanum", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"))
+        pdfmetrics.registerFont(TTFont("Nanum-B", "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"))
+        font_normal, font_bold = "Nanum", "Nanum-B"
+    except Exception:
+        font_normal, font_bold = "Helvetica", "Helvetica-Bold"
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=18 * mm, rightMargin=18 * mm,
+        topMargin=20 * mm, bottomMargin=18 * mm,
+        title=f"{org_name} AI ESG 보고서 {year}",
+    )
+
+    base = getSampleStyleSheet()["Normal"]
+    style_title = ParagraphStyle(
+        "aesg_title", parent=base, fontName=font_bold, fontSize=20,
+        leading=26, spaceAfter=8, textColor=colors.HexColor("#1e293b"),
+    )
+    style_subtitle = ParagraphStyle(
+        "aesg_subtitle", parent=base, fontName=font_normal, fontSize=11,
+        leading=16, spaceAfter=14, textColor=colors.HexColor("#64748b"),
+    )
+    style_h2 = ParagraphStyle(
+        "aesg_h2", parent=base, fontName=font_bold, fontSize=14,
+        leading=20, spaceBefore=14, spaceAfter=6,
+        textColor=colors.HexColor("#0f172a"),
+    )
+    style_h3 = ParagraphStyle(
+        "aesg_h3", parent=base, fontName=font_bold, fontSize=12,
+        leading=18, spaceBefore=10, spaceAfter=4,
+        textColor=colors.HexColor("#334155"),
+    )
+    style_body = ParagraphStyle(
+        "aesg_body", parent=base, fontName=font_normal, fontSize=10.5,
+        leading=16, spaceAfter=6, textColor=colors.HexColor("#1e293b"),
+    )
+    style_footer = ParagraphStyle(
+        "aesg_footer", parent=base, fontName=font_normal, fontSize=8,
+        leading=12, alignment=2, textColor=colors.HexColor("#94a3b8"),
+    )
+
+    story = []
+    story.append(Paragraph(f"{org_name} ESG 보고서 (AI 생성)", style_title))
+    story.append(Paragraph(
+        f"{org_type} · {month_label} · 작성일 {datetime.now().strftime('%Y-%m-%d')}"
+        + (f" · 협력업체 {vendor}" if vendor else ""),
+        style_subtitle,
+    ))
+
+    # ── 핵심 KPI 표 ──
+    kpi_data = [
+        ["항목", "값", "단위"],
+        ["총 수거량", esg_summary.get("total_kg", "0"), "kg"],
+        ["음식물", esg_summary.get("food_kg", "0"), "kg"],
+        ["재활용", esg_summary.get("recycle_kg", "0"), "kg"],
+        ["일반", esg_summary.get("general_kg", "0"), "kg"],
+        ["탄소 감축", esg_summary.get("carbon_reduced", "0"), "kg CO₂"],
+        ["탄소 감축(톤)", esg_summary.get("carbon_tons", "0"), "tCO₂"],
+        ["나무 환산", esg_summary.get("tree_equivalent", "0"), "그루"],
+        ["수거 건수", esg_summary.get("count", "0"), "건"],
+    ]
+    tbl = Table(kpi_data, colWidths=[55 * mm, 50 * mm, 30 * mm])
+    tbl.setStyle(TableStyle([
+        ("FONT", (0, 0), (-1, -1), font_normal, 10),
+        ("FONT", (0, 0), (-1, 0), font_bold, 10),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 8 * mm))
+
+    # ── 마크다운 본문 → 단순 변환 ──
+    def _esc(text: str) -> str:
+        return (text.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;"))
+
+    for raw_line in (ai_markdown or "").splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            story.append(Spacer(1, 3 * mm))
+            continue
+        if line.startswith("## "):
+            story.append(Paragraph(_esc(line[3:].strip()), style_h2))
+        elif line.startswith("### "):
+            story.append(Paragraph(_esc(line[4:].strip()), style_h3))
+        elif line.startswith("# "):
+            story.append(Paragraph(_esc(line[2:].strip()), style_h2))
+        elif line.startswith("- ") or line.startswith("* "):
+            story.append(Paragraph("• " + _esc(line[2:].strip()), style_body))
+        else:
+            story.append(Paragraph(_esc(line), style_body))
+
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph("zeroda 폐기물 데이터 플랫폼 자동 작성 · AI 보조", style_footer))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 def generate_edu_office_esg_pdf(edu_office_name: str, year: int, month_label: str,
                                  school_data: list, vendor: str = '') -> bytes:
     """
