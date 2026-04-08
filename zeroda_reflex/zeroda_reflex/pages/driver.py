@@ -743,7 +743,7 @@ def _voice_pick_dialog() -> rx.Component:
             max_width="400px",
         ),
         open=DriverState.voice_pick_open,
-        on_open_change=DriverState.cancel_voice_pick,
+        on_open_change=DriverState.on_voice_pick_open_change,
     )
 
 
