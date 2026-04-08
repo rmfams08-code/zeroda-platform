@@ -435,7 +435,25 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
     icon = s["icon"]
     is_done = DriverState.collected_schools.contains(school_name)
 
-    return rx.vstack(
+    return rx.cond(
+        is_done,
+        # ── 완료 항목: 한 줄 축약 카드 ──
+        rx.hstack(
+            rx.icon("circle_check", color="#16a34a", size=14),
+            rx.text(school_name, font_size="13px", font_weight="600", color="#6b7280"),
+            rx.text(items_text, font_size="11px", color="#9ca3af"),
+            rx.spacer(),
+            rx.badge("✓ 완료", color_scheme="green", variant="soft", size="1"),
+            width="100%",
+            align="center",
+            spacing="2",
+            padding="6px 10px",
+            bg="#f9fafb",
+            border="1px solid #d1fae5",
+            border_radius="8px",
+        ),
+        # ── 미완료 항목: 기존 풀카드 ──
+        rx.vstack(
         # ── 거래처 정보 헤더 ──
         rx.hstack(
             rx.cond(
@@ -648,10 +666,11 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
 
         width="100%",
         padding="10px 12px",
-        bg=rx.cond(is_done, "#f0fdf4", "white"),
-        border=rx.cond(is_done, "1px solid #bbf7d0", "1px solid #e5e7eb"),
+        bg="white",
+        border="1px solid #e5e7eb",
         border_radius="8px",
         spacing="2",
+        ),
     )
 
 
