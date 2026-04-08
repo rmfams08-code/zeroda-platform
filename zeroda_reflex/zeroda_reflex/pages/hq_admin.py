@@ -557,6 +557,26 @@ def _account_tab() -> rx.Component:
                                  placeholder="교육청명", width="100%"),
                         spacing="1", width="100%",
                     ),
+                    rx.cond(
+                        (AdminState.acct_edit_role == "school")
+                        | (AdminState.acct_edit_role == "meal_manager"),
+                        rx.vstack(
+                            rx.text("NEIS 교육청코드 (선택, 7자리)", size="2", weight="bold"),
+                            rx.input(value=AdminState.acct_edit_neis_edu,
+                                     on_change=AdminState.set_acct_edit_neis_edu,
+                                     placeholder="7자리 숫자",
+                                     max_length=7,
+                                     width="100%"),
+                            rx.text("NEIS 학교코드 (선택, 7자리)", size="2", weight="bold"),
+                            rx.input(value=AdminState.acct_edit_neis_school,
+                                     on_change=AdminState.set_acct_edit_neis_school,
+                                     placeholder="7자리 숫자",
+                                     max_length=7,
+                                     width="100%"),
+                            spacing="1", width="100%",
+                        ),
+                        rx.fragment(),
+                    ),
                     rx.vstack(
                         rx.text("새 비밀번호 (변경 시만 입력)", size="2", weight="bold"),
                         rx.input(value=AdminState.acct_edit_new_pw,

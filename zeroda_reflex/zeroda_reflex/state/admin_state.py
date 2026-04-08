@@ -219,6 +219,8 @@ class AdminState(AuthState):
     acct_edit_schools: str = ""
     acct_edit_edu: str = ""
     acct_edit_new_pw: str = ""
+    acct_edit_neis_edu: str = ""
+    acct_edit_neis_school: str = ""
     # 삭제 확인
     acct_delete_open: bool = False
     acct_delete_target: str = ""
@@ -1028,6 +1030,17 @@ class AdminState(AuthState):
         self.acct_edit_schools = user.get("schools", "")
         self.acct_edit_edu = user.get("edu_office", "")
         self.acct_edit_new_pw = ""
+        self.acct_edit_neis_edu = ""
+        self.acct_edit_neis_school = ""
+        # school/meal_manager: 기존 NEIS 코드 로드
+        role = user.get("role", "")
+        if role in ("school", "meal_manager"):
+            school_name = user.get("schools", "") or user.get("pending_school_name", "")
+            if school_name:
+                rows = db_get("customer_info", {"school_name": school_name})
+                if rows:
+                    self.acct_edit_neis_edu = rows[0].get("neis_edu_code", "") or ""
+                    self.acct_edit_neis_school = rows[0].get("neis_school_code", "") or ""
         self.acct_msg = ""
         self.acct_edit_open = True
 
@@ -1040,6 +1053,8 @@ class AdminState(AuthState):
     def set_acct_edit_schools(self, v: str): self.acct_edit_schools = v
     def set_acct_edit_edu(self, v: str): self.acct_edit_edu = v
     def set_acct_edit_new_pw(self, v: str): self.acct_edit_new_pw = v
+    def set_acct_edit_neis_edu(self, v: str): self.acct_edit_neis_edu = v
+    def set_acct_edit_neis_school(self, v: str): self.acct_edit_neis_school = v
 
     def submit_edit_user(self):
         if self.acct_edit_new_pw:
@@ -1060,6 +1075,15 @@ class AdminState(AuthState):
         self.acct_msg = msg
         self.acct_ok = ok
         if ok:
+            # school/meal_manager: NEIS 코드 저장
+            if self.acct_edit_role in ("school", "meal_manager"):
+                school_name = self.acct_edit_schools.strip()
+                if school_name and (self.acct_edit_neis_edu.strip() or self.acct_edit_neis_school.strip()):
+                    upsert_customer_neis_codes(
+                        school_name=school_name,
+                        neis_edu_code=self.acct_edit_neis_edu.strip() or None,
+                        neis_school_code=self.acct_edit_neis_school.strip() or None,
+                    )
             self.acct_edit_open = False
             self.load_users()
 
