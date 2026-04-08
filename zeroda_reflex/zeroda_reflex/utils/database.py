@@ -149,8 +149,6 @@ def authenticate_user(user_id: str, password: str) -> Optional[dict]:
         return None
     if user.get("approval_status") == "rejected":
         return None
-    if int(user.get("is_active", 1)) == 0:
-        return None
     if not verify_password(password, user.get("pw_hash", "")):
         return None
     return user
