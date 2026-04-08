@@ -1707,121 +1707,203 @@ def driver_page() -> rx.Component:
             _wake_word_bar(),
             _wake_settings_panel(),
 
-            # ── 웨이크워드 JS 인라인 주입 (nginx 정적라우팅 의존성 제거) ──
+            # ── 웨이크워드 JS 인라인 주입 v2 (iOS Safari 대응) ──
             rx.script("""
-console.log("[WAKE] script loaded");
+console.log("[WAKE] script loaded v2");
 (function () {
   if (window.__zerodaWake) return;
-  window.__zerodaWake = {
-    recognition: null, running: false, wakeLock: null,
-    keywords: {
-      start:  ["수거", "입력", "기록", "제로다"],
-      stop:   ["완료", "끝", "종료", "오프"],
-      cancel: ["취소"],
-    },
-    lastFireAt: 0,
-  };
-  const W = window.__zerodaWake;
 
+  // ── iOS 감지 ──
+  var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  var isPWA = window.navigator.standalone === true;
+  console.log("[WAKE] isIOS=" + isIOS + " isPWA=" + isPWA);
+
+  window.__zerodaWake = {
+    recognition: null,
+    running: false,
+    starting: false,
+    wakeLock: null,
+    lastFireAt: 0,
+    keywords: {
+      start:  ["\uC218\uAC70", "\uC218\uAC00", "\uC218\uCEE4", "\uC18C\uAC70",
+               "\uC785\uB825", "\uAE30\uB85D", "\uC81C\uB85C\uB2E4"],
+      stop:   ["\uC644\uB8CC", "\uB05D", "\uC885\uB8CC", "\uC624\uD504"],
+      cancel: ["\uCDE8\uC18C"],
+    },
+  };
+  var W = window.__zerodaWake;
+
+  // ── 디버그 상태 DOM 표시 ──
+  function setDebug(state, text) {
+    var el = document.getElementById("wake-debug");
+    if (!el) return;
+    var icons = {
+      "listen": "\uD83C\uDF99 \uB4E3\uB294 \uC911",
+      "wait":   "\u23F8 \uB300\uAE30",
+      "error":  "\u274C \uC5D0\uB7EC",
+      "heard":  "\u2705 \uC778\uC2DD",
+      "off":    "\u2014",
+    };
+    el.textContent = (icons[state] || state) + (text ? ": " + text : "");
+  }
+
+  function showToast(msg) {
+    var el = document.getElementById("wake-toast");
+    if (!el) return;
+    el.textContent = msg; el.style.display = "block";
+    clearTimeout(el.__t);
+    el.__t = setTimeout(function() { el.style.display = "none"; }, 3000);
+  }
+
+  // ── Wake Lock ──
   async function acquireWakeLock() {
     try {
       if ("wakeLock" in navigator) {
         W.wakeLock = await navigator.wakeLock.request("screen");
-        W.wakeLock.addEventListener("release", () => { W.wakeLock = null; });
+        W.wakeLock.addEventListener("release", function() { W.wakeLock = null; });
       }
-    } catch (e) { console.warn("[wake] wakeLock 실패:", e); }
+    } catch(e) {}
   }
   function releaseWakeLock() {
-    if (W.wakeLock) { try { W.wakeLock.release(); } catch (e) {} W.wakeLock = null; }
+    if (W.wakeLock) { try { W.wakeLock.release(); } catch(e) {} W.wakeLock = null; }
   }
 
-  async function pickBluetoothMic() {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const bt = devices.find(d =>
-        d.kind === "audioinput" &&
-        /bluetooth|airpod|buds|headset|\uC774\uC5B4/i.test(d.label)
-      );
-      return bt ? bt.deviceId : null;
-    } catch (e) { return null; }
-  }
-
+  // ── 키워드 매칭 ──
   function matchKeyword(text, list) {
-    const t = (text || "").replace(/[ \t\n\r]+/g, "");
-    return list.some(k => t.includes(k));
+    var t = (text || "").replace(/[ \t\n\r]/g, "");
+    return list.some(function(k) { return t.indexOf(k) !== -1; });
   }
 
-  async function loop() {
-    if (!W.running) return;
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      console.warn("[wake] SpeechRecognition \uBBF8\uC9C0\uC6D0");
-      W.running = false; return;
+  // ── safeStart: abort 후 재시작 ──
+  function safeStart() {
+    if (!W.running || W.starting) return;
+    if (W.recognition) {
+      try { W.recognition.abort(); } catch(e) {}
+      W.recognition = null;
     }
-    const r = new SR();
-    r.lang = "ko-KR"; r.continuous = false;
-    r.interimResults = false; r.maxAlternatives = 1;
-    r.onresult = (e) => {
-      const txt = (e.results[0] && e.results[0][0].transcript) || "";
-      console.log("[wake] heard:", txt);
-      const now = Date.now();
+    W.starting = true;
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      console.warn("[WAKE] SpeechRecognition not supported");
+      setDebug("error", "not supported");
+      W.running = false; W.starting = false; return;
+    }
+    var r = new SR();
+    r.lang = "ko-KR";
+    r.continuous = false;       // iOS: continuous 무조건 false
+    r.interimResults = false;
+    r.maxAlternatives = 3;      // 여러 후보 받아서 매칭률 향상
+
+    r.onstart = function() {
+      W.starting = false;
+      setDebug("listen", "");
+      console.log("[WAKE] listening...");
+    };
+
+    r.onresult = function(e) {
+      var txt = "";
+      // maxAlternatives 후보 전부 검사
+      if (e.results && e.results[0]) {
+        for (var i = 0; i < e.results[0].length; i++) {
+          txt += e.results[0][i].transcript + " ";
+        }
+      }
+      txt = txt.trim();
+      console.log("[WAKE] heard:", txt);
+      setDebug("heard", txt);
+
+      var now = Date.now();
       if (now - W.lastFireAt < 1500) return;
+
       if (matchKeyword(txt, W.keywords.stop)) {
-        W.lastFireAt = now; stopWakeWord();
-        showToast("\uD83C\uDF99\uFE0F \uC74C\uC131 \uC785\uB825 \uC885\uB8CC"); return;
+        W.lastFireAt = now;
+        stopWakeWord();
+        showToast("\uD83C\uDF99 \uC74C\uC131 \uC785\uB825 \uC885\uB8CC");
+        return;
       }
       if (matchKeyword(txt, W.keywords.cancel)) {
         W.lastFireAt = now;
-        window.dispatchEvent(new CustomEvent("zeroda-wake-cancel")); return;
+        window.dispatchEvent(new CustomEvent("zeroda-wake-cancel"));
+        return;
       }
       if (matchKeyword(txt, W.keywords.start)) {
         W.lastFireAt = now;
-        showToast("\uD83C\uDF99\uFE0F \uD638\uCD9C \uAC10\uC9C0 \u2014 \uC785\uB825 \uB300\uAE30");
-        window.dispatchEvent(new CustomEvent("zeroda-wake")); return;
+        showToast("\uD83C\uDF99 \uD638\uCD9C \uAC10\uC9C0!");
+        window.dispatchEvent(new CustomEvent("zeroda-wake"));
+        return;
       }
     };
-    r.onerror = (e) => {
+
+    r.onerror = function(e) {
+      W.starting = false;
+      console.log("[WAKE] onerror:", e.error);
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        console.warn("[wake] \uAD8C\uD55C \uAC70\uBD80"); W.running = false; return;
+        setDebug("error", "\uAD8C\uD55C \uAC70\uBD80");
+        W.running = false; return;
+      }
+      // no-speech, aborted, network, audio-capture → 재시작
+      setDebug("error", e.error);
+      if (W.running) setTimeout(safeStart, 400);
+    };
+
+    r.onend = function() {
+      W.starting = false;
+      if (W.running) {
+        setDebug("wait", "");
+        setTimeout(safeStart, 200);
+      } else {
+        setDebug("off", "");
       }
     };
-    r.onend = () => { if (W.running) setTimeout(loop, 200); };
-    try { r.start(); W.recognition = r; }
-    catch (e) { console.warn("[wake] start \uC2E4\uD328:", e); if (W.running) setTimeout(loop, 800); }
+
+    try {
+      r.start();
+      W.recognition = r;
+    } catch(e) {
+      W.starting = false;
+      console.warn("[WAKE] start threw:", e);
+      if (W.running) setTimeout(safeStart, 800);
+    }
   }
 
+  // ── Public: startWakeWord ──
   async function startWakeWord() {
     if (W.running) return;
+
+    // PWA(홈화면) 경고
+    if (isIOS && isPWA) {
+      showToast("\u26A0\uFE0F \uD648\uD654\uBA74 \uC571\uC5D0\uC11C\uB294 \uB9C8\uC774\uD06C\uAC00 \uCC28\uB2E8\uB420 \uC218 \uC788\uC2B5\uB2C8\uB2E4. Safari\uB85C \uC5F4\uC5B4\uC8FC\uC138\uC694.");
+      console.warn("[WAKE] PWA mode on iOS — mic may be blocked");
+    }
+
+    // iOS: getUserMedia 명시 호출로 권한 트리거
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(function(t) { t.stop(); });
+    } catch(e) {
+      console.warn("[WAKE] getUserMedia failed:", e);
+      setDebug("error", "\uB9C8\uC774\uD06C \uAD8C\uD55C \uAC70\uBD80");
+      showToast("\u274C \uB9C8\uC774\uD06C \uAD8C\uD55C\uC744 \uD5C8\uC6A9\uD574\uC8FC\uC138\uC694");
+      return;
+    }
+
     W.running = true;
     await acquireWakeLock();
-    try {
-      const bt = await pickBluetoothMic();
-      const constraints = bt ? { audio: { deviceId: { exact: bt } } } : { audio: true };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      stream.getTracks().forEach(t => t.stop());
-    } catch (e) { console.warn("[wake] \uB9C8\uC774\uD06C \uAD8C\uD55C \uC2E4\uD328:", e); }
-    showToast("\uD83C\uDFA7 \uC6E8\uC774\uD06C\uC6CC\uB4DC ON \u2014 '\uC218\uAC70' \uB77C\uACE0 \uB9D0\uD558\uC138\uC694");
-    loop();
+    showToast("\uD83C\uDFA7 \uC6E8\uC774\uD06C\uC6CC\uB4DC ON — '\uC218\uAC70' \uB77C\uACE0 \uB9D0\uD558\uC138\uC694");
+    safeStart();
   }
 
   function stopWakeWord() {
     W.running = false;
-    if (W.recognition) { try { W.recognition.stop(); } catch (e) {} W.recognition = null; }
+    if (W.recognition) { try { W.recognition.abort(); } catch(e) {} W.recognition = null; }
     releaseWakeLock();
-  }
-
-  function showToast(msg) {
-    const el = document.getElementById("wake-toast");
-    if (el) {
-      el.textContent = msg; el.style.display = "block";
-      clearTimeout(el.__t);
-      el.__t = setTimeout(() => { el.style.display = "none"; }, 2500);
-    }
+    setDebug("off", "");
   }
 
   window.zerodaWake = { start: startWakeWord, stop: stopWakeWord };
 
-  document.addEventListener("visibilitychange", () => {
+  // 화면 숨김 시 자동 정지
+  document.addEventListener("visibilitychange", function() {
     if (document.visibilityState === "hidden" && W.running) stopWakeWord();
   });
 })();
@@ -1851,11 +1933,15 @@ console.log("[WAKE] script loaded");
                 display="none",
             ),
 
-            # 토스트 영역
+            # 토스트 + 디버그 상태 영역
             rx.html(
                 "<div id='wake-toast' style='position:fixed;top:60px;left:50%;"
                 "transform:translateX(-50%);background:#333;color:#fff;"
-                "padding:8px 16px;border-radius:8px;display:none;z-index:9999;'></div>"
+                "padding:8px 16px;border-radius:8px;display:none;z-index:9999;font-size:15px;'></div>"
+                "<div id='wake-debug' style='position:fixed;top:108px;left:50%;"
+                "transform:translateX(-50%);background:rgba(0,0,0,0.55);color:#0f0;"
+                "padding:4px 12px;border-radius:6px;z-index:9998;font-size:12px;"
+                "font-family:monospace;pointer-events:none;'>&#8212;</div>"
             ),
 
             # manifest 링크
