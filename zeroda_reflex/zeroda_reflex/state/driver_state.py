@@ -1991,8 +1991,8 @@ class DriverState(AuthState):
                 "}"
             )
             yield rx.toast.success("호출명령이 저장되었습니다")
-        except Exception:
-            yield rx.toast.error("설정 저장 실패. 다시 시도해주세요.")
+        except Exception as _e:
+            yield rx.toast.error(f"저장 실패: {type(_e).__name__}: {_e}")
 
     async def log_wake_event(self, event_type: str, heard: str = "", matched: str = ""):
         """P2-3 — 인식 통계 저장 (wake_fired/voice_success/voice_failed/cancel)."""
