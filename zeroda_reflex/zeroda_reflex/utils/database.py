@@ -2174,16 +2174,19 @@ def get_user_by_id(user_id: str) -> dict | None:
 
 
 def get_active_vendor_names() -> list[str]:
-    """승인된 활성 vendor_admin 역할의 업체명 목록 반환."""
+    """회원가입 드롭다운용 업체명 목록 반환.
+    customer_info + users(vendor_admin) UNION — 계정 is_active 무관, 업체 존재 여부만 판단."""
     conn = get_db()
     try:
         rows = conn.execute(
+            "SELECT DISTINCT vendor FROM customer_info "
+            "WHERE vendor IS NOT NULL AND vendor <> '' "
+            "UNION "
             "SELECT DISTINCT vendor FROM users "
-            "WHERE role='vendor_admin' AND is_active=1 AND approval_status='approved' "
-            "  AND vendor IS NOT NULL AND vendor <> '' "
+            "WHERE role='vendor_admin' AND vendor IS NOT NULL AND vendor <> '' "
             "ORDER BY vendor"
         ).fetchall()
-        return [r[0] for r in rows]
+        return [r[0] for r in rows if r[0]]
     except Exception as e:
         print(f"[DB ERROR] get_active_vendor_names: {e}")
         logger.warning(f"Exception in get_active_vendor_names: {str(e)}")
