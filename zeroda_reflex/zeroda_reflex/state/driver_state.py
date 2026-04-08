@@ -948,10 +948,11 @@ class DriverState(AuthState):
         self.voice_confirm_open = True
 
     def confirm_voice_apply(self):
-        """확인 다이얼로그 '확인' — pending 항목을 카드 rows에 실제 적용"""
+        """확인 다이얼로그 '확인' — pending 항목을 카드 rows에 적용 후 자동 제출"""
         applied = []
         failed_msg = []
         new_schedules = list(self.schedule_schools)
+        applied_card_idxs: list[int] = []  # 자동 제출 대상 카드 인덱스
 
         for entry in self.voice_pending_entries:
             sch = entry["school"]
@@ -986,6 +987,8 @@ class DriverState(AuthState):
 
             disp_date = entry_date[5:]
             applied.append(f"{sch} {disp_date} {entry_weight}kg")
+            if card_idx not in applied_card_idxs:
+                applied_card_idxs.append(card_idx)
 
         self.schedule_schools = new_schedules
         self.voice_confirm_open = False
@@ -1002,6 +1005,12 @@ class DriverState(AuthState):
 
         if applied:
             yield rx.toast.success(msg)
+            # 음성인식 시 캡처된 GPS 좌표로 자동 제출 (GPS 재취득 없이)
+            gps = self.voice_gps_coords or ""
+            for card_idx in applied_card_idxs:
+                if 0 <= card_idx < len(self.schedule_schools):
+                    self.active_save_school = self.schedule_schools[card_idx].get("school_name", "")
+                    self._do_save_for_school(gps, "submitted")
         else:
             yield rx.toast.warning(msg)
 
