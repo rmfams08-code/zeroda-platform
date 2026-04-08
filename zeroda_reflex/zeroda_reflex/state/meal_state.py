@@ -1101,7 +1101,14 @@ class MealState(AuthState):
         if not rows:
             return None
         month_label = f"{y}년 전체"
-        pdf_bytes = build_school_esg_pdf(self.site_name, y, month_label, rows)
+        # vendor 정보 조회 — PDF 헤더에 업체명 표기
+        from zeroda_reflex.utils.database import school_get_vendors
+        try:
+            vendors = school_get_vendors(self.site_name)
+            vendor = vendors[0] if vendors else ""
+        except Exception:
+            vendor = ""
+        pdf_bytes = build_school_esg_pdf(self.site_name, y, month_label, rows, vendor)
         if pdf_bytes:
             return rx.download(
                 data=pdf_bytes,
