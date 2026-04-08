@@ -28,7 +28,9 @@ app = rx.App(
 
 # ── 페이지 등록 ──
 app.add_page(login_page, route="/", title="ZERODA 로그인")
-app.add_page(register_page, route="/register", title="ZERODA 회원가입")
+from zeroda_reflex.state.auth_state import AuthState
+app.add_page(register_page, route="/register", title="ZERODA 회원가입",
+             on_load=AuthState.load_signup_vendor_options)
 app.add_page(
     driver_page,
     route="/driver",
