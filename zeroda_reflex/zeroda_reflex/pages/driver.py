@@ -1005,9 +1005,25 @@ def _schedule_section() -> rx.Component:
                     color_scheme="blue",
                     size="1",
                 ),
+                rx.icon_button(
+                    rx.cond(
+                        DriverState.recent_expanded,
+                        rx.icon("chevron_up", size=14),
+                        rx.icon("chevron_down", size=14),
+                    ),
+                    on_click=DriverState.toggle_recent_expanded,
+                    size="1",
+                    variant="ghost",
+                    color_scheme="gray",
+                    cursor="pointer",
+                ),
                 width="100%",
+                align="center",
             ),
-            rx.hstack(
+            rx.cond(
+                DriverState.recent_expanded,
+                rx.vstack(
+                rx.hstack(
                 rx.button(
                     "오늘",
                     size="1",
@@ -1077,6 +1093,9 @@ def _schedule_section() -> rx.Component:
             ),
             spacing="2",
             width="100%",
+                ),  # rx.vstack (본문)
+                rx.fragment(),
+            ),  # rx.cond(recent_expanded)
         ),
 
         # ── 음성인식 결과 표시 ──
@@ -1109,8 +1128,24 @@ def _processing_section() -> rx.Component:
                     size="1",
                 ),
             ),
+            rx.icon_button(
+                rx.cond(
+                    DriverState.weighslip_expanded,
+                    rx.icon("chevron_up", size=14),
+                    rx.icon("chevron_down", size=14),
+                ),
+                on_click=DriverState.toggle_weighslip_expanded,
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                cursor="pointer",
+            ),
+            align="center",
         ),
-        rx.text(
+        rx.cond(
+            DriverState.weighslip_expanded,
+            rx.vstack(
+            rx.text(
             "처리장 도착 후 계근표 처리량을 입력하세요.",
             font_size="12px",
             color="#64748b",
@@ -1208,6 +1243,11 @@ def _processing_section() -> rx.Component:
                 spacing="1",
             ),
         ),
+            spacing="3",
+            width="100%",
+            ),  # rx.vstack (본문)
+            rx.fragment(),
+        ),  # rx.cond(weighslip_expanded)
 
         spacing="3",
         width="100%",
