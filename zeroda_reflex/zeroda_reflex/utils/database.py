@@ -1715,21 +1715,81 @@ def delete_expense(expense_id: str) -> bool:
 
 
 def get_vendor_info(vendor: str) -> dict:
-    """업체 기본 정보 조회 (vendor_info 테이블)"""
-    rows = db_get("vendor_info", {"vendor": vendor})
-    if not rows:
+    """업체 정보 + 직인 경로 조회.
+    반환 dict keys: biz_name, rep, biz_no, address, contact,
+                    stamp_path, stamp_uploaded_at, stamp_updated_by
+    """
+    if not vendor:
+        return {}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT biz_name, rep, biz_no, address, contact,
+                   COALESCE(stamp_path, '') AS stamp_path,
+                   COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
+                   COALESCE(stamp_updated_by, '') AS stamp_updated_by
+              FROM vendor_info
+             WHERE biz_name = ?
+             LIMIT 1
+            """,
+            (vendor,),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return {
+                "biz_name": str(vendor), "rep": "", "biz_no": "",
+                "address": "", "contact": "",
+                "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
+            }
         return {
-            "biz_name": str(vendor),
-            "rep": "", "biz_no": "", "address": "", "contact": "",
+            "biz_name": row[0] or str(vendor),
+            "rep":      row[1] or "",
+            "biz_no":   row[2] or "",
+            "address":  row[3] or "",
+            "contact":  row[4] or "",
+            "stamp_path":        row[5] or "",
+            "stamp_uploaded_at": row[6] or "",
+            "stamp_updated_by":  row[7] or "",
         }
-    r = rows[0]
-    return {
-        "biz_name": str(r.get("biz_name", vendor) or vendor),
-        "rep":      str(r.get("rep", "") or ""),
-        "biz_no":   str(r.get("biz_no", "") or ""),
-        "address":  str(r.get("address", "") or ""),
-        "contact":  str(r.get("contact", "") or ""),
-    }
+    except Exception as e:
+        logger.error(f"get_vendor_info 실패 ({vendor}): {e}")
+        return {
+            "biz_name": str(vendor), "rep": "", "biz_no": "",
+            "address": "", "contact": "",
+            "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
+        }
+
+
+def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
+    """업체 직인 경로 저장.
+    stamp_path: /opt/zeroda-platform/storage/stamps/ 하위 절대경로
+    updated_by: 로그인 사용자명
+    """
+    if not vendor or not stamp_path:
+        return False
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE vendor_info
+               SET stamp_path = ?,
+                   stamp_uploaded_at = datetime('now', 'localtime'),
+                   stamp_updated_by = ?
+             WHERE biz_name = ?
+            """,
+            (stamp_path, updated_by, vendor),
+        )
+        conn.commit()
+        ok = cur.rowcount > 0
+        conn.close()
+        return ok
+    except Exception as e:
+        logger.error(f"set_vendor_stamp 실패 ({vendor}): {e}")
+        return False
 
 
 def get_biz_customers(vendor: str) -> list[str]:
