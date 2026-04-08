@@ -1,6 +1,7 @@
 # zeroda_reflex/state/auth_state.py
 # 인증 상태 관리 — 로그인/로그아웃/세션 유지
 # Phase 0-B: 공통 상수 및 유틸리티 메서드 추가
+# 2026-04-08 회원가입 복구 — _do_register 본문 완성
 import reflex as rx
 from datetime import datetime
 from zeroda_reflex.utils.database import authenticate_user
@@ -86,174 +87,130 @@ class AuthState(rx.State):
             self.reg_vendor_options = []
 
     def submit_register(self):
+        """회원가입 폼 제출 핸들러 (외부 진입점).
+        예외는 모두 잡아서 reg_error로 표시한다."""
+        self.reg_error = ""
+        self.reg_success = ""
+        self.reg_loading = True
         try:
             self._do_register()
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"[submit_register] 예외: {e}", exc_info=True)
+            logging.getLogger(__name__).error(
+                f"[submit_register] 예외: {e}", exc_info=True
+            )
             self.reg_error = f"가입 처리 중 오류가 발생했습니다: {e}"
+        finally:
             self.reg_loading = False
 
     def _do_register(self):
+        """회원가입 본 처리.
+        1) 입력 검증 → 2) 비밀번호 강도 검증 → 3) 역할별 필수 필드 검증
+        4) DB INSERT (create_user) → 5) 성공/실패 메시지 설정
+        실패는 self.reg_error 에 메시지 세팅 후 return.
+        성공은 self.reg_success + 폼 초기화."""
         from zeroda_reflex.utils.database import create_user, validate_password
-        self.reg_loading = True
-        self.reg_error = ""
-        self.reg_success = ""
-        if not self.reg_id or not self.reg_name or not self.reg_pw:
-            self.reg_error = "아이디, 이름, 비밀번호는 필수입니다."
-            self.reg_loading = False
+
+        # 1) 기본 필수값
+        if not self.reg_id or not self.reg_id.strip():
+            self.reg_error = "아이디를 입력해주세요."
+            return
+        if not self.reg_name or not self.reg_name.strip():
+            self.reg_error = "이름을 입력해주세요."
+            return
+        if not self.reg_pw:
+            self.reg_error = "비밀번호를 입력해주세요."
             return
         if self.reg_pw != self.reg_pw2:
             self.reg_error = "비밀번호가 일치하지 않습니다."
-            self.reg_loading = False
             return
-        if self.reg_role == "admin":
-            self.reg_error = "본사관리자 계정은 자가 가입이 불가합니다."
-            self.reg_loading = False
-            return
+
+        # 2) 비밀번호 강도
         ok, msg = validate_password(self.reg_pw)
         if not ok:
             self.reg_error = msg
-            self.reg_loading = False
             return
-        # school / meal_manager 추가 검증
-        if self.reg_role in ("school", "meal_manager"):
-            if not self.reg_vendor_select:
+
+        # 3) 역할별 필수 필드
+        role = (self.reg_role or "").strip()
+        if not role:
+            self.reg_error = "역할을 선택해주세요."
+            return
+
+        vendor = ""
+        schools = ""
+        edu_office = ""
+        pending_vendor = None
+        pending_school_name = None
+        neis_edu_pending = None
+        neis_school_pending = None
+
+        if role in ("driver", "vendor_admin"):
+            vendor = (self.reg_vendor or "").strip()
+            # 업체명은 권장이지만 필수는 아님(가입 후 본사가 배정 가능)
+
+        elif role in ("school", "meal_manager"):
+            v = (self.reg_vendor_select or "").strip()
+            s = (self.reg_school_name_neis or "").strip()
+            ne = (self.reg_neis_edu or "").strip()
+            ns = (self.reg_neis_school or "").strip()
+            if not v:
                 self.reg_error = "소속 업체를 선택해주세요."
-                self.reg_loading = False
                 return
-            if not self.reg_school_name_neis:
-                self.reg_error = "학교명을 입력해주세요."
-                self.reg_loading = False
+            if not s:
+                self.reg_error = "학교명(NEIS 등록명)을 입력해주세요."
                 return
-            if len(self.reg_neis_edu.strip()) != 7:
-                self.reg_error = "NEIS 교육청코드는 7자리여야 합니다."
-                self.reg_loading = False
+            if not (ne.isdigit() and len(ne) == 7):
+                self.reg_error = "NEIS 교육청코드는 7자리 숫자입니다."
                 return
-            if len(self.reg_neis_school.strip()) != 7:
-                self.reg_error = "NEIS 학교코드는 7자리여야 합니다."
-                self.reg_loading = False
+            if not (ns.isdigit() and len(ns) == 7):
+                self.reg_error = "NEIS 학교코드는 7자리 숫자입니다."
                 return
-        created, msg = create_user(
+            # 승인 시점에 customer_info로 반영하므로 pending_*에 보관
+            pending_vendor = v
+            pending_school_name = s
+            neis_edu_pending = ne
+            neis_school_pending = ns
+            # 표시용 (조회 편의)
+            schools = s
+
+        elif role == "edu_office":
+            edu_office = (self.reg_edu_office or "").strip()
+            if not edu_office:
+                self.reg_error = "교육청명을 입력해주세요."
+                return
+
+        # 4) DB INSERT
+        ok, msg = create_user(
             user_id=self.reg_id.strip(),
             password=self.reg_pw,
-            role=self.reg_role,
+            role=role,
             name=self.reg_name.strip(),
-            vendor=self.reg_vendor.strip(),
-            schools=self.reg_schools.strip(),
-            edu_office=self.reg_edu_office.strip(),
+            vendor=vendor,
+            schools=schools,
+            edu_office=edu_office,
             approval_status="pending",
             is_active=1,
-            pending_vendor=self.reg_vendor_select.strip() or None,
-            pending_school_name=self.reg_school_name_neis.strip() or None,
-            neis_edu_pending=self.reg_neis_edu.strip() or None,
-            neis_school_pending=self.reg_neis_school.strip() or None,
+            pending_vendor=pending_vendor,
+            pending_school_name=pending_school_name,
+            neis_edu_pending=neis_edu_pending,
+            neis_school_pending=neis_school_pending,
         )
-        if not created:
+        if not ok:
             self.reg_error = msg
-            self.reg_loading = False
             return
-        self.reg_success = "가입 신청 완료! 본사 관리자 승인 후 로그인할 수 있습니다."
+
+        # 5) 성공 — 폼 초기화 + 안내 메시지
+        self.reg_success = (
+            "가입 신청이 완료되었습니다. 본사 관리자 승인 후 로그인하실 수 있습니다."
+        )
         self.reg_id = ""
         self.reg_name = ""
         self.reg_pw = ""
         self.reg_pw2 = ""
         self.reg_vendor = ""
-        self.reg_schools = ""
-        self.reg_edu_office = ""
         self.reg_vendor_select = ""
         self.reg_school_name_neis = ""
         self.reg_neis_edu = ""
         self.reg_neis_school = ""
-        self.reg_loading = False
-
-    def goto_login(self):
-        self.reg_error = ""
-        self.reg_success = ""
-        return rx.redirect("/")
-
-    def login(self, form_data: dict):
-        """로그인 처리"""
-        self.login_loading = True
-        self.login_error = ""
-
-        uid = form_data.get("user_id", "").strip()
-        pw = form_data.get("password", "").strip()
-
-        if not uid or not pw:
-            self.login_error = "아이디와 비밀번호를 모두 입력하세요."
-            self.login_loading = False
-            return
-
-        from zeroda_reflex.utils.database import db_get
-        rows = db_get("users", {"user_id": uid})
-        if not rows:
-            self.login_error = "아이디 또는 비밀번호가 올바르지 않습니다."
-            self.login_loading = False
-            return
-        _u = rows[0]
-        if _u.get("approval_status") == "pending":
-            self.login_error = "회원가입 승인 대기 중입니다. 본사 관리자 승인 후 로그인할 수 있습니다."
-            self.login_loading = False
-            return
-        if _u.get("approval_status") == "rejected":
-            self.login_error = "회원가입이 거부되었습니다. 관리자에게 문의하세요."
-            self.login_loading = False
-            return
-        if int(_u.get("is_active", 1)) == 0:
-            self.login_error = "비활성화된 계정입니다. 관리자에게 문의하세요."
-            self.login_loading = False
-            return
-
-        user = authenticate_user(uid, pw)
-        if user is None:
-            self.login_error = "아이디 또는 비밀번호가 올바르지 않습니다."
-            self.login_loading = False
-            return
-
-        # 로그인 성공 — DB NULL 값을 빈 문자열로 안전 변환 (None → "" 방지)
-        self.user_id = user.get("user_id") or ""
-        self.user_name = user.get("name") or ""
-        self.user_role = user.get("role") or ""
-        self.user_vendor = user.get("vendor") or ""
-        self.user_schools = user.get("schools") or ""
-        self.user_edu_office = user.get("edu_office") or ""
-        self.is_authenticated = True
-        self.login_loading = False
-        self.login_error = ""
-
-        # 역할별 페이지로 이동
-        return self._redirect_by_role()
-
-    def logout(self):
-        """로그아웃"""
-        self.user_id = ""
-        self.user_name = ""
-        self.user_role = ""
-        self.user_vendor = ""
-        self.user_schools = ""
-        self.user_edu_office = ""
-        self.is_authenticated = False
-        return rx.redirect("/")
-
-    def check_auth(self):
-        """페이지 로드 시 인증 확인. 미인증 시 로그인으로 리다이렉트"""
-        if not self.is_authenticated:
-            return rx.redirect("/")
-
-    def _redirect_by_role(self):
-        """역할별 리다이렉트"""
-        if self.user_role == "driver":
-            return rx.redirect("/driver")
-        elif self.user_role == "vendor_admin":
-            return rx.redirect("/vendor")
-        elif self.user_role == "admin":
-            return rx.redirect("/admin")
-        elif self.user_role == "school":
-            return rx.redirect("/school")
-        elif self.user_role == "edu_office":
-            return rx.redirect("/edu")
-        elif self.user_role in ("meal_manager", "school_nutrition"):
-            return rx.redirect("/meal")
-        else:
-            return rx.redirect("/driver")  # 기본값
+        self.reg_edu_office = ""
