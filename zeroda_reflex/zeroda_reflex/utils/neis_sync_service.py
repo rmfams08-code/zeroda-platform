@@ -84,14 +84,14 @@ def sync_all_schools(vendor: str | None = None, year: int | None = None) -> dict
     cur = conn.cursor()
     if vendor:
         cur.execute(
-            """SELECT DISTINCT school_name, neis_edu_code, neis_school_code
+            """SELECT DISTINCT name, neis_edu_code, neis_school_code
                FROM customer_info
                WHERE vendor = ? AND neis_edu_code IS NOT NULL AND neis_school_code IS NOT NULL""",
             (vendor,),
         )
     else:
         cur.execute(
-            """SELECT DISTINCT school_name, neis_edu_code, neis_school_code
+            """SELECT DISTINCT name, neis_edu_code, neis_school_code
                FROM customer_info
                WHERE neis_edu_code IS NOT NULL AND neis_school_code IS NOT NULL"""
         )
@@ -100,9 +100,9 @@ def sync_all_schools(vendor: str | None = None, year: int | None = None) -> dict
 
     stats = {"total_schools": len(schools), "success": 0, "failed": 0, "events": 0, "details": []}
     for row in schools:
-        school_name = row["school_name"] or row[0]
-        neis_edu = row["neis_edu_code"] or row[1]
-        neis_sch = row["neis_school_code"] or row[2]
+        school_name = row["name"] if "name" in row.keys() else row[0]
+        neis_edu = row["neis_edu_code"] if "neis_edu_code" in row.keys() else row[1]
+        neis_sch = row["neis_school_code"] if "neis_school_code" in row.keys() else row[2]
         result = sync_school_schedule_for_school(school_name, neis_edu, neis_sch, year)
         stats["details"].append(result)
         if result["success"]:
