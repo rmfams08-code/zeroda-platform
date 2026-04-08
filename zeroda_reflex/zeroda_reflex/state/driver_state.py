@@ -20,6 +20,7 @@ from zeroda_reflex.utils.database import (
     save_customer_gps,
     get_all_customer_aliases,
     get_nearest_customer,
+    get_nearby_customers,
 )
 from zeroda_reflex.utils.voice_parser import (
     normalize_korean_number,
@@ -378,6 +379,11 @@ class DriverState(AuthState):
     voice_interim: str = ""           # 섹션 5: 실시간 중간 인식 텍스트
     voice_gps_coords: str = ""        # 섹션 6: GPS 좌표 (lat,lng)
     voice_match_failed: bool = False   # 섹션 2: 매칭 실패 여부 (항상 다이얼로그 표시용)
+    # 복수 GPS 후보 선택 다이얼로그
+    voice_pick_open: bool = False
+    voice_pick_candidates: list[dict] = []  # [{"name": str, "distance_m": float}, ...]
+    voice_pick_weight: str = ""
+    voice_pick_date: str = ""
 
     # ── 스쿨존 ──
     schoolzone_enabled: bool = False
@@ -923,18 +929,30 @@ class DriverState(AuthState):
                 new_entries = []
                 for e in entries:
                     if e.get("gps_needed") or not e.get("school"):
-                        nearest = get_nearest_customer(
+                        nearby = get_nearby_customers(
                             self.user_vendor, lat_f, lng_f,
                             max_distance_m=500,
                             schedule_names=sched_names,
                         )
-                        if nearest:
-                            e = {**e, "school": nearest["name"], "gps_needed": False,
-                                 "gps_matched": True, "gps_dist": nearest["distance_m"]}
-                        else:
+                        if not nearby:
+                            # 반경 내 거래처 없음 → 실패
                             failed_chunks.append(e.get("weight", ""))
                             continue
-                    new_entries.append(e)
+                        elif len(nearby) == 1:
+                            # 단일 후보 → 자동 적용
+                            e = {**e, "school": nearby[0]["name"], "gps_needed": False,
+                                 "gps_matched": True, "gps_dist": nearby[0]["distance_m"]}
+                            new_entries.append(e)
+                        else:
+                            # 복수 후보 → 선택 다이얼로그로 라우팅
+                            self.voice_pick_candidates = nearby
+                            self.voice_pick_weight = str(e.get("weight", ""))
+                            self.voice_pick_date = str(e.get("date", ""))
+                            self.voice_pick_open = True
+                            # 이 엔트리는 확정하지 않고 pending (다이얼로그에서 처리)
+                            continue
+                    else:
+                        new_entries.append(e)
                 entries = new_entries
             except Exception:
                 pass
@@ -1038,6 +1056,66 @@ class DriverState(AuthState):
         self.voice_pending_raw = ""
         self.voice_normalized_text = ""
         self.voice_match_failed = False
+
+    def pick_voice_candidate(self, school_name: str):
+        """GPS 복수 후보 선택 다이얼로그에서 거래처 선택 → 수거량 적용 + 자동 제출"""
+        weight = self.voice_pick_weight
+        date_str = self.voice_pick_date
+        gps = self.voice_gps_coords or ""
+
+        # 다이얼로그 닫기 + stash 초기화
+        self.voice_pick_open = False
+        self.voice_pick_candidates = []
+        self.voice_pick_weight = ""
+        self.voice_pick_date = ""
+
+        if not school_name or not weight or not date_str:
+            yield rx.toast.warning("선택 정보가 올바르지 않습니다.")
+            return
+
+        # schedule_schools에서 해당 거래처 카드 찾기
+        card_idx = -1
+        for i, s in enumerate(self.schedule_schools):
+            if s.get("school_name") == school_name:
+                card_idx = i
+                break
+
+        if card_idx < 0:
+            # 일정에 없으면 active_save_school 직접 세팅 후 저장
+            self.active_save_school = school_name
+            # rows에 임시로 weight/date 추가
+            new_schedules = list(self.schedule_schools)
+            new_schedules.append({
+                "school_name": school_name,
+                "rows": [{"date": date_str, "item_type": "음식물", "weight": weight, "memo": ""}],
+                "save_msg": "", "photo_msg": "", "photo_remark": "",
+            })
+            self.schedule_schools = new_schedules
+            card_idx = len(self.schedule_schools) - 1
+
+        # 해당 카드 rows에 weight/date 주입
+        schools = list(self.schedule_schools)
+        card = schools[card_idx]
+        rows = list(card.get("rows", []))
+        row_idx = next((j for j, r in enumerate(rows) if r.get("date") == date_str), -1)
+        if row_idx >= 0:
+            rows[row_idx] = {**rows[row_idx], "weight": weight}
+        else:
+            rows.append({"date": date_str, "item_type": "음식물", "weight": weight, "memo": ""})
+        schools[card_idx] = {**card, "rows": rows}
+        self.schedule_schools = schools
+
+        # 자동 제출
+        self.active_save_school = school_name
+        self._do_save_for_school(gps, "submitted")
+        yield rx.toast.success(f"✅ {school_name} 수거량 {weight}kg 전송 완료")
+
+    def cancel_voice_pick(self):
+        """GPS 복수 후보 선택 다이얼로그 취소"""
+        self.voice_pick_open = False
+        self.voice_pick_candidates = []
+        self.voice_pick_weight = ""
+        self.voice_pick_date = ""
 
     def retry_voice_recognition(self):
         """섹션 4: 확인 다이얼로그에서 '다시 말하기' — pending 초기화 후 즉시 재청취"""

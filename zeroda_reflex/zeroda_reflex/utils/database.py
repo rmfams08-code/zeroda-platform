@@ -4951,3 +4951,42 @@ def get_nearest_customer(
         return None
 
     return {"name": best["name"], "distance_m": round(best_dist, 1)}
+
+
+def get_nearby_customers(
+    vendor: str,
+    lat: float,
+    lng: float,
+    max_distance_m: int = 500,
+    schedule_names: list = None,
+    limit: int = 10,
+) -> list[dict]:
+    """현재 GPS 좌표에서 반경 내 거래처를 거리 오름차순으로 반환.
+
+    - schedule_names 지정 시 해당 거래처 중에서만 탐색, 없으면 전체로 fallback
+    - max_distance_m 초과 항목 제외
+    - 반환 리스트: [{"name": str, "distance_m": float}, ...]
+    """
+    customers = get_customers_with_gps(vendor)
+    if not customers:
+        return []
+
+    if schedule_names:
+        sched_set = set(schedule_names)
+        pool = [c for c in customers if c["name"] in sched_set]
+        if not pool:
+            pool = customers
+    else:
+        pool = customers
+
+    candidates = []
+    for c in pool:
+        try:
+            dist = haversine(lat, lng, c["lat"], c["lng"])
+        except Exception:
+            continue
+        if dist <= max_distance_m:
+            candidates.append({"name": c["name"], "distance_m": round(dist, 1)})
+
+    candidates.sort(key=lambda x: x["distance_m"])
+    return candidates[:limit]
