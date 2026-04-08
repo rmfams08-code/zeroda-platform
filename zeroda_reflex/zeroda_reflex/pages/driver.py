@@ -1707,8 +1707,125 @@ def driver_page() -> rx.Component:
             _wake_word_bar(),
             _wake_settings_panel(),
 
-            # ── 외부 JS + 이벤트 브릿지 (사례5: src 고정 경로, Var 결합 없음) ──
-            rx.script(src="/wake_word.js"),
+            # ── 웨이크워드 JS 인라인 주입 (nginx 정적라우팅 의존성 제거) ──
+            rx.script("""
+console.log("[WAKE] script loaded");
+(function () {
+  if (window.__zerodaWake) return;
+  window.__zerodaWake = {
+    recognition: null, running: false, wakeLock: null,
+    keywords: {
+      start:  ["수거", "입력", "기록", "제로다"],
+      stop:   ["완료", "끝", "종료", "오프"],
+      cancel: ["취소"],
+    },
+    lastFireAt: 0,
+  };
+  const W = window.__zerodaWake;
+
+  async function acquireWakeLock() {
+    try {
+      if ("wakeLock" in navigator) {
+        W.wakeLock = await navigator.wakeLock.request("screen");
+        W.wakeLock.addEventListener("release", () => { W.wakeLock = null; });
+      }
+    } catch (e) { console.warn("[wake] wakeLock 실패:", e); }
+  }
+  function releaseWakeLock() {
+    if (W.wakeLock) { try { W.wakeLock.release(); } catch (e) {} W.wakeLock = null; }
+  }
+
+  async function pickBluetoothMic() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const bt = devices.find(d =>
+        d.kind === "audioinput" &&
+        /bluetooth|airpod|buds|headset|\uC774\uC5B4/i.test(d.label)
+      );
+      return bt ? bt.deviceId : null;
+    } catch (e) { return null; }
+  }
+
+  function matchKeyword(text, list) {
+    const t = (text || "").replace(/[ \t\n\r]+/g, "");
+    return list.some(k => t.includes(k));
+  }
+
+  async function loop() {
+    if (!W.running) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      console.warn("[wake] SpeechRecognition \uBBF8\uC9C0\uC6D0");
+      W.running = false; return;
+    }
+    const r = new SR();
+    r.lang = "ko-KR"; r.continuous = false;
+    r.interimResults = false; r.maxAlternatives = 1;
+    r.onresult = (e) => {
+      const txt = (e.results[0] && e.results[0][0].transcript) || "";
+      console.log("[wake] heard:", txt);
+      const now = Date.now();
+      if (now - W.lastFireAt < 1500) return;
+      if (matchKeyword(txt, W.keywords.stop)) {
+        W.lastFireAt = now; stopWakeWord();
+        showToast("\uD83C\uDF99\uFE0F \uC74C\uC131 \uC785\uB825 \uC885\uB8CC"); return;
+      }
+      if (matchKeyword(txt, W.keywords.cancel)) {
+        W.lastFireAt = now;
+        window.dispatchEvent(new CustomEvent("zeroda-wake-cancel")); return;
+      }
+      if (matchKeyword(txt, W.keywords.start)) {
+        W.lastFireAt = now;
+        showToast("\uD83C\uDF99\uFE0F \uD638\uCD9C \uAC10\uC9C0 \u2014 \uC785\uB825 \uB300\uAE30");
+        window.dispatchEvent(new CustomEvent("zeroda-wake")); return;
+      }
+    };
+    r.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        console.warn("[wake] \uAD8C\uD55C \uAC70\uBD80"); W.running = false; return;
+      }
+    };
+    r.onend = () => { if (W.running) setTimeout(loop, 200); };
+    try { r.start(); W.recognition = r; }
+    catch (e) { console.warn("[wake] start \uC2E4\uD328:", e); if (W.running) setTimeout(loop, 800); }
+  }
+
+  async function startWakeWord() {
+    if (W.running) return;
+    W.running = true;
+    await acquireWakeLock();
+    try {
+      const bt = await pickBluetoothMic();
+      const constraints = bt ? { audio: { deviceId: { exact: bt } } } : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      stream.getTracks().forEach(t => t.stop());
+    } catch (e) { console.warn("[wake] \uB9C8\uC774\uD06C \uAD8C\uD55C \uC2E4\uD328:", e); }
+    showToast("\uD83C\uDFA7 \uC6E8\uC774\uD06C\uC6CC\uB4DC ON \u2014 '\uC218\uAC70' \uB77C\uACE0 \uB9D0\uD558\uC138\uC694");
+    loop();
+  }
+
+  function stopWakeWord() {
+    W.running = false;
+    if (W.recognition) { try { W.recognition.stop(); } catch (e) {} W.recognition = null; }
+    releaseWakeLock();
+  }
+
+  function showToast(msg) {
+    const el = document.getElementById("wake-toast");
+    if (el) {
+      el.textContent = msg; el.style.display = "block";
+      clearTimeout(el.__t);
+      el.__t = setTimeout(() => { el.style.display = "none"; }, 2500);
+    }
+  }
+
+  window.zerodaWake = { start: startWakeWord, stop: stopWakeWord };
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && W.running) stopWakeWord();
+  });
+})();
+"""),
             rx.script(
                 "window.addEventListener('zeroda-wake-relay', function(){"
                 "  var btn = document.getElementById('wake-trigger-btn');"
