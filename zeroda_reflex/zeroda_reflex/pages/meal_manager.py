@@ -87,7 +87,7 @@ def _calendar_cell(cell: dict) -> rx.Component:
             padding="6px 5px",
         ),
         on_click=MealState.toggle_day(cell["date"]),
-        width="calc(100% / 7)",
+        width="calc((100% - 24px) / 7)",
         min_height="64px",
         border=rx.cond(is_selected, "1.5px solid #3b82f6", "1px solid #e8ecf0"),
         border_radius="8px",
