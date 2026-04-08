@@ -23,6 +23,7 @@ ROLE_LABELS = {
     "vendor_admin": "업체관리자",
     "driver": "기사",
     "school": "학교",
+    "meal_manager": "급식담당자",
     "edu_office": "교육청",
 }
 
@@ -355,7 +356,7 @@ def _account_tab() -> rx.Component:
         # 필터
         rx.hstack(
             rx.select(
-                ["전체", "admin", "vendor_admin", "driver", "school", "edu_office"],
+                ["전체", "admin", "vendor_admin", "driver", "school", "meal_manager", "edu_office"],
                 value=AdminState.acct_filter_role,
                 on_change=AdminState.set_acct_filter_role,
                 placeholder="역할 필터",
