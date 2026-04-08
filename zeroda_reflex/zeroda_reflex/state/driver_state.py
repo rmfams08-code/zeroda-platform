@@ -1924,7 +1924,7 @@ class DriverState(AuthState):
         try:
             from ..utils.database import get_db
             auth = await self.get_state(AuthState)
-            username = (auth.username or "").strip()
+            username = (auth.user_id or "").strip()
             if not username:
                 return
             conn = get_db()
@@ -1951,7 +1951,7 @@ class DriverState(AuthState):
         try:
             from ..utils.database import get_db
             auth = await self.get_state(AuthState)
-            username = (auth.username or "").strip()
+            username = (auth.user_id or "").strip()
             if not username:
                 yield rx.toast.error("로그인 정보가 없습니다")
                 return
@@ -2005,7 +2005,7 @@ class DriverState(AuthState):
                 conn.execute(
                     "INSERT INTO wake_stats (username, event_type, heard_text, matched_keyword) "
                     "VALUES (?, ?, ?, ?)",
-                    (auth.username or "", event_type, heard[:200], matched[:50]),
+                    (auth.user_id or "", event_type, heard[:200], matched[:50]),
                 )
                 conn.commit()
             finally:
