@@ -1,0 +1,97 @@
+<!--
+  ============================================================
+  표준 견적서 템플릿 — 두 모드 공통
+    A. 자동모드: customer_info 단가 3종 + 사장님 입력 월예상량 → 자동 계산
+    B. 수기모드: items_json 배열 그대로 렌더
+  ============================================================
+  변수 목록:
+    {{견적번호}} {{발행일}} {{유효기간}}
+    {{거래처명}} {{대표자}} {{사업자번호}} {{주소}} {{전화}}
+    {{수탁사명}} {{수탁사_대표}} {{수탁사_사업자번호}} {{수탁사_주소}} {{수탁사_전화}}
+    {{ITEMS_TBODY}}        ← document_service.py 에서 <tr>...</tr> 행 묶음으로 주입
+    {{공급가액}} {{부가세}} {{합계금액}} {{합계금액_한글}}
+    {{비고}} {{직인_IMG}}
+-->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 20mm; }
+  body  { font-family: 'Malgun Gothic','Nanum Gothic',sans-serif; font-size: 11pt; color:#222; }
+  h1    { text-align:center; font-size: 24pt; letter-spacing: 8px; margin: 0 0 6px 0; }
+  .docno{ text-align:center; color:#777; margin-bottom: 18px; }
+  .twocol { display:flex; gap: 14px; }
+  .twocol > div { flex:1; }
+  table { width:100%; border-collapse: collapse; }
+  th,td { border:1px solid #555; padding:6px 8px; font-size:10.5pt; }
+  th    { background:#f1f1f1; text-align:center; }
+  .info th{ width: 22%; }
+  .items th { background:#fff8dc; }
+  .items td.num { text-align:right; }
+  .total-row td { background:#fffbe6; font-weight:bold; }
+  .footer { margin-top:24px; }
+  .stamp  { width:55px; height:55px; vertical-align:middle; }
+  .remark { margin-top:14px; padding:8px 12px; border:1px dashed #888; min-height:38px; }
+</style>
+</head>
+<body>
+
+<h1>견 &nbsp; 적 &nbsp; 서</h1>
+<div class="docno">{{견적번호}} &nbsp;|&nbsp; 발행일: {{발행일}} &nbsp;|&nbsp; 유효기간: {{유효기간}}</div>
+
+<div class="twocol">
+  <div>
+    <table class="info">
+      <tr><th colspan="2">공급받는자 (귀하)</th></tr>
+      <tr><th>상호</th><td>{{거래처명}}</td></tr>
+      <tr><th>대표자</th><td>{{대표자}}</td></tr>
+      <tr><th>사업자번호</th><td>{{사업자번호}}</td></tr>
+      <tr><th>주소</th><td>{{주소}}</td></tr>
+      <tr><th>연락처</th><td>{{전화}}</td></tr>
+    </table>
+  </div>
+  <div>
+    <table class="info">
+      <tr><th colspan="2">공 급 자</th></tr>
+      <tr><th>상호</th><td>{{수탁사명}} <img class="stamp" src="{{직인_IMG}}" alt="(인)"></td></tr>
+      <tr><th>대표자</th><td>{{수탁사_대표}}</td></tr>
+      <tr><th>사업자번호</th><td>{{수탁사_사업자번호}}</td></tr>
+      <tr><th>주소</th><td>{{수탁사_주소}}</td></tr>
+      <tr><th>연락처</th><td>{{수탁사_전화}}</td></tr>
+    </table>
+  </div>
+</div>
+
+<p style="margin-top:18px;">아래와 같이 견적합니다.</p>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th style="width:6%;">No</th>
+      <th>품 목</th>
+      <th style="width:14%;">규격/단위</th>
+      <th style="width:12%;">수량</th>
+      <th style="width:14%;">단가(원)</th>
+      <th style="width:16%;">금액(원)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ITEMS_TBODY}}
+  </tbody>
+  <tfoot>
+    <tr class="total-row"><td colspan="5">공 급 가 액</td><td class="num">{{공급가액}}</td></tr>
+    <tr class="total-row"><td colspan="5">부 가 세 (10%)</td><td class="num">{{부가세}}</td></tr>
+    <tr class="total-row"><td colspan="5">합  계  금  액</td><td class="num">{{합계금액}}</td></tr>
+    <tr><td colspan="6" style="text-align:center;">금 {{합계금액_한글}} 원</td></tr>
+  </tfoot>
+</table>
+
+<div class="remark"><b>비고</b><br>{{비고}}</div>
+
+<div class="footer" style="text-align:center; margin-top:30px; color:#555;">
+  본 견적서는 발행일로부터 유효기간 내에서만 효력이 있습니다.
+</div>
+
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!--
+  ============================================================
+  표준 계약서 템플릿 (폐기물수집운반 위·수탁 계약서)
+  - {{변수}} 부분은 document_service.py 의 render_contract() 가 치환
+  - PDF 변환은 기존 utils/pdf_export.py 의 wkhtmltopdf 파이프라인 재사용
+  - 멀티테넌트: vendor별로 contract_templates에 저장 후 직인 자동 삽입
+  ============================================================
+  사용 변수 목록 (variables_json 에 그대로 등록):
+    {{거래처명}} {{사업자번호}} {{대표자}} {{주소}}
+    {{업태}} {{종목}} {{전화}} {{이메일}}
+    {{수탁사명}} {{수탁사_사업자번호}} {{수탁사_대표}} {{수탁사_주소}}
+    {{단가_음식물}} {{단가_재활용}} {{단가_일반}} {{고정월비}}
+    {{계약시작일}} {{계약종료일}} {{발행일}} {{직인_IMG}}
+-->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 25mm 20mm; }
+  body  { font-family: 'Malgun Gothic','Nanum Gothic',sans-serif; font-size: 11pt; line-height: 1.7; color:#222; }
+  h1    { text-align:center; font-size: 20pt; letter-spacing: 4px; margin-bottom: 30px; }
+  h2    { font-size: 13pt; border-bottom: 2px solid #333; padding-bottom: 4px; margin-top: 22px; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  th,td { border: 1px solid #555; padding: 6px 10px; font-size: 10.5pt; }
+  th    { background:#f3f3f3; width: 22%; text-align:center; }
+  .article    { margin: 12px 0; }
+  .article b  { display:inline-block; margin-right:6px; }
+  .sign-area  { margin-top: 50px; display:flex; justify-content: space-around; }
+  .sign-box   { text-align:center; width: 45%; }
+  .sign-box .stamp { display:inline-block; margin-left:8px; width:55px; height:55px; vertical-align:middle; }
+  .footer-date { text-align:center; margin-top: 40px; font-size: 12pt; }
+</style>
+</head>
+<body>
+
+<h1>폐기물 수집·운반 위·수탁 계약서</h1>
+
+<h2>1. 계약 당사자</h2>
+<table>
+  <tr><th>위탁자(갑)</th><td>{{거래처명}}</td><th>사업자번호</th><td>{{사업자번호}}</td></tr>
+  <tr><th>대 표 자</th><td>{{대표자}}</td><th>연 락 처</th><td>{{전화}}</td></tr>
+  <tr><th>주    소</th><td colspan="3">{{주소}}</td></tr>
+  <tr><th>업태/종목</th><td>{{업태}} / {{종목}}</td><th>이 메 일</th><td>{{이메일}}</td></tr>
+</table>
+<table>
+  <tr><th>수탁자(을)</th><td>{{수탁사명}}</td><th>사업자번호</th><td>{{수탁사_사업자번호}}</td></tr>
+  <tr><th>대 표 자</th><td>{{수탁사_대표}}</td><th>주    소</th><td>{{수탁사_주소}}</td></tr>
+</table>
+
+<h2>2. 위탁 단가</h2>
+<table>
+  <tr><th>음식물폐기물</th><td>{{단가_음식물}} 원/kg</td>
+      <th>재 활 용 품</th><td>{{단가_재활용}} 원/kg</td></tr>
+  <tr><th>일반폐기물</th><td>{{단가_일반}} 원/kg</td>
+      <th>고정월비</th><td>{{고정월비}} 원/월</td></tr>
+</table>
+
+<h2>3. 계약 조항</h2>
+<div class="article"><b>제1조 (목적)</b> 본 계약은 갑이 배출하는 폐기물을 을이 「폐기물관리법」에 따라 수집·운반함에 있어 필요한 사항을 정함을 목적으로 한다.</div>
+<div class="article"><b>제2조 (계약기간)</b> 본 계약은 {{계약시작일}}부터 {{계약종료일}}까지로 하며, 만료 1개월 전까지 별도 의사표시가 없을 경우 동일 조건으로 1년 자동 연장된다.</div>
+<div class="article"><b>제3조 (수집·운반 의무)</b> 을은 사전 협의된 일정에 따라 갑의 폐기물을 안전하게 수집·운반하며, 차량·인력의 위생과 안전관리에 책임을 진다.</div>
+<div class="article"><b>제4조 (정산)</b> 매월 말일 기준 실수거 중량으로 정산하며, 갑은 익월 10일까지 을이 발행한 거래명세서에 따라 대금을 지급한다.</div>
+<div class="article"><b>제5조 (자료 제공)</b> 을은 매월 수거실적, 처리실적, 인계서를 zeroda 플랫폼을 통해 갑에게 제공한다.</div>
+<div class="article"><b>제6조 (계약 해지)</b> 어느 일방이 본 계약을 위반한 경우, 상대방은 30일 전 서면통지로 계약을 해지할 수 있다.</div>
+<div class="article"><b>제7조 (기타)</b> 본 계약에 명시되지 않은 사항은 관계 법령 및 일반 상관례에 따른다.</div>
+
+<div class="footer-date">{{발행일}}</div>
+
+<div class="sign-area">
+  <div class="sign-box">
+    위 탁 자 (갑)<br><br>
+    {{거래처명}}<br>
+    대표자 {{대표자}} <span class="stamp">(인)</span>
+  </div>
+  <div class="sign-box">
+    수 탁 자 (을)<br><br>
+    {{수탁사명}}<br>
+    대표자 {{수탁사_대표}} <img class="stamp" src="{{직인_IMG}}" alt="(인)">
+  </div>
+</div>
+
+</body>
+</html>
