@@ -2442,6 +2442,12 @@ class VendorState(AuthState):
             self.settings_old_pw = ""
             self.settings_new_pw = ""
             self.settings_confirm_pw = ""
+            # 비밀번호 변경 시 해당 사용자의 모든 자동 로그인 토큰 무효화
+            try:
+                from zeroda_reflex.utils.database import revoke_user_all_tokens
+                revoke_user_all_tokens(self.user_id, reason="password_change")
+            except Exception as _e:
+                logger.warning("[vendor] 토큰 일괄 폐기 실패: %s", _e)
         else:
             self.settings_msg = "비밀번호 변경에 실패했습니다."
 

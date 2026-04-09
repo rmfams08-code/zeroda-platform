@@ -40,6 +40,7 @@ class AuthState(rx.State):
     # ── 로그인 폼 ──
     login_error: str = ""
     login_loading: bool = False
+    remember_me_checkbox: bool = True   # 자동 로그인 (기사 전용, 90일 쿠키)
 
     # ── 회원가입 폼 ──
     reg_id: str = ""
@@ -236,10 +237,37 @@ class AuthState(rx.State):
         edu_s.active_tab = "전체현황"
         meal_s = await self.get_state(MealState)
         meal_s.active_tab = "식단등록"
+
+        # 기사 자동 로그인 쿠키 발급 (remember_me_checkbox == True 일 때)
+        if self.user_role == "driver" and self.remember_me_checkbox:
+            from zeroda_reflex.utils.database import create_driver_token
+            try:
+                token = create_driver_token(self.user_id, device_hint="")
+                yield rx.call_script(
+                    f"""
+                    (async () => {{
+                        try {{
+                            await fetch('/api/driver/set-token', {{
+                                method: 'POST',
+                                headers: {{'Content-Type': 'application/json'}},
+                                body: JSON.stringify({{user_id: '{self.user_id}', token: '{token}'}})
+                            }});
+                        }} catch(e) {{ console.warn('[auth] set-token fetch 실패:', e); }}
+                    }})();
+                    """
+                )
+            except Exception as _e:
+                import logging
+                logging.getLogger(__name__).warning("[auth] 드라이버 토큰 발급 실패: %s", _e)
+
         yield self._redirect_by_role()
 
+    def set_remember_me_checkbox(self, v: bool):
+        self.remember_me_checkbox = v
+
     def logout(self):
-        """로그아웃"""
+        """로그아웃 — 기사의 경우 HttpOnly 자동 로그인 쿠키도 삭제"""
+        was_driver = (self.user_role == "driver")
         self.user_id = ""
         self.user_name = ""
         self.user_role = ""
@@ -248,7 +276,42 @@ class AuthState(rx.State):
         self.user_edu_office = ""
         self.is_authenticated = False
         self.is_user_active = False
-        return rx.redirect("/")
+        if was_driver:
+            yield rx.call_script(
+                """
+                (async () => {
+                    try {
+                        await fetch('/api/driver/revoke-token', {method: 'POST'});
+                    } catch(e) { console.warn('[auth] revoke-token fetch 실패:', e); }
+                })();
+                """
+            )
+        yield rx.redirect("/")
+
+    def restore_driver_session(self, data: dict):
+        """JS fetch /api/driver/check-token 결과를 받아 세션 복원.
+        JS 쪽에서: if ok → rx.call_event(AuthState.restore_driver_session, {user_id, ...})
+        실제로는 check_cookie_login 에서 호출됨.
+        """
+        uid = (data or {}).get("user_id", "")
+        if not uid:
+            return
+        from zeroda_reflex.utils.database import db_get
+        rows = db_get("users", {"user_id": uid})
+        if not rows:
+            return
+        u = rows[0]
+        if u.get("approval_status") != "approved" or not int(u.get("is_active", 0) or 0):
+            return
+        self.user_id = u.get("user_id") or ""
+        self.user_name = u.get("name") or ""
+        self.user_role = u.get("role") or ""
+        self.user_vendor = u.get("vendor") or ""
+        self.user_schools = u.get("schools") or ""
+        self.user_edu_office = u.get("edu_office") or ""
+        self.is_authenticated = True
+        self.is_user_active = True
+        yield rx.redirect("/driver")
 
     def check_auth(self):
         """페이지 로드 시 인증 확인. 미인증 시 로그인으로 리다이렉트"""

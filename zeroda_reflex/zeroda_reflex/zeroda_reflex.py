@@ -1,6 +1,8 @@
 # zeroda_reflex/zeroda_reflex.py
 # 메인 앱 엔트리 — 페이지 등록 및 라우팅
 import reflex as rx
+from fastapi import Request, Response
+from fastapi.responses import JSONResponse
 
 from zeroda_reflex.pages.login import login_page
 from zeroda_reflex.pages.register import register_page
@@ -71,3 +73,73 @@ app.add_page(
 )
 app.add_page(privacy_page, route="/privacy", title="ZERODA 개인정보처리방침")
 app.add_page(terms_page, route="/terms", title="ZERODA 이용약관")
+
+
+# ── driver 자동로그인 FastAPI 엔드포인트 ──────────────────────────────────
+_COOKIE_NAME = "zeroda_driver_token"
+_COOKIE_MAX_AGE = 90 * 24 * 3600   # 90일
+_COOKIE_OPTS = dict(
+    httponly=True,
+    secure=True,
+    samesite="lax",
+    path="/",
+)
+
+
+async def _driver_set_token(request: Request) -> JSONResponse:
+    """POST /api/driver/set-token
+    Body: {"user_id": "...", "token": "..."}
+    응답: Set-Cookie (HttpOnly; Secure; SameSite=Lax; Max-Age=90d)
+    """
+    try:
+        body = await request.json()
+        token = body.get("token", "")
+        user_id = body.get("user_id", "")
+        if not token or not user_id:
+            return JSONResponse({"ok": False, "error": "missing fields"}, status_code=400)
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(
+            key=_COOKIE_NAME,
+            value=token,
+            max_age=_COOKIE_MAX_AGE,
+            **_COOKIE_OPTS,
+        )
+        return resp
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+async def _driver_check_token(request: Request) -> JSONResponse:
+    """GET /api/driver/check-token
+    쿠키 zeroda_driver_token 자동 포함 → verify_driver_token 호출.
+    유효: {"ok": true, "user_id": "..."}
+    무효: {"ok": false} + 쿠키 삭제
+    """
+    from zeroda_reflex.utils.database import verify_driver_token
+    token = request.cookies.get(_COOKIE_NAME, "")
+    user_id = verify_driver_token(token) if token else None
+    if user_id:
+        return JSONResponse({"ok": True, "user_id": user_id})
+    # 무효 — 쿠키 삭제
+    resp = JSONResponse({"ok": False})
+    resp.delete_cookie(key=_COOKIE_NAME, path="/")
+    return resp
+
+
+async def _driver_revoke_token(request: Request) -> JSONResponse:
+    """POST /api/driver/revoke-token
+    쿠키 zeroda_driver_token → revoke_driver_token(reason='logout') + 쿠키 삭제.
+    """
+    from zeroda_reflex.utils.database import revoke_driver_token
+    token = request.cookies.get(_COOKIE_NAME, "")
+    if token:
+        revoke_driver_token(token, reason="logout")
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(key=_COOKIE_NAME, path="/")
+    return resp
+
+
+# Reflex 내부 FastAPI 인스턴스에 라우트 등록
+app.api.add_api_route("/api/driver/set-token",    _driver_set_token,    methods=["POST"])
+app.api.add_api_route("/api/driver/check-token",  _driver_check_token,  methods=["GET"])
+app.api.add_api_route("/api/driver/revoke-token", _driver_revoke_token, methods=["POST"])

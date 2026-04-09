@@ -587,6 +587,150 @@ except Exception as _dat_init_err:
     print(f"[DB ERROR] driver_auth_tokens 초기화 실패: {_dat_init_err}")
 
 
+# ── driver 자동로그인 토큰 CRUD (PG 전용) ──────────────────────────────────
+
+def create_driver_token(user_id: str, device_hint: str = "") -> str:
+    """토큰 생성 및 DB 저장. 반환값: 생성된 토큰 문자열.
+    PG 전용 — SQLite 모드에서는 빈 문자열 반환.
+    로그에 token 값 절대 기록 금지.
+    """
+    if DB_BACKEND != "postgres":
+        logger.warning("create_driver_token: PG 전용, SQLite 모드에서는 no-op")
+        return ""
+    import secrets
+    token = secrets.token_urlsafe(48)
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO driver_auth_tokens"
+            " (token, user_id, device_hint, expires_at)"
+            " VALUES (%s, %s, %s, NOW() + INTERVAL '90 days')",
+            (token, user_id, device_hint[:200] if device_hint else ""),
+        )
+        conn.commit()
+        logger.info("create_driver_token: user_id=%s device_hint=%.40s", user_id, device_hint)
+        return token
+    except Exception as e:
+        logger.error("create_driver_token 실패: user_id=%s err=%s", user_id, e)
+        return ""
+    finally:
+        conn.close()
+
+
+def verify_driver_token(token: str) -> "str | None":
+    """토큰 검증. 유효하면 user_id 반환 + last_used_at 갱신. 무효면 None.
+    토큰 값 로그 금지.
+    """
+    if DB_BACKEND != "postgres" or not token:
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT user_id FROM driver_auth_tokens"
+            " WHERE token=%s AND revoked=0 AND expires_at > NOW()",
+            (token,),
+        ).fetchone()
+        if not row:
+            return None
+        user_id = row["user_id"]
+        conn.execute(
+            "UPDATE driver_auth_tokens SET last_used_at=NOW() WHERE token=%s",
+            (token,),
+        )
+        conn.commit()
+        logger.info("verify_driver_token: OK user_id=%s", user_id)
+        return user_id
+    except Exception as e:
+        logger.error("verify_driver_token 실패: %s", e)
+        return None
+    finally:
+        conn.close()
+
+
+def revoke_driver_token(token: str, reason: str = "logout") -> bool:
+    """단일 토큰 무효화 (revoked=1). 반환값: 성공 여부.
+    토큰 값 로그 금지.
+    """
+    if DB_BACKEND != "postgres" or not token:
+        return False
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE driver_auth_tokens"
+            " SET revoked=1, revoked_at=NOW(), revoked_reason=%s"
+            " WHERE token=%s AND revoked=0",
+            (reason[:50], token),
+        )
+        conn.commit()
+        logger.info("revoke_driver_token: reason=%s", reason)
+        return True
+    except Exception as e:
+        logger.error("revoke_driver_token 실패: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def revoke_user_all_tokens(user_id: str, reason: str = "admin_revoke") -> int:
+    """해당 user_id의 모든 활성 토큰 무효화.
+    reason='admin_revoke'    → revoked=2
+    reason='password_change' → revoked=3
+    반환값: 무효화된 토큰 개수.
+    """
+    if DB_BACKEND != "postgres":
+        return 0
+    revoked_code = 3 if reason == "password_change" else 2
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE driver_auth_tokens"
+            " SET revoked=%s, revoked_at=NOW(), revoked_reason=%s"
+            " WHERE user_id=%s AND revoked=0",
+            (revoked_code, reason[:50], user_id),
+        )
+        conn.commit()
+        count = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM driver_auth_tokens"
+            " WHERE user_id=%s AND revoked=%s AND revoked_at >= NOW() - INTERVAL '5 seconds'",
+            (user_id, revoked_code),
+        ).fetchone()
+        cnt = count["cnt"] if count else 0
+        logger.info("revoke_user_all_tokens: user_id=%s reason=%s count=%s", user_id, reason, cnt)
+        return cnt
+    except Exception as e:
+        logger.error("revoke_user_all_tokens 실패: user_id=%s err=%s", user_id, e)
+        return 0
+    finally:
+        conn.close()
+
+
+def cleanup_expired_tokens() -> int:
+    """expires_at < NOW() - INTERVAL '30 days' 인 토큰 DELETE.
+    반환값: 삭제 개수.
+    """
+    if DB_BACKEND != "postgres":
+        return 0
+    conn = get_db()
+    try:
+        conn.execute(
+            "DELETE FROM driver_auth_tokens"
+            " WHERE expires_at < NOW() - INTERVAL '30 days'"
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM driver_auth_tokens"
+            " WHERE expires_at < NOW() - INTERVAL '30 days'"
+        ).fetchone()
+        # 실제 삭제 수는 rowcount로 확인 불가(PgWrapper 제한) → 0 반환 후 로그만
+        logger.info("cleanup_expired_tokens: completed")
+        return 0
+    except Exception as e:
+        logger.error("cleanup_expired_tokens 실패: %s", e)
+        return 0
+    finally:
+        conn.close()
+
+
 def ensure_academic_schedule_table() -> None:
     """school_academic_schedule 테이블 + 인덱스 생성 (idempotent).
     PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
