@@ -139,10 +139,18 @@ async def _driver_revoke_token(request: Request) -> JSONResponse:
     return resp
 
 
-# Reflex 내부 FastAPI 인스턴스에 라우트 등록
-# Reflex 0.8.x: app._api (app.api는 0.9+ 에서 추가됨)
-_fastapi = getattr(app, "api", None) or getattr(app, "_api", None)
-if _fastapi is not None:
-    _fastapi.add_api_route("/api/driver/set-token",    _driver_set_token,    methods=["POST"])
-    _fastapi.add_api_route("/api/driver/check-token",  _driver_check_token,  methods=["GET"])
-    _fastapi.add_api_route("/api/driver/revoke-token", _driver_revoke_token, methods=["POST"])
+# Reflex 내부 Starlette/FastAPI 인스턴스에 라우트 등록
+# Reflex 0.8.x: app._api 는 Starlette → add_route 사용
+# Reflex 0.9+:  app.api  는 FastAPI   → add_api_route 사용 가능
+_inner_app = getattr(app, "api", None) or getattr(app, "_api", None)
+if _inner_app is not None:
+    if hasattr(_inner_app, "add_api_route"):
+        # FastAPI (0.9+)
+        _inner_app.add_api_route("/api/driver/set-token",    _driver_set_token,    methods=["POST"])
+        _inner_app.add_api_route("/api/driver/check-token",  _driver_check_token,  methods=["GET"])
+        _inner_app.add_api_route("/api/driver/revoke-token", _driver_revoke_token, methods=["POST"])
+    else:
+        # Starlette (0.8.x)
+        _inner_app.add_route("/api/driver/set-token",    _driver_set_token,    methods=["POST"])
+        _inner_app.add_route("/api/driver/check-token",  _driver_check_token,  methods=["GET"])
+        _inner_app.add_route("/api/driver/revoke-token", _driver_revoke_token, methods=["POST"])
