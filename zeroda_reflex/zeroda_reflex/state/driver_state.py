@@ -490,14 +490,14 @@ class DriverState(AuthState):
     async def on_driver_load(self):
         """기사 페이지 로드 시.
         인증 상태이면 데이터 로드.
-        미인증이면 HttpOnly 쿠키 검증 시도 → 유효하면 restore_driver_session_silent 콜백으로 세션 복원.
+        미인증이면 HttpOnly 쿠키 검증 시도 → _on_cookie_check_result 콜백으로 세션 복원.
         """
         if not self.is_authenticated:
             # 쿠키 자동로그인 시도 (window.location.href='/driver' 후 첫 진입 시)
             yield rx.call_script(
                 "fetch('/api/driver/check-token',{credentials:'same-origin'})"
                 ".then(r=>r.json())",
-                callback=AuthState.restore_driver_session_silent,
+                callback=DriverState._on_cookie_check_result,
             )
             return
         self._load_weather()
@@ -511,6 +511,35 @@ class DriverState(AuthState):
         if not self.schedule_date:
             self.schedule_date = self.today_str
         self._load_schedule()
+
+    async def _on_cookie_check_result(self, data: dict):
+        """on_driver_load 쿠키 검증 콜백.
+        fetch('/api/driver/check-token') JSON 응답 {ok, user_id}.
+        유효하면 AuthState 필드 복원 후 redirect('/driver') — 이때 is_authenticated=True이므로 루프 없음.
+        무효하면 redirect('/').
+        """
+        uid = (data or {}).get("user_id", "")
+        if not uid:
+            yield rx.redirect("/")
+            return
+        from zeroda_reflex.utils.database import db_get
+        rows = db_get("users", {"user_id": uid})
+        if not rows:
+            yield rx.redirect("/")
+            return
+        u = rows[0]
+        if u.get("approval_status") != "approved" or not int(u.get("is_active", 0) or 0):
+            yield rx.redirect("/")
+            return
+        self.user_id = u.get("user_id") or ""
+        self.user_name = u.get("name") or ""
+        self.user_role = u.get("role") or ""
+        self.user_vendor = u.get("vendor") or ""
+        self.user_schools = u.get("schools") or ""
+        self.user_edu_office = u.get("edu_office") or ""
+        self.is_authenticated = True
+        self.is_user_active = True
+        yield rx.redirect("/driver")
 
     def _load_weather(self):
         """기상청 API로 오늘 날씨 로드"""
