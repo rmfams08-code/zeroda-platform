@@ -84,6 +84,25 @@ def login_page() -> rx.Component:
                             border_radius="12px",
                         ),
 
+                        # ── 자동 로그인 체크박스 ──
+                        rx.hstack(
+                            rx.checkbox(
+                                checked=AuthState.remember_me_checkbox,
+                                on_change=AuthState.set_remember_me_checkbox,
+                                color_scheme="green",
+                            ),
+                            rx.text(
+                                "이 기기에서 90일간 자동 로그인",
+                                font_size="13px",
+                                color="#64748b",
+                                cursor="pointer",
+                            ),
+                            spacing="2",
+                            align="center",
+                            margin_top="10px",
+                            width="100%",
+                        ),
+
                         # ── 로그인 버튼 ──
                         rx.button(
                             rx.cond(
