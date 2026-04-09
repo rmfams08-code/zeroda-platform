@@ -44,7 +44,7 @@ class DocumentState(AuthState):
 
     # ── 견적서 ──
     quote_mode: str = "auto"        # "auto" | "manual"
-    quote_months: int = 1
+    quote_months: str = "1"
     quote_remark: str = ""
     quote_items_json: str = "[]"    # 수기모드 입력 (JSON 문자열)
     quote_preview_html: str = ""
