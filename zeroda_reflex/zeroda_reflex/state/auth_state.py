@@ -174,7 +174,7 @@ class AuthState(rx.State):
         self.reg_success = ""
         return rx.redirect("/")
 
-    def login(self, form_data: dict):
+    async def login(self, form_data: dict):
         """로그인 처리"""
         self.login_loading = True
         self.login_error = ""
@@ -220,8 +220,23 @@ class AuthState(rx.State):
         self.login_loading = False
         self.login_error = ""
 
-        # 역할별 페이지로 이동
-        return self._redirect_by_role()
+        # 탭 초기화 (이전 세션 복원 방지) — 로그인 성공 시점
+        from zeroda_reflex.state.admin_state import AdminState
+        from zeroda_reflex.state.vendor_state import VendorState
+        from zeroda_reflex.state.school_state import SchoolState
+        from zeroda_reflex.state.edu_state import EduState
+        from zeroda_reflex.state.meal_state import MealState
+        admin_s = await self.get_state(AdminState)
+        admin_s.active_tab = "대시보드"
+        vendor_s = await self.get_state(VendorState)
+        vendor_s.active_tab = "수거현황"
+        school_s = await self.get_state(SchoolState)
+        school_s.active_tab = "월별현황"
+        edu_s = await self.get_state(EduState)
+        edu_s.active_tab = "전체현황"
+        meal_s = await self.get_state(MealState)
+        meal_s.active_tab = "식단등록"
+        yield self._redirect_by_role()
 
     def logout(self):
         """로그아웃"""

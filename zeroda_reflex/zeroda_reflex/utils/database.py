@@ -541,6 +541,52 @@ except Exception as _tbl_init_err:
     print(f"[DB ERROR] 누락 테이블 초기화 실패: {_tbl_init_err}")
 
 
+def ensure_driver_auth_tokens_table() -> None:
+    """driver_auth_tokens 테이블 + 인덱스 생성 (idempotent).
+    PG 전용 — SQLite 모드에서는 경고 후 no-op.
+    """
+    if DB_BACKEND != "postgres":
+        logger.warning("ensure_driver_auth_tokens_table: PG 전용, SQLite 모드에서는 생략")
+        return
+    conn = get_db()
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS driver_auth_tokens ("
+            "  token           VARCHAR(64) PRIMARY KEY,"
+            "  user_id         VARCHAR(50) NOT NULL,"
+            "  device_hint     VARCHAR(200) DEFAULT '',"
+            "  created_at      TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'Asia/Seoul'),"
+            "  last_used_at    TIMESTAMP,"
+            "  expires_at      TIMESTAMP NOT NULL,"
+            "  revoked         SMALLINT NOT NULL DEFAULT 0,"
+            "  revoked_at      TIMESTAMP,"
+            "  revoked_reason  VARCHAR(50) DEFAULT ''"
+            ")"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_driver_auth_tokens_user_id "
+            "ON driver_auth_tokens(user_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_driver_auth_tokens_expires "
+            "ON driver_auth_tokens(expires_at)"
+        )
+        conn.commit()
+        logger.info("ensure_driver_auth_tokens_table: OK")
+    except Exception as e:
+        print(f"[DB ERROR] ensure_driver_auth_tokens_table: {e}")
+        logger.warning(f"ensure_driver_auth_tokens_table 실패: {e}")
+    finally:
+        conn.close()
+
+
+# driver_auth_tokens 테이블 자동 생성
+try:
+    ensure_driver_auth_tokens_table()
+except Exception as _dat_init_err:
+    print(f"[DB ERROR] driver_auth_tokens 초기화 실패: {_dat_init_err}")
+
+
 def ensure_academic_schedule_table() -> None:
     """school_academic_schedule 테이블 + 인덱스 생성 (idempotent).
     PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
