@@ -1199,7 +1199,7 @@ def _data_tab() -> rx.Component:
 #  외주업체 관리 탭 (섹션C)
 # ══════════════════════════════════════════
 
-VENDOR_SUB_TABS = ["업체목록", "업체등록", "학교별칭", "안전평가"]
+VENDOR_SUB_TABS = ["외주업체목록", "업체등록", "학교별칭", "안전평가"]
 
 GRADE_LABELS = {
     "S": "S등급 (최우수)", "A": "A등급 (우수)", "B": "B등급 (보통)",
@@ -1220,44 +1220,124 @@ def _vendor_sub_nav() -> rx.Component:
     return rx.hstack(*[_btn(t) for t in VENDOR_SUB_TABS], spacing="2", flex_wrap="wrap")
 
 
-def _vendor_list_sub() -> rx.Component:
-    """업체 목록"""
-    return _card_box(
+def _vendor_clients_drilldown() -> rx.Component:
+    """#7 외주업체목록에서 업체 클릭 시 — 해당 업체의 담당거래처 목록 패널"""
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("users", size=14, color="#3b82f6"),
+            rx.text(
+                "담당 거래처 — ",
+                font_size="13px", font_weight="700", color="#475569",
+            ),
+            rx.text(
+                AdminState.selected_vendor_for_clients,
+                font_size="13px", font_weight="700", color="#3b82f6",
+            ),
+            rx.spacer(),
+            rx.button(
+                rx.icon("x", size=12), "닫기",
+                on_click=AdminState.hide_vendor_clients,
+                size="1", variant="ghost", color_scheme="gray",
+            ),
+            width="100%", align="center", spacing="2",
+        ),
         rx.cond(
-            AdminState.has_vendors,
+            AdminState.selected_vendor_clients.length() > 0,
             rx.table.root(
                 rx.table.header(
                     rx.table.row(
-                        rx.table.column_header_cell(rx.text("업체ID", font_size="12px", font_weight="700", color="#64748b")),
-                        rx.table.column_header_cell(rx.text("상호명", font_size="12px", font_weight="700", color="#64748b")),
-                        rx.table.column_header_cell(rx.text("대표자", font_size="12px", font_weight="700", color="#64748b")),
-                        rx.table.column_header_cell(rx.text("사업자번호", font_size="12px", font_weight="700", color="#64748b")),
+                        rx.table.column_header_cell(rx.text("거래처명", font_size="12px", font_weight="700", color="#64748b")),
+                        rx.table.column_header_cell(rx.text("유형", font_size="12px", font_weight="700", color="#64748b")),
+                        rx.table.column_header_cell(rx.text("주소", font_size="12px", font_weight="700", color="#64748b")),
                         rx.table.column_header_cell(rx.text("연락처", font_size="12px", font_weight="700", color="#64748b")),
-                        rx.table.column_header_cell(rx.text("차량번호", font_size="12px", font_weight="700", color="#64748b")),
-                        rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color="#64748b")),
                     ),
                 ),
                 rx.table.body(
                     rx.foreach(
-                        AdminState.vendor_list,
-                        lambda v: rx.table.row(
-                            rx.table.cell(rx.text(v["vendor"], font_size="12px", font_weight="600")),
-                            rx.table.cell(rx.text(v["biz_name"], font_size="12px")),
-                            rx.table.cell(rx.text(v["rep"], font_size="12px")),
-                            rx.table.cell(rx.text(v["biz_no"], font_size="12px")),
-                            rx.table.cell(rx.text(v["contact"], font_size="12px")),
-                            rx.table.cell(rx.text(v["vehicle_no"], font_size="12px")),
-                            rx.table.cell(
-                                rx.button("수정", size="1", variant="outline",
-                                           on_click=AdminState.load_vendor_for_edit(v["vendor"])),
-                            ),
+                        AdminState.selected_vendor_clients,
+                        lambda c: rx.table.row(
+                            rx.table.cell(rx.text(c["name"], font_size="12px", font_weight="600")),
+                            rx.table.cell(rx.text(c["cust_type"], font_size="12px")),
+                            rx.table.cell(rx.text(c["addr"], font_size="12px")),
+                            rx.table.cell(rx.text(c["phone"], font_size="12px")),
                         ),
                     ),
                 ),
                 width="100%",
             ),
-            rx.text("등록된 업체가 없습니다.", font_size="13px", color="#94a3b8",
-                     padding="20px", text_align="center"),
+            rx.text(
+                "이 업체에 배정된 거래처가 없습니다.",
+                font_size="12px", color="#94a3b8",
+                padding="12px", text_align="center",
+            ),
+        ),
+        spacing="2",
+        width="100%",
+        padding="12px",
+        border="1px solid #e2e8f0",
+        border_radius="8px",
+        background="#f8fafc",
+        margin_top="12px",
+    )
+
+
+def _vendor_list_sub() -> rx.Component:
+    """외주업체 목록 — #7 업체명 클릭 시 담당거래처 드릴다운"""
+    return _card_box(
+        rx.vstack(
+            rx.cond(
+                AdminState.has_vendors,
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            rx.table.column_header_cell(rx.text("업체ID", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("상호명", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("대표자", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("사업자번호", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("연락처", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("차량번호", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color="#64748b")),
+                        ),
+                    ),
+                    rx.table.body(
+                        rx.foreach(
+                            AdminState.vendor_list,
+                            lambda v: rx.table.row(
+                                rx.table.cell(rx.text(v["vendor"], font_size="12px", font_weight="600")),
+                                # #7 상호명을 클릭 가능한 링크로 — 담당거래처 드릴다운
+                                rx.table.cell(
+                                    rx.button(
+                                        v["biz_name"],
+                                        on_click=AdminState.show_vendor_clients(v["vendor"]),
+                                        variant="ghost",
+                                        size="1",
+                                        color_scheme="blue",
+                                        style={"font_size": "12px", "font_weight": "600", "padding": "2px 6px"},
+                                    ),
+                                ),
+                                rx.table.cell(rx.text(v["rep"], font_size="12px")),
+                                rx.table.cell(rx.text(v["biz_no"], font_size="12px")),
+                                rx.table.cell(rx.text(v["contact"], font_size="12px")),
+                                rx.table.cell(rx.text(v["vehicle_no"], font_size="12px")),
+                                rx.table.cell(
+                                    rx.button("수정", size="1", variant="outline",
+                                               on_click=AdminState.load_vendor_for_edit(v["vendor"])),
+                                ),
+                            ),
+                        ),
+                    ),
+                    width="100%",
+                ),
+                rx.text("등록된 업체가 없습니다.", font_size="13px", color="#94a3b8",
+                         padding="20px", text_align="center"),
+            ),
+            # #7 드릴다운 패널 — 선택된 업체가 있을 때만 표시
+            rx.cond(
+                AdminState.selected_vendor_for_clients != "",
+                _vendor_clients_drilldown(),
+            ),
+            spacing="3",
+            width="100%",
         ),
     )
 
@@ -1602,7 +1682,7 @@ def _vendor_mgmt_tab() -> rx.Component:
             ),
         ),
         # 서브탭 콘텐츠
-        rx.cond(AdminState.vendor_sub_tab == "업체목록", _vendor_list_sub()),
+        rx.cond(AdminState.vendor_sub_tab == "외주업체목록", _vendor_list_sub()),
         rx.cond(AdminState.vendor_sub_tab == "업체등록", _vendor_form_sub()),
         rx.cond(AdminState.vendor_sub_tab == "학교별칭", _alias_sub()),
         rx.cond(AdminState.vendor_sub_tab == "안전평가", _safety_eval_sub()),

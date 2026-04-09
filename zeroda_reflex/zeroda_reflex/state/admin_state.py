@@ -277,10 +277,14 @@ class AdminState(AuthState):
     # ══════════════════════════════
     #  외주업체관리 (섹션C)
     # ══════════════════════════════
-    vendor_sub_tab: str = "업체목록"
+    vendor_sub_tab: str = "외주업체목록"
     vendor_list: list[dict] = []
     vendor_msg: str = ""
     vendor_ok: bool = False
+
+    # #7 담당거래처 드릴다운 — 외주업체목록에서 업체 클릭 시 해당 업체 거래처만 표시
+    selected_vendor_for_clients: str = ""
+    selected_vendor_clients: list[dict] = []
 
     # ── 직인 관리 (멀티테넌트) ──
     stamp_vendor_select: str = ""
@@ -1498,12 +1502,32 @@ class AdminState(AuthState):
     def set_vendor_sub_tab(self, tab: str):
         self.vendor_sub_tab = tab
         self.vendor_msg = ""
-        if tab == "업체목록":
+        if tab == "외주업체목록":
             self.vendor_list = get_all_vendor_info()
+            # 탭 전환 시 드릴다운 초기화
+            self.selected_vendor_for_clients = ""
+            self.selected_vendor_clients = []
         elif tab == "학교별칭":
             self.school_master_list = get_school_master_all()
         elif tab == "안전평가":
             self.load_safety_data()
+
+    # #7 담당거래처 드릴다운 핸들러
+    def show_vendor_clients(self, vendor: str):
+        """외주업체목록에서 업체 클릭 시 — 해당 업체의 담당거래처만 로드"""
+        if not vendor:
+            return
+        self.selected_vendor_for_clients = vendor
+        try:
+            self.selected_vendor_clients = get_customers_by_vendor(vendor) or []
+        except Exception as e:
+            logger.warning(f"show_vendor_clients 실패 ({vendor}): {e}")
+            self.selected_vendor_clients = []
+
+    def hide_vendor_clients(self):
+        """드릴다운 닫기"""
+        self.selected_vendor_for_clients = ""
+        self.selected_vendor_clients = []
 
     # ── 업체 등록/수정 폼 세터 ──
 
