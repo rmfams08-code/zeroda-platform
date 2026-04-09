@@ -140,6 +140,9 @@ async def _driver_revoke_token(request: Request) -> JSONResponse:
 
 
 # Reflex 내부 FastAPI 인스턴스에 라우트 등록
-app.api.add_api_route("/api/driver/set-token",    _driver_set_token,    methods=["POST"])
-app.api.add_api_route("/api/driver/check-token",  _driver_check_token,  methods=["GET"])
-app.api.add_api_route("/api/driver/revoke-token", _driver_revoke_token, methods=["POST"])
+# Reflex 0.8.x: app._api (app.api는 0.9+ 에서 추가됨)
+_fastapi = getattr(app, "api", None) or getattr(app, "_api", None)
+if _fastapi is not None:
+    _fastapi.add_api_route("/api/driver/set-token",    _driver_set_token,    methods=["POST"])
+    _fastapi.add_api_route("/api/driver/check-token",  _driver_check_token,  methods=["GET"])
+    _fastapi.add_api_route("/api/driver/revoke-token", _driver_revoke_token, methods=["POST"])
