@@ -326,18 +326,19 @@ def _krw(n: Any) -> str:
 
 
 def _next_doc_no(vendor: str, doc_type: str) -> str:
+    """SQLite(?) 와 PostgreSQL(%s) 듀얼 백엔드 호환 채번."""
     prefix = "C" if doc_type == "contract" else "Q"
     year   = date.today().year
-    conn   = get_db()
-    try:
-        cur = conn.execute(
-            "SELECT COUNT(*)+1 FROM issued_documents "
-            "WHERE vendor=? AND doc_type=? AND issued_date LIKE ?",
-            (vendor, doc_type, f"{year}%"),
-        )
-        seq = cur.fetchone()[0]
-    finally:
-        conn.close()
+    rows   = db_get(
+        "issued_documents",
+        {"vendor": vendor, "doc_type": doc_type},
+    )
+    # issued_date가 해당 연도로 시작하는 건만 카운트
+    count = sum(
+        1 for r in rows
+        if str(r.get("issued_date", "")).startswith(str(year))
+    )
+    seq = count + 1
     return f"{prefix}-{year}-{seq:04d}"
 
 
