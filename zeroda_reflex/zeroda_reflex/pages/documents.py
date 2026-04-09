@@ -151,7 +151,7 @@ def _issued_panel() -> rx.Component:
                 rx.text(r["total_amount"].to(str), " 원", width="120px"),
                 rx.link(
                     "PDF",
-                    href=r["doc_no"].to(str),
+                    href=r["pdf_path"].to(str),
                     is_external=True,
                 ),
                 spacing="2",

@@ -20,7 +20,6 @@ zeroda 문서자동화 State (Reflex)
 from __future__ import annotations
 
 import json
-from datetime import date
 
 import reflex as rx
 
@@ -85,6 +84,7 @@ class DocumentState(AuthState):
     async def generate_contract(self):
         if not self.selected_customer:
             yield rx.toast.warning("거래처를 선택하세요")
+            return
         try:
             result = docsvc.render_contract(
                 vendor=self.user_vendor or "",
@@ -103,6 +103,7 @@ class DocumentState(AuthState):
     async def issue_contract(self):
         if not self.last_contract_html:
             yield rx.toast.warning("먼저 [미리보기 생성]을 눌러주세요")
+            return
         try:
             payload = json.loads(self.last_contract_payload or "{}")
             pdf = docsvc.issue_document(
@@ -126,6 +127,7 @@ class DocumentState(AuthState):
     async def generate_quote(self):
         if not self.selected_customer:
             yield rx.toast.warning("거래처를 선택하세요")
+            return
         items = None
         if self.quote_mode == "manual":
             try:
@@ -152,6 +154,7 @@ class DocumentState(AuthState):
     async def issue_quote(self):
         if not self.last_quote_html:
             yield rx.toast.warning("먼저 [미리보기 생성]을 눌러주세요")
+            return
         try:
             payload = json.loads(self.last_quote_payload or "{}")
             pdf = docsvc.issue_document(
