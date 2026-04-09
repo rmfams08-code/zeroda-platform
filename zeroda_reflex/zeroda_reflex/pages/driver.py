@@ -1837,7 +1837,7 @@ console.log("[WAKE] script loaded v4");
 
   // ── 키워드 매칭 ──
   function matchKeyword(text, list) {
-    var t = (text || "").replace(/[ \t\n\r]/g, "");
+    var t = (text || "").split(" ").join("");
     return list.some(function(k) { return t.indexOf(k) !== -1; });
   }
 
