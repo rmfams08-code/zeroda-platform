@@ -14,7 +14,6 @@ zeroda 문서함 페이지 — /documents
 """
 import reflex as rx
 
-from ..state.auth_state import AuthState
 from ..state.document_state import DocumentState
 
 
@@ -193,7 +192,7 @@ def _doc_center_panel() -> rx.Component:
 
 def documents_page() -> rx.Component:
     return rx.cond(
-        AuthState.is_authenticated & (AuthState.user_role == "admin"),
+        DocumentState.is_authenticated & (DocumentState.user_role == "hq_admin"),
         _doc_center_panel(),
         rx.vstack(
             rx.text("본사관리자만 접근 가능합니다.", color="#ef4444"),

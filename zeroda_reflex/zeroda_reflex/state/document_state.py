@@ -29,7 +29,7 @@ from ..utils.database import db_get
 from .auth_state import AuthState
 
 
-class DocumentState(rx.State):
+class DocumentState(AuthState):
     # ── 공통 ──
     sub_tab: str = "계약서"        # "계약서" | "견적서" | "발급내역"
     customer_options: list[str] = []
@@ -68,8 +68,7 @@ class DocumentState(rx.State):
     # =====================================================
     async def on_doc_load(self):
         """페이지 진입 시 거래처 목록 + 인증 확인."""
-        auth = await self.get_state(AuthState)
-        if not auth.is_authenticated:
+        if not self.is_authenticated:
             return rx.redirect("/")
         await self.load_customers()
 
@@ -77,27 +76,24 @@ class DocumentState(rx.State):
     # 거래처 옵션 로드
     # =====================================================
     async def load_customers(self):
-        auth = await self.get_state(AuthState)
-        rows = db_get("customer_info", {"vendor": auth.user_vendor or ""})
+        rows = db_get("customer_info", {"vendor": self.user_vendor or ""})
         self.customer_options = [r["name"] for r in rows]
 
     # =====================================================
     # 계약서
     # =====================================================
     async def generate_contract(self):
-        auth = await self.get_state(AuthState)
         if not self.selected_customer:
             return rx.window_alert("거래처를 선택하세요")
         try:
             result = docsvc.render_contract(
-                vendor=auth.user_vendor or "",
+                vendor=self.user_vendor or "",
                 customer_name=self.selected_customer,
                 template_id=self.contract_template_id or None,
                 contract_start=self.contract_start or None,
                 contract_end=self.contract_end or None,
             )
             self.contract_preview_html = result["html"]
-            # 발급(=PDF저장)은 별도 버튼 — 직렬화하여 보관
             self._last_contract_html = result["html"]
             self._last_contract_doc_no = result["doc_no"]
             self._last_contract_payload = json.dumps(result["payload"], ensure_ascii=False)
@@ -105,20 +101,19 @@ class DocumentState(rx.State):
             return rx.window_alert(f"계약서 생성 실패: {e}")
 
     async def issue_contract(self):
-        auth = await self.get_state(AuthState)
         if not self._last_contract_html:
             return rx.window_alert("먼저 [미리보기 생성]을 눌러주세요")
         try:
             payload = json.loads(self._last_contract_payload or "{}")
             pdf = docsvc.issue_document(
-                vendor=auth.user_vendor or "",
+                vendor=self.user_vendor or "",
                 doc_type="contract",
                 customer_name=self.selected_customer,
                 html=self._last_contract_html,
                 doc_no=self._last_contract_doc_no,
                 payload=payload,
                 template_id=self.contract_template_id or None,
-                created_by=auth.user_id or "",
+                created_by=self.user_id or "",
             )
             self.contract_pdf_path = pdf
             return rx.window_alert(f"계약서 발급 완료: {self._last_contract_doc_no}")
@@ -129,7 +124,6 @@ class DocumentState(rx.State):
     # 견적서
     # =====================================================
     async def generate_quote(self):
-        auth = await self.get_state(AuthState)
         if not self.selected_customer:
             return rx.window_alert("거래처를 선택하세요")
         items = None
@@ -140,7 +134,7 @@ class DocumentState(rx.State):
                 return rx.window_alert("수기 품목 JSON 형식이 잘못되었습니다")
         try:
             result = docsvc.render_quote(
-                vendor=auth.user_vendor or "",
+                vendor=self.user_vendor or "",
                 customer_name=self.selected_customer,
                 items=items,
                 auto_months=int(self.quote_months or 1),
@@ -156,13 +150,12 @@ class DocumentState(rx.State):
             return rx.window_alert(f"견적서 생성 실패: {e}")
 
     async def issue_quote(self):
-        auth = await self.get_state(AuthState)
         if not self._last_quote_html:
             return rx.window_alert("먼저 [미리보기 생성]을 눌러주세요")
         try:
             payload = json.loads(self._last_quote_payload or "{}")
             pdf = docsvc.issue_document(
-                vendor=auth.user_vendor or "",
+                vendor=self.user_vendor or "",
                 doc_type="quote",
                 customer_name=self.selected_customer,
                 html=self._last_quote_html,
@@ -170,7 +163,7 @@ class DocumentState(rx.State):
                 payload=payload,
                 valid_until=self._last_quote_valid_until,
                 total_amount=self._last_quote_total,
-                created_by=auth.user_id or "",
+                created_by=self.user_id or "",
             )
             self.quote_pdf_path = pdf
             return rx.window_alert(f"견적서 발급 완료: {self._last_quote_doc_no}")
@@ -181,7 +174,6 @@ class DocumentState(rx.State):
     # 발급내역
     # =====================================================
     async def load_issued(self):
-        auth = await self.get_state(AuthState)
-        rows = db_get("issued_documents", {"vendor": auth.user_vendor or ""})
+        rows = db_get("issued_documents", {"vendor": self.user_vendor or ""})
         rows.sort(key=lambda r: r.get("issued_date", ""), reverse=True)
         self.issued_rows = rows[:200]
