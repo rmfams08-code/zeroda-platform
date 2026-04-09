@@ -12,6 +12,8 @@ from zeroda_reflex.components.shared import (
     section_header as _section_header,
     card_box as _card_box,
 )
+# ── 문서서비스 패널 (2026-04-10 사이드바 메뉴 추가) ──
+from zeroda_reflex.pages.documents import _doc_center_panel
 
 # ══════════════════════════════════════════
 #  공통 헬퍼 — shared.py에서 import (Phase 0-A)
@@ -52,6 +54,7 @@ def _sidebar() -> rx.Component:
         "폐기물분석": "bar_chart_3",
         "현장사진": "camera",
         "계정관리": "users",
+        "문서서비스": "file_text",
     }
 
     def _nav_item(tab_name: str) -> rx.Component:
@@ -4146,6 +4149,7 @@ def _tab_content() -> rx.Component:
         rx.cond(AdminState.active_tab == "탄소감축", _carbon_tab()),
         rx.cond(AdminState.active_tab == "폐기물분석", _analytics_tab()),
         rx.cond(AdminState.active_tab == "현장사진", _photo_tab()),
+        rx.cond(AdminState.active_tab == "문서서비스", _doc_center_panel()),
         width="100%",
     )
 

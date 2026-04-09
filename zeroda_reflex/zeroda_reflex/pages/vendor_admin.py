@@ -3,6 +3,8 @@
 import reflex as rx
 from zeroda_reflex.state.vendor_state import VendorState
 from zeroda_reflex.state.auth_state import AuthState, get_year_options, MONTH_OPTIONS
+# ── 문서서비스 패널 (2026-04-10 사이드바 메뉴 추가) ──
+from zeroda_reflex.pages.vendor_documents import _vendor_doc_center_panel
 # ── 공통 컴포넌트 import (Phase 0-A 모듈화) ──
 from zeroda_reflex.components.shared import (
     kpi_card_icon_box as _kpi_card,           # 업체관리자는 아이콘박스형 KPI
@@ -58,6 +60,7 @@ TABS = [
     ("안전관리",   "shield_check"),
     ("수거분석",   "trending_up"),
     ("현장사진",   "camera"),
+    ("문서서비스", "file_text"),
     ("설정",       "settings"),
 ]
 PHOTO_TYPE_OPTIONS = ["전체", "수거증빙", "계근표", "차량장비", "사고이슈"]
@@ -4414,7 +4417,11 @@ def _tab_content() -> rx.Component:
                                 rx.cond(
                                     VendorState.active_tab == "현장사진",
                                     _photo_tab(),
-                                    _settings_tab(),
+                                    rx.cond(
+                                        VendorState.active_tab == "문서서비스",
+                                        _vendor_doc_center_panel(),
+                                        _settings_tab(),
+                                    ),
                                 ),
                             ),
                         ),
