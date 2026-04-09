@@ -89,7 +89,16 @@ def fetch_vendor_company(vendor: str) -> dict[str, Any]:
         )
         row = cur.fetchone()
         if row:
-            return dict(row)
+            d = dict(row)
+            # vendor_info 컬럼명 → 표준 키 매핑
+            # (biz_name→company_name, rep→ceo, contact→phone, address/biz_no 동일)
+            return {
+                "company_name": d.get("biz_name") or d.get("company_name") or vendor,
+                "ceo":          d.get("rep") or d.get("ceo", ""),
+                "biz_no":       d.get("biz_no", ""),
+                "address":      d.get("address", ""),
+                "phone":        d.get("contact") or d.get("phone", ""),
+            }
     except Exception:
         pass  # vendor_info 테이블이 없는 환경 폴백 (SQLite OperationalError / PG UndefinedTable 모두 처리)
     finally:
@@ -348,31 +357,56 @@ def _next_doc_no(vendor: str, doc_type: str) -> str:
 def fetch_vendor_company_info(vendor: str) -> dict[str, Any]:
     """
     외주업체 회사정보 조회.
-    1차: vendor_company_info 테이블 (신규)
-    2차: vendor_info 테이블 (기존)
+    1차: vendor_company_info 테이블 (전용 신규 테이블, 관리자가 직접 입력)
+    2차: vendor_info 테이블 (기존 데이터 — biz_name/rep/biz_no/address/contact)
     3차: 환경변수 폴백
     """
     conn = get_db()
     try:
+        # 1차: vendor_company_info (신규 전용 테이블)
         cur = conn.execute(
             "SELECT * FROM vendor_company_info WHERE vendor_id=? LIMIT 1", (vendor,)
         )
         row = cur.fetchone()
         if row:
             d = dict(row)
+            # 실제 데이터가 있는지 확인 (빈 레코드 방지)
+            if any([d.get("company_name"), d.get("ceo_name"), d.get("bizno")]):
+                return {
+                    "company_name": d.get("company_name") or vendor,
+                    "ceo":          d.get("ceo_name", ""),
+                    "biz_no":       d.get("bizno", ""),
+                    "address":      d.get("addr", ""),
+                    "phone":        d.get("phone", ""),
+                }
+
+        # 2차: vendor_info 테이블 (기존 운영 데이터)
+        cur2 = conn.execute(
+            "SELECT * FROM vendor_info WHERE vendor=? LIMIT 1", (vendor,)
+        )
+        row2 = cur2.fetchone()
+        if row2:
+            d2 = dict(row2)
+            # vendor_info 컬럼명 → 표준 키 매핑
             return {
-                "company_name": d.get("company_name") or vendor,
-                "ceo":          d.get("ceo_name", ""),
-                "biz_no":       d.get("bizno", ""),
-                "address":      d.get("addr", ""),
-                "phone":        d.get("phone", ""),
+                "company_name": d2.get("biz_name") or d2.get("company_name") or vendor,
+                "ceo":          d2.get("rep") or d2.get("ceo", ""),
+                "biz_no":       d2.get("biz_no", ""),
+                "address":      d2.get("address", ""),
+                "phone":        d2.get("contact") or d2.get("phone", ""),
             }
     except Exception:
         pass
     finally:
         conn.close()
-    # 폴백: 기존 fetch_vendor_company 재활용
-    return fetch_vendor_company(vendor)
+    # 3차: 환경변수 폴백
+    return {
+        "company_name": vendor,
+        "ceo":          os.getenv("VENDOR_CEO", ""),
+        "biz_no":       os.getenv("VENDOR_BIZNO", ""),
+        "address":      os.getenv("VENDOR_ADDR", ""),
+        "phone":        os.getenv("VENDOR_PHONE", ""),
+    }
 
 
 def _next_vendor_doc_no(vendor: str, doc_type: str) -> str:
