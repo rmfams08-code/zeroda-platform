@@ -21,8 +21,114 @@ from ..state.vendor_document_state import VendorDocumentState
 # 내부 패널 컴포넌트
 # ============================================================
 
+def _vendor_customer_search_block() -> rx.Component:
+    """거래처 조회 + 자동 채움 + 신규 등록 + 수거일정 배지 (외주업체용)."""
+    return rx.vstack(
+        rx.hstack(
+            rx.input(
+                placeholder="상호명 또는 사업자번호 입력",
+                value=VendorDocumentState.vcust_search_query,
+                on_change=VendorDocumentState.set_vcust_search_query,
+                width="260px",
+            ),
+            rx.button(
+                "거래처 조회",
+                on_click=VendorDocumentState.search_vcustomer_for_contract,
+                color_scheme="blue",
+                size="2",
+            ),
+            spacing="2",
+            align="center",
+        ),
+        # ── 기존 거래처 조회 결과 ──
+        rx.cond(
+            VendorDocumentState.vcust_found,
+            rx.vstack(
+                rx.hstack(
+                    rx.badge("✅ 기존 거래처", color_scheme="green"),
+                    rx.cond(
+                        ~VendorDocumentState.vcust_in_schedule,
+                        rx.badge("⚠️ 수거일정 미등록", color_scheme="orange"),
+                    ),
+                    spacing="2",
+                ),
+                rx.hstack(
+                    rx.text("상호: ", VendorDocumentState.vcust_found_name, weight="bold"),
+                    rx.text("사업자번호: ", VendorDocumentState.vcust_found_bizno),
+                    spacing="4",
+                ),
+                rx.hstack(
+                    rx.text("대표자: ", VendorDocumentState.vcust_found_rep),
+                    rx.text("연락처: ", VendorDocumentState.vcust_found_phone),
+                    spacing="4",
+                ),
+                rx.text("주소: ", VendorDocumentState.vcust_found_addr),
+                spacing="1",
+                padding="8px",
+                background="#f0fdf4",
+                border_radius="6px",
+                width="100%",
+            ),
+        ),
+        # ── 신규 거래처 폼 ──
+        rx.cond(
+            VendorDocumentState.vcust_is_new,
+            rx.vstack(
+                rx.hstack(
+                    rx.badge("🆕 신규 거래처", color_scheme="red"),
+                    rx.badge("⚠️ 수거일정 미등록", color_scheme="orange"),
+                    spacing="2",
+                ),
+                rx.hstack(
+                    rx.input(placeholder="상호명 *", value=VendorDocumentState.new_vcust_name,
+                             on_change=VendorDocumentState.set_new_vcust_name, width="200px"),
+                    rx.input(placeholder="사업자번호", value=VendorDocumentState.new_vcust_bizno,
+                             on_change=VendorDocumentState.set_new_vcust_bizno, width="160px"),
+                    spacing="2",
+                ),
+                rx.hstack(
+                    rx.input(placeholder="대표자", value=VendorDocumentState.new_vcust_rep,
+                             on_change=VendorDocumentState.set_new_vcust_rep, width="160px"),
+                    rx.input(placeholder="연락처", value=VendorDocumentState.new_vcust_phone,
+                             on_change=VendorDocumentState.set_new_vcust_phone, width="160px"),
+                    spacing="2",
+                ),
+                rx.input(placeholder="주소", value=VendorDocumentState.new_vcust_addr,
+                         on_change=VendorDocumentState.set_new_vcust_addr, width="100%"),
+                rx.hstack(
+                    rx.input(placeholder="업태", value=VendorDocumentState.new_vcust_biz_type,
+                             on_change=VendorDocumentState.set_new_vcust_biz_type, width="160px"),
+                    rx.input(placeholder="종목", value=VendorDocumentState.new_vcust_biz_item,
+                             on_change=VendorDocumentState.set_new_vcust_biz_item, width="160px"),
+                    spacing="2",
+                ),
+                rx.button(
+                    "거래처 승인 및 등록",
+                    on_click=VendorDocumentState.approve_new_vcustomer,
+                    color_scheme="green",
+                    size="2",
+                ),
+                spacing="2",
+                padding="8px",
+                background="#fff7ed",
+                border_radius="6px",
+                width="100%",
+            ),
+        ),
+        rx.cond(
+            VendorDocumentState.vcust_approve_msg != "",
+            rx.text(VendorDocumentState.vcust_approve_msg, color="green", weight="bold"),
+        ),
+        border="1px solid #d1d5db",
+        border_radius="8px",
+        padding="12px",
+        width="100%",
+    )
+
+
 def _vendor_contract_panel() -> rx.Component:
     return rx.vstack(
+        _vendor_customer_search_block(),
         rx.hstack(
             rx.select(
                 VendorDocumentState.vendor_customers,

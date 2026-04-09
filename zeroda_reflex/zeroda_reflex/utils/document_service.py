@@ -559,6 +559,99 @@ def render_quote_for_vendor(
 # (원래 섹션 5 계속)
 # ============================================================
 
+# ============================================================
+# 7. 거래처 조회 / 신규 생성 / 수거일정 확인 (계약서 플로우 연동)
+# ============================================================
+
+def search_customer_by_query(vendor: str, query: str) -> dict[str, Any] | None:
+    """
+    상호명 또는 사업자번호로 거래처 조회.
+    1차: 정확 일치 (name 또는 biz_no)
+    2차: 부분 일치 (LIKE %query%)
+    Returns first match as dict, or None if not found.
+    """
+    if not query:
+        return None
+    # 1차: 정확 일치
+    for col in ("name", "biz_no"):
+        rows = db_get("customer_info", {"vendor": vendor, col: query})
+        if rows:
+            return dict(rows[0])
+    # 2차: 부분 일치 (파라미터화 LIKE — SQL injection 안전)
+    conn = get_db()
+    try:
+        pattern = "%" + query + "%"
+        cur = conn.execute(
+            "SELECT * FROM customer_info "
+            "WHERE vendor=? AND (name LIKE ? OR biz_no LIKE ?) LIMIT 5",
+            (vendor, pattern, pattern),
+        )
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    return None
+
+
+def create_customer_in_db(
+    vendor: str,
+    name: str,
+    biz_no: str = "",
+    rep: str = "",
+    addr: str = "",
+    phone: str = "",
+    biz_type: str = "",
+    biz_item: str = "",
+    cust_type: str = "학교",
+) -> bool:
+    """
+    신규 거래처를 customer_info 테이블에 INSERT.
+    Returns True on success, False on failure.
+    """
+    if not name:
+        return False
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO customer_info "
+            "(vendor, name, biz_no, rep, addr, phone, biz_type, biz_item, cust_type) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (vendor, name, biz_no, rep, addr, phone, biz_type, biz_item, cust_type),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        _log.error("[document_service] create_customer_in_db error: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def is_customer_in_schedule(vendor: str, customer_name: str) -> bool:
+    """
+    거래처가 수거일정(schedules.schools JSON 배열)에 등록되어 있는지 확인.
+    """
+    if not customer_name:
+        return False
+    rows = db_get("schedules", {"vendor": vendor})
+    for r in rows:
+        schools_json = r.get("schools") or "[]"
+        try:
+            schools = json.loads(schools_json)
+            if customer_name in schools:
+                return True
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return False
+
+
+# ============================================================
+# (원래 섹션 5 계속)
+# ============================================================
+
 _KOR_NUM   = "영일이삼사오육칠팔구"
 _KOR_UNIT4 = ["", "만", "억", "조"]
 _KOR_UNIT1 = ["", "십", "백", "천"]

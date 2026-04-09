@@ -62,6 +62,27 @@ class DocumentState(AuthState):
     last_quote_total: int = 0
     last_quote_valid_until: str = ""
 
+    # ── 거래처 조회 UI 상태 ──
+    cust_search_query: str = ""       # 상호명 또는 사업자번호 입력
+    cust_found: bool = False           # 조회 결과 존재 여부
+    cust_is_new: bool = False          # 신규 거래처 여부
+    cust_in_schedule: bool = True      # 수거일정 등록 여부
+    cust_approve_msg: str = ""         # 승인 후 피드백 메시지
+    # 조회된 거래처 정보 (개별 str 필드 — Reflex Var dict 접근 불안정)
+    cust_found_name: str = ""
+    cust_found_bizno: str = ""
+    cust_found_rep: str = ""
+    cust_found_addr: str = ""
+    cust_found_phone: str = ""
+    # 신규 거래처 입력 폼
+    new_cust_name: str = ""
+    new_cust_bizno: str = ""
+    new_cust_rep: str = ""
+    new_cust_addr: str = ""
+    new_cust_phone: str = ""
+    new_cust_biz_type: str = ""
+    new_cust_biz_item: str = ""
+
     # =====================================================
     # 페이지 on_load 핸들러
     # =====================================================
@@ -77,6 +98,71 @@ class DocumentState(AuthState):
     async def load_customers(self):
         rows = db_get("customer_info", {"vendor": self.user_vendor or ""})
         self.customer_options = [r["name"] for r in rows]
+
+    # =====================================================
+    # 거래처 조회 + 신규 승인 (계약서 플로우 연동)
+    # =====================================================
+    async def search_customer_for_contract(self):
+        """상호명/사업자번호로 거래처 조회 → 자동 채움 또는 신규 폼 표시."""
+        if not self.cust_search_query:
+            yield rx.toast.warning("상호명 또는 사업자번호를 입력하세요")
+            return
+        result = docsvc.search_customer_by_query(
+            vendor=self.user_vendor or "",
+            query=self.cust_search_query,
+        )
+        if result:
+            self.cust_found = True
+            self.cust_is_new = False
+            self.cust_found_name = result.get("name", "")
+            self.cust_found_bizno = result.get("biz_no", "")
+            self.cust_found_rep = result.get("rep", "")
+            self.cust_found_addr = result.get("addr", "")
+            self.cust_found_phone = result.get("phone", "")
+            self.selected_customer = result.get("name", "")
+            self.cust_in_schedule = docsvc.is_customer_in_schedule(
+                vendor=self.user_vendor or "",
+                customer_name=result.get("name", ""),
+            )
+            self.cust_approve_msg = ""
+        else:
+            self.cust_found = False
+            self.cust_is_new = True
+            self.cust_found_name = ""
+            self.new_cust_name = self.cust_search_query
+            self.cust_in_schedule = False
+            self.cust_approve_msg = ""
+
+    async def approve_new_customer(self):
+        """신규 거래처 승인 → customer_info INSERT → 드롭다운 새로고침."""
+        if not self.new_cust_name:
+            yield rx.toast.warning("상호명을 입력하세요")
+            return
+        ok = docsvc.create_customer_in_db(
+            vendor=self.user_vendor or "",
+            name=self.new_cust_name,
+            biz_no=self.new_cust_bizno,
+            rep=self.new_cust_rep,
+            addr=self.new_cust_addr,
+            phone=self.new_cust_phone,
+            biz_type=self.new_cust_biz_type,
+            biz_item=self.new_cust_biz_item,
+        )
+        if ok:
+            self.cust_approve_msg = self.new_cust_name + " 거래처 등록 완료"
+            self.selected_customer = self.new_cust_name
+            self.cust_found = True
+            self.cust_is_new = False
+            self.cust_found_name = self.new_cust_name
+            self.cust_found_bizno = self.new_cust_bizno
+            self.cust_found_rep = self.new_cust_rep
+            self.cust_found_addr = self.new_cust_addr
+            self.cust_found_phone = self.new_cust_phone
+            self.cust_in_schedule = False   # 신규 거래처 — 일정 미등록
+            yield rx.toast.success(self.cust_approve_msg)
+            await self.load_customers()
+        else:
+            yield rx.toast.error("거래처 등록 실패 (이미 존재하거나 입력 오류)")
 
     # =====================================================
     # 계약서

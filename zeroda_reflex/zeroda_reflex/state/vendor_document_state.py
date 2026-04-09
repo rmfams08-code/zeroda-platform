@@ -59,6 +59,25 @@ class VendorDocumentState(AuthState):
     last_quote_total: int = 0
     last_quote_valid_until: str = ""
 
+    # ── 거래처 조회 UI 상태 (vendor 스코프) ──
+    vcust_search_query: str = ""
+    vcust_found: bool = False
+    vcust_is_new: bool = False
+    vcust_in_schedule: bool = True
+    vcust_approve_msg: str = ""
+    vcust_found_name: str = ""
+    vcust_found_bizno: str = ""
+    vcust_found_rep: str = ""
+    vcust_found_addr: str = ""
+    vcust_found_phone: str = ""
+    new_vcust_name: str = ""
+    new_vcust_bizno: str = ""
+    new_vcust_rep: str = ""
+    new_vcust_addr: str = ""
+    new_vcust_phone: str = ""
+    new_vcust_biz_type: str = ""
+    new_vcust_biz_item: str = ""
+
     # =====================================================
     # 페이지 on_load 핸들러
     # =====================================================
@@ -76,6 +95,71 @@ class VendorDocumentState(AuthState):
     async def load_vendor_customers(self):
         rows = db_get("customer_info", {"vendor": self.user_vendor or ""})
         self.vendor_customers = [r["name"] for r in rows]
+
+    # =====================================================
+    # 거래처 조회 + 신규 승인 (vendor 스코프)
+    # =====================================================
+    async def search_vcustomer_for_contract(self):
+        """상호명/사업자번호로 거래처 조회 (자기 vendor 스코프)."""
+        if not self.vcust_search_query:
+            yield rx.toast.warning("상호명 또는 사업자번호를 입력하세요")
+            return
+        result = docsvc.search_customer_by_query(
+            vendor=self.user_vendor or "",
+            query=self.vcust_search_query,
+        )
+        if result:
+            self.vcust_found = True
+            self.vcust_is_new = False
+            self.vcust_found_name = result.get("name", "")
+            self.vcust_found_bizno = result.get("biz_no", "")
+            self.vcust_found_rep = result.get("rep", "")
+            self.vcust_found_addr = result.get("addr", "")
+            self.vcust_found_phone = result.get("phone", "")
+            self.selected_customer = result.get("name", "")
+            self.vcust_in_schedule = docsvc.is_customer_in_schedule(
+                vendor=self.user_vendor or "",
+                customer_name=result.get("name", ""),
+            )
+            self.vcust_approve_msg = ""
+        else:
+            self.vcust_found = False
+            self.vcust_is_new = True
+            self.vcust_found_name = ""
+            self.new_vcust_name = self.vcust_search_query
+            self.vcust_in_schedule = False
+            self.vcust_approve_msg = ""
+
+    async def approve_new_vcustomer(self):
+        """신규 거래처 승인 → customer_info INSERT (vendor 스코프) → 드롭다운 새로고침."""
+        if not self.new_vcust_name:
+            yield rx.toast.warning("상호명을 입력하세요")
+            return
+        ok = docsvc.create_customer_in_db(
+            vendor=self.user_vendor or "",
+            name=self.new_vcust_name,
+            biz_no=self.new_vcust_bizno,
+            rep=self.new_vcust_rep,
+            addr=self.new_vcust_addr,
+            phone=self.new_vcust_phone,
+            biz_type=self.new_vcust_biz_type,
+            biz_item=self.new_vcust_biz_item,
+        )
+        if ok:
+            self.vcust_approve_msg = self.new_vcust_name + " 거래처 등록 완료"
+            self.selected_customer = self.new_vcust_name
+            self.vcust_found = True
+            self.vcust_is_new = False
+            self.vcust_found_name = self.new_vcust_name
+            self.vcust_found_bizno = self.new_vcust_bizno
+            self.vcust_found_rep = self.new_vcust_rep
+            self.vcust_found_addr = self.new_vcust_addr
+            self.vcust_found_phone = self.new_vcust_phone
+            self.vcust_in_schedule = False
+            yield rx.toast.success(self.vcust_approve_msg)
+            await self.load_vendor_customers()
+        else:
+            yield rx.toast.error("거래처 등록 실패 (이미 존재하거나 입력 오류)")
 
     # =====================================================
     # 계약서
