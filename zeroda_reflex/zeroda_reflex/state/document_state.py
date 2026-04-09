@@ -84,7 +84,7 @@ class DocumentState(AuthState):
     # =====================================================
     async def generate_contract(self):
         if not self.selected_customer:
-            return rx.window_alert("거래처를 선택하세요")
+            yield rx.toast.warning("거래처를 선택하세요")
         try:
             result = docsvc.render_contract(
                 vendor=self.user_vendor or "",
@@ -98,11 +98,11 @@ class DocumentState(AuthState):
             self._last_contract_doc_no = result["doc_no"]
             self._last_contract_payload = json.dumps(result["payload"], ensure_ascii=False)
         except Exception as e:
-            return rx.window_alert(f"계약서 생성 실패: {e}")
+            yield rx.toast.error(f"계약서 생성 실패: {e}")
 
     async def issue_contract(self):
         if not self._last_contract_html:
-            return rx.window_alert("먼저 [미리보기 생성]을 눌러주세요")
+            yield rx.toast.warning("먼저 [미리보기 생성]을 눌러주세요")
         try:
             payload = json.loads(self._last_contract_payload or "{}")
             pdf = docsvc.issue_document(
@@ -116,22 +116,22 @@ class DocumentState(AuthState):
                 created_by=self.user_id or "",
             )
             self.contract_pdf_path = pdf
-            return rx.window_alert(f"계약서 발급 완료: {self._last_contract_doc_no}")
+            yield rx.toast.success(f"계약서 발급 완료: {self._last_contract_doc_no}")
         except Exception as e:
-            return rx.window_alert(f"계약서 발급 실패: {e}")
+            yield rx.toast.error(f"계약서 발급 실패: {e}")
 
     # =====================================================
     # 견적서
     # =====================================================
     async def generate_quote(self):
         if not self.selected_customer:
-            return rx.window_alert("거래처를 선택하세요")
+            yield rx.toast.warning("거래처를 선택하세요")
         items = None
         if self.quote_mode == "manual":
             try:
                 items = json.loads(self.quote_items_json or "[]")
             except json.JSONDecodeError:
-                return rx.window_alert("수기 품목 JSON 형식이 잘못되었습니다")
+                yield rx.toast.warning("수기 품목 JSON 형식이 잘못되었습니다")
         try:
             result = docsvc.render_quote(
                 vendor=self.user_vendor or "",
@@ -147,11 +147,11 @@ class DocumentState(AuthState):
             self._last_quote_total = int(result["total"])
             self._last_quote_valid_until = result["valid_until"]
         except Exception as e:
-            return rx.window_alert(f"견적서 생성 실패: {e}")
+            yield rx.toast.error(f"견적서 생성 실패: {e}")
 
     async def issue_quote(self):
         if not self._last_quote_html:
-            return rx.window_alert("먼저 [미리보기 생성]을 눌러주세요")
+            yield rx.toast.warning("먼저 [미리보기 생성]을 눌러주세요")
         try:
             payload = json.loads(self._last_quote_payload or "{}")
             pdf = docsvc.issue_document(
@@ -166,9 +166,9 @@ class DocumentState(AuthState):
                 created_by=self.user_id or "",
             )
             self.quote_pdf_path = pdf
-            return rx.window_alert(f"견적서 발급 완료: {self._last_quote_doc_no}")
+            yield rx.toast.success(f"견적서 발급 완료: {self._last_quote_doc_no}")
         except Exception as e:
-            return rx.window_alert(f"견적서 발급 실패: {e}")
+            yield rx.toast.error(f"견적서 발급 실패: {e}")
 
     # =====================================================
     # 발급내역
