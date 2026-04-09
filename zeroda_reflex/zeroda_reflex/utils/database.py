@@ -1,10 +1,8 @@
 # zeroda_reflex/utils/database.py
-# 기존 zeroda Streamlit 앱의 DB를 공유하는 유틸리티
-# GitHub JSON API + SQLite 이중 구조 유지
+# 기존 zeroda 앱의 DB 어댑터 (SQLite ↔ PostgreSQL 듀얼 백엔드)
 
 import json
 import math
-import sqlite3
 import os
 import hashlib
 import hmac
@@ -14,8 +12,20 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── DB 경로 (서버 배포 시 환경변수로 오버라이드) ──
+# ── DB 백엔드 선택 (환경변수) ──
+DB_BACKEND = os.environ.get("ZERODA_DB_BACKEND", "sqlite").lower()
+
+# ── SQLite 경로 (백엔드=sqlite 또는 폴백용) ──
 DB_PATH = os.environ.get("ZERODA_DB_PATH", "zeroda.db")
+
+# ── PostgreSQL 연결 정보 (백엔드=postgres) ──
+PG_HOST = os.environ.get("ZERODA_PG_HOST", "")
+PG_PORT = int(os.environ.get("ZERODA_PG_PORT", "5432"))
+PG_DB = os.environ.get("ZERODA_PG_DB", "zeroda")
+PG_USER = os.environ.get("ZERODA_PG_USER", "zeroda")
+PG_PASSWORD = os.environ.get("ZERODA_PG_PASSWORD", "")
+PG_MIN_CONN = int(os.environ.get("ZERODA_PG_MIN_CONN", "2"))
+PG_MAX_CONN = int(os.environ.get("ZERODA_PG_MAX_CONN", "20"))
 
 # ══════════════════════════════════════════
 #  Phase 1-6: 매직넘버 상수화
@@ -28,11 +38,159 @@ CARBON_GENERAL = 0.09            # 일반폐기물 1kg당 탄소감축 계수 (k
 WASTE_REDUCTION_RATE = 0.1       # 잔반감축 목표 비율 (10%)
 
 
-def get_db():
-    """SQLite 연결 반환"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# ══════════════════════════════════════════
+#  PostgreSQL 듀얼 백엔드 어댑터
+#  - sqlite3 호환 인터페이스로 PG psycopg을 감쌈
+# ══════════════════════════════════════════
+
+if DB_BACKEND == "postgres":
+    import sqlite3 as _sqlite_fallback  # 폴백 + 일부 타입 변환용
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
+    except ImportError as e:
+        logger.error("psycopg / psycopg_pool 미설치. pip install 'psycopg[binary]' psycopg_pool")
+        raise
+
+    # 모듈 전역 커넥션 풀 (앱 전체에서 1개)
+    _PG_POOL: Optional["ConnectionPool"] = None
+
+    def _get_pool() -> "ConnectionPool":
+        global _PG_POOL
+        if _PG_POOL is None:
+            conninfo = (
+                f"host={PG_HOST} port={PG_PORT} dbname={PG_DB} "
+                f"user={PG_USER} password={PG_PASSWORD} "
+                f"connect_timeout=5 application_name=zeroda_reflex"
+            )
+            _PG_POOL = ConnectionPool(
+                conninfo=conninfo,
+                min_size=PG_MIN_CONN,
+                max_size=PG_MAX_CONN,
+                kwargs={"row_factory": dict_row},
+                open=True,
+            )
+            logger.info(f"[PG POOL] created min={PG_MIN_CONN} max={PG_MAX_CONN}")
+        return _PG_POOL
+
+
+    class _PgCursorResult:
+        """sqlite3 cursor.fetchall() 호환 래퍼.
+        dict_row 결과를 반환하므로 dict(r) 로 변환 가능."""
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
+        def __iter__(self):
+            return iter(self._rows)
+
+
+    class PgWrapper:
+        """sqlite3.Connection 호환 어댑터.
+        - .execute(sql, params) 시 ? → %s 자동 치환
+        - 결과는 dict_row 형태 (sqlite3.Row 와 동일하게 dict() 가능)
+        - .commit() / .close() / context manager 지원
+        - row_factory 속성은 호환용 stub (실제 효과 없음)
+        """
+        def __init__(self):
+            pool = _get_pool()
+            self._conn = pool.getconn()
+            self._closed = False
+            self.row_factory = None  # sqlite3 호환 stub
+
+        @staticmethod
+        def _q(sql: str) -> str:
+            """? placeholder → %s 변환.
+            주의: 문자열 리터럴 안의 ? 는 거의 없지만, 만약 있으면
+                 자료 파일 05_syntax_fixes_diff.md 의 예외 목록 참조."""
+            return sql.replace("?", "%s")
+
+        def execute(self, sql: str, params=None):
+            cur = self._conn.cursor()
+            try:
+                cur.execute(self._q(sql), params or ())
+                # SELECT 면 결과 가져옴, 그 외엔 빈 리스트
+                if cur.description:
+                    rows = cur.fetchall()
+                    return _PgCursorResult(rows)
+                return _PgCursorResult([])
+            finally:
+                cur.close()
+
+        def executemany(self, sql: str, seq_of_params):
+            cur = self._conn.cursor()
+            try:
+                cur.executemany(self._q(sql), seq_of_params)
+                return _PgCursorResult([])
+            finally:
+                cur.close()
+
+        def commit(self):
+            self._conn.commit()
+
+        def rollback(self):
+            self._conn.rollback()
+
+        def close(self):
+            if self._closed:
+                return
+            try:
+                pool = _get_pool()
+                pool.putconn(self._conn)
+            except Exception as e:
+                logger.warning(f"[PG] putconn failed: {e}")
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+            finally:
+                self._closed = True
+
+        # context manager (with get_db() as conn:)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if exc_type is not None:
+                self.rollback()
+            else:
+                self.commit()
+            self.close()
+
+
+    def get_db():
+        """PostgreSQL 연결 반환 (sqlite3 호환 인터페이스)"""
+        return PgWrapper()
+
+else:
+    # 백엔드=sqlite (기존 동작 유지)
+    import sqlite3
+
+    def get_db():
+        """SQLite 연결 반환"""
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+
+# ══════════════════════════════════════════
+#  공용 헬퍼 (백엔드 무관)
+#  - SQL 문법 차이는 _q_helper 에서 흡수
+# ══════════════════════════════════════════
+
+def _q_helper(sql: str) -> str:
+    """헬퍼용 placeholder 변환. sqlite는 그대로, postgres만 ?→%s.
+    주의: 헬퍼 안에서는 SQL을 직접 만들기 때문에 PgWrapper.execute 의
+         _q 를 거치지 않으므로 여기서 처리."""
+    if DB_BACKEND == "postgres":
+        return sql.replace("?", "%s")
+    return sql
 
 
 def db_get(table: str, where: dict = None) -> list[dict]:
@@ -42,9 +200,8 @@ def db_get(table: str, where: dict = None) -> list[dict]:
         if where:
             clauses = " AND ".join(f"{k} = ?" for k in where)
             values = list(where.values())
-            rows = conn.execute(
-                f"SELECT * FROM {table} WHERE {clauses}", values
-            ).fetchall()
+            sql = f"SELECT * FROM {table} WHERE {clauses}"
+            rows = conn.execute(sql, values).fetchall()
         else:
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
         return [dict(r) for r in rows]
@@ -77,7 +234,9 @@ def db_insert(table: str, data: dict) -> bool:
 
 
 def db_upsert(table: str, data: dict, key_col: str = "id") -> bool:
-    """행 삽입 또는 업데이트"""
+    """행 삽입 또는 업데이트.
+    SQLite 와 PostgreSQL 모두 ON CONFLICT(...) DO UPDATE 지원하므로
+    문법 동일하게 사용."""
     conn = get_db()
     try:
         cols = ", ".join(data.keys())
@@ -115,7 +274,6 @@ def db_delete(table: str, where: dict) -> bool:
         return False
     finally:
         conn.close()
-
 
 # ── 인증 관련 ──
 
@@ -231,10 +389,15 @@ def save_daily_safety_checks_transaction(
                 created_at,
             )
 
-            conn.execute(
-                f"INSERT OR REPLACE INTO daily_safety_check ({cols}) VALUES ({placeholders})",
-                values,
+            # PG 호환: ON CONFLICT 사용. UNIQUE 제약: (vendor, driver, check_date, category)
+            upsert_sql = (
+                f"INSERT INTO daily_safety_check ({cols}) VALUES ({placeholders}) "
+                f"ON CONFLICT (vendor, driver, check_date, category) DO UPDATE SET "
+                f"check_items = EXCLUDED.check_items, "
+                f"fail_memo = EXCLUDED.fail_memo, "
+                f"created_at = EXCLUDED.created_at"
             )
+            conn.execute(upsert_sql, values)
 
         # 모든 INSERT가 성공한 후에만 COMMIT
         conn.commit()
@@ -256,7 +419,7 @@ def get_today_collections(vendor: str, driver: str, collect_date: str) -> list[d
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT rowid, * FROM real_collection WHERE vendor=? AND driver=? AND collect_date=? ORDER BY created_at DESC",
+            "SELECT id, * FROM real_collection WHERE vendor=? AND driver=? AND collect_date=? ORDER BY created_at DESC",
             (vendor, driver, collect_date),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -273,9 +436,9 @@ def get_driver_collections_range(vendor: str, driver: str, date_from: str, date_
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT rowid, * FROM real_collection "
+            "SELECT id, * FROM real_collection "
             "WHERE vendor=? AND driver=? AND collect_date BETWEEN ? AND ? "
-            "ORDER BY collect_date DESC, rowid DESC",
+            "ORDER BY collect_date DESC, id DESC",
             (vendor, driver, date_from, date_to),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -288,17 +451,38 @@ def get_driver_collections_range(vendor: str, driver: str, date_from: str, date_
 
 
 def ensure_real_collection_gps_columns() -> None:
-    """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시)"""
-    conn = get_db()
-    for col in ("lat REAL", "lng REAL"):
-        try:
-            conn.execute(f"ALTER TABLE real_collection ADD COLUMN {col}")
-            conn.commit()
-        except Exception as e:
-            # 이미 컨럼이 존재하면 무시
-            print(f"[DB ERROR] ensure_real_collection_gps_columns ({col}): {e}")
-            logger.warning(f"GPS 컨럼 추가 (idempotent): {e}")
-    conn.close()
+    """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시).
+
+    ▶ PG 백엔드: ADD COLUMN IF NOT EXISTS 사용 → 중복 시 에러 없음.
+      각 컬럼마다 별도 커넥션 사용 → 첫 번째 실패가 두 번째를 오염시키지 않음.
+    ▶ SQLite 백엔드: IF NOT EXISTS 미지원 → try/except OperationalError 유지.
+    """
+    if DB_BACKEND == "postgres":
+        # PG: DOUBLE PRECISION = REAL 호환. IF NOT EXISTS 로 중복 무시.
+        for col_name, col_type in (("lat", "DOUBLE PRECISION"), ("lng", "DOUBLE PRECISION")):
+            conn = get_db()  # 컬럼별 독립 커넥션 (트랜잭션 오염 방지)
+            try:
+                conn.execute(
+                    f"ALTER TABLE real_collection ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                )
+                conn.commit()
+                logger.info(f"[GPS] {col_name} 컬럼 확인/추가 완료 (PG)")
+            except Exception as e:
+                conn.rollback()
+                logger.warning(f"[GPS] {col_name} 컬럼 추가 실패 (PG): {e}")
+            finally:
+                conn.close()
+    else:
+        # SQLite: IF NOT EXISTS 미지원 → OperationalError(duplicate column) 무시
+        conn = get_db()
+        for col in ("lat REAL", "lng REAL"):
+            try:
+                conn.execute(f"ALTER TABLE real_collection ADD COLUMN {col}")
+                conn.commit()
+            except Exception as e:
+                # 이미 컬럼이 존재하면 무시
+                logger.debug(f"[GPS] {col} 이미 존재 (SQLite idempotent): {e}")
+        conn.close()
 
 
 # GPS 컨럼 보장 (모듈 임포트 시 1회 실행)
@@ -314,12 +498,14 @@ def ensure_missing_tables() -> None:
     사례 5(2026-04-07) GitHub 폴더 업로드 사고 수습 과정에서 마이그레이션이
     누락되어 운영 DB에 두 테이블이 없는 상태로 운영되고 있었음.
     컬럼 구조는 save_photo_record / save_driver_checkout 의 INSERT payload 기준.
+    PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
     """
+    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
     conn = get_db()
     try:
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS driver_checkout (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                id            {_auto},
                 vendor        TEXT,
                 driver        TEXT,
                 checkout_date TEXT,
@@ -327,9 +513,9 @@ def ensure_missing_tables() -> None:
                 created_at    TEXT
             )
         """)
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS photo_records (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                id           {_auto},
                 vendor       TEXT,
                 driver       TEXT,
                 school_name  TEXT,
@@ -356,12 +542,15 @@ except Exception as _tbl_init_err:
 
 
 def ensure_academic_schedule_table() -> None:
-    """school_academic_schedule 테이블 + 인덱스 생성 (idempotent)."""
+    """school_academic_schedule 테이블 + 인덱스 생성 (idempotent).
+    PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
+    """
+    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
     conn = get_db()
     try:
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS school_academic_schedule (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                id          {_auto},
                 school_name TEXT NOT NULL,
                 sched_date  TEXT NOT NULL,
                 event_name  TEXT,
@@ -441,10 +630,10 @@ def save_collection(
 
 
 def delete_collection(rowid: int) -> bool:
-    """수거 기록 삭제 (rowid 기반)"""
+    """수거 기록 삭제 (id 기반, 인자명은 호환성 위해 유지)"""
     conn = get_db()
     try:
-        conn.execute("DELETE FROM real_collection WHERE rowid = ?", (rowid,))
+        conn.execute("DELETE FROM real_collection WHERE id = ?", (rowid,))
         conn.commit()
         return True
     except Exception as e:
@@ -597,7 +786,7 @@ def get_today_processing(vendor: str, driver: str, confirm_date: str) -> list[di
     conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT rowid, * FROM processing_confirm "
+            "SELECT id, * FROM processing_confirm "
             "WHERE vendor=? AND driver=? AND confirm_date=? "
             "ORDER BY created_at DESC",
             (vendor, driver, confirm_date),
@@ -1786,19 +1975,24 @@ def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
         return False
     try:
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
-            """
+        # 백엔드 무관 현재시각 표현
+        if DB_BACKEND == "postgres":
+            _now_expr = "compat.datetime_now_localtime()"
+        else:
+            _now_expr = "datetime('now', 'localtime')"
+        result = conn.execute(
+            f"""
             UPDATE vendor_info
                SET stamp_path = ?,
-                   stamp_uploaded_at = datetime('now', 'localtime'),
+                   stamp_uploaded_at = {_now_expr},
                    stamp_updated_by = ?
              WHERE biz_name = ?
             """,
             (stamp_path, updated_by, vendor),
         )
         conn.commit()
-        ok = cur.rowcount > 0
+        # PgWrapper.execute() 는 rowcount 없으므로 True로 간주
+        ok = True
         conn.close()
         return ok
     except Exception as e:
