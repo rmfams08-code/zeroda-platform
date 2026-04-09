@@ -499,7 +499,7 @@ class DriverState(AuthState):
                 "fetch('/api/driver/check-token',{credentials:'same-origin'})"
                 ".then(r=>r.json())"
                 ".then(d=>JSON.stringify(d))",
-                callback=DriverState._on_cookie_check_result,
+                callback=DriverState.on_cookie_check_result,
             )
             return
         self._load_weather()
@@ -514,7 +514,7 @@ class DriverState(AuthState):
             self.schedule_date = self.today_str
         self._load_schedule()
 
-    def _on_cookie_check_result(self, data_str: str):
+    def on_cookie_check_result(self, data_str: str):
         """on_driver_load 쿠키 검증 콜백.
         JS가 JSON.stringify 후 전달한 문자열을 파싱 (dict 직접 전달 시 Reflex kwargs 언팩 버그 회피).
         유효하면 AuthState 필드 복원 후 redirect('/driver') — is_authenticated=True이므로 루프 없음.
