@@ -21,7 +21,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import subprocess
 from datetime import date, timedelta
 from pathlib import Path
@@ -91,8 +90,8 @@ def fetch_vendor_company(vendor: str) -> dict[str, Any]:
         row = cur.fetchone()
         if row:
             return dict(row)
-    except sqlite3.OperationalError:
-        pass  # vendor_info 테이블이 없는 환경 폴백
+    except Exception:
+        pass  # vendor_info 테이블이 없는 환경 폴백 (SQLite OperationalError / PG UndefinedTable 모두 처리)
     finally:
         conn.close()
 
