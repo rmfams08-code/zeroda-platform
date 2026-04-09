@@ -14,6 +14,7 @@ from zeroda_reflex.pages.edu_office import edu_office_page
 from zeroda_reflex.pages.meal_manager import meal_manager_page
 from zeroda_reflex.pages.privacy import privacy_page
 from zeroda_reflex.pages.terms import terms_page
+from zeroda_reflex.state.auth_state import AuthState
 from zeroda_reflex.state.driver_state import DriverState
 from zeroda_reflex.state.vendor_state import VendorState
 from zeroda_reflex.state.admin_state import AdminState
@@ -33,7 +34,6 @@ app = rx.App(
 # ── 페이지 등록 ──
 app.add_page(login_page, route="/", title="ZERODA 로그인",
              on_load=AuthState.check_cookie_login)
-from zeroda_reflex.state.auth_state import AuthState
 app.add_page(register_page, route="/register", title="ZERODA 회원가입",
              on_load=AuthState.load_signup_vendor_options)
 app.add_page(
