@@ -487,23 +487,10 @@ class DriverState(AuthState):
         items = self.vehicle_check_items
         return len(items) > 0 and all(item.get("checked", False) for item in items)
 
-    async def on_driver_load(self):
-        """기사 페이지 로드 시.
-        인증 상태이면 데이터 로드.
-        미인증이면 HttpOnly 쿠키 검증 시도 → _on_cookie_check_result 콜백으로 세션 복원.
-        """
+    def on_driver_load(self):
+        """기사 페이지 로드 시"""
         if not self.is_authenticated:
-            # 쿠키 자동로그인 시도 (window.location.href='/driver' 후 첫 진입 시)
-            # JSON.stringify: Reflex가 dict를 kwargs 언팩하는 버그 회피 → 문자열로 전달
-            yield rx.call_script(
-                "fetch('/api/driver/check-token',{credentials:'same-origin'})"
-                ".then(r=>r.json())"
-                ".then(d=>JSON.stringify(d))",
-                callback=DriverState.on_cookie_check_result,
-            )
-            return
-        self.voice_active = False
-        self.voice_interim = ""
+            return rx.redirect("/")
         self._load_weather()
         self._load_safety_status()
         self._load_today_collections()
@@ -515,40 +502,6 @@ class DriverState(AuthState):
         if not self.schedule_date:
             self.schedule_date = self.today_str
         self._load_schedule()
-
-    def on_cookie_check_result(self, data_str: str):
-        """on_driver_load 쿠키 검증 콜백.
-        JS가 JSON.stringify 후 전달한 문자열을 파싱 (dict 직접 전달 시 Reflex kwargs 언팩 버그 회피).
-        유효하면 AuthState 필드 복원 후 redirect('/driver') — is_authenticated=True이므로 루프 없음.
-        무효하면 redirect('/').
-        """
-        import json as _json
-        try:
-            data = _json.loads(data_str or "{}")
-        except Exception:
-            data = {}
-        uid = data.get("user_id", "")
-        if not uid:
-            yield rx.redirect("/")
-            return
-        from zeroda_reflex.utils.database import db_get
-        rows = db_get("users", {"user_id": uid})
-        if not rows:
-            yield rx.redirect("/")
-            return
-        u = rows[0]
-        if u.get("approval_status") != "approved" or not int(u.get("is_active", 0) or 0):
-            yield rx.redirect("/")
-            return
-        self.user_id = u.get("user_id") or ""
-        self.user_name = u.get("name") or ""
-        self.user_role = u.get("role") or ""
-        self.user_vendor = u.get("vendor") or ""
-        self.user_schools = u.get("schools") or ""
-        self.user_edu_office = u.get("edu_office") or ""
-        self.is_authenticated = True
-        self.is_user_active = True
-        yield rx.redirect("/driver")
 
     def _load_weather(self):
         """기상청 API로 오늘 날씨 로드"""
@@ -914,43 +867,38 @@ class DriverState(AuthState):
         self.voice_interim = ""
         yield rx.call_script(
             "new Promise((resolve) => {"
-            "  var _resolved = false;"
-            "  function _resolve(v) { if (!_resolved) { _resolved=true; resolve(v); } }"
-            "  var gps = '';"
-            "  var lastTxt = '';"
+            "  let gps = '';"
             "  if (navigator.geolocation) {"
             "    navigator.geolocation.getCurrentPosition("
-            "      function(p) { gps = p.coords.latitude + ',' + p.coords.longitude; },"
-            "      function() {},"
+            "      (p) => { gps = p.coords.latitude + ',' + p.coords.longitude; },"
+            "      () => {},"
             "      {timeout: 3000, maximumAge: 60000}"
             "    );"
             "  }"
             "  try {"
-            "    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
-            "    if (!SR) { _resolve('|지원안됨'); return; }"
-            "    var r = new SR();"
+            "    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
+            "    if (!SR) { resolve('|지원안됨'); return; }"
+            "    const r = new SR();"
             "    r.lang = 'ko-KR';"
             "    r.maxAlternatives = 1;"
             "    r.interimResults = true;"
-            "    r.onresult = function(e) {"
-            "      for (var i = e.resultIndex; i < e.results.length; i++) {"
+            "    r.onresult = (e) => {"
+            "      for (let i = e.resultIndex; i < e.results.length; i++) {"
             "        if (e.results[i].isFinal) {"
-            "          _resolve(gps + '|' + e.results[i][0].transcript);"
+            "          resolve(gps + '|' + e.results[i][0].transcript);"
             "          return;"
             "        }"
-            "        lastTxt = e.results[i][0].transcript;"
-            "        var el = document.getElementById('voice-interim-text');"
-            "        if (el) el.textContent = '🎤 ' + lastTxt;"
+            "        const el = document.getElementById('voice-interim-text');"
+            "        if (el) el.textContent = '🎤 ' + e.results[i][0].transcript;"
             "      }"
             "    };"
-            "    r.onerror = function() { _resolve(gps + '|' + lastTxt); };"
-            "    r.onend = function() {"
-            "      var el = document.getElementById('voice-interim-text');"
+            "    r.onerror = () => resolve(gps + '|');"
+            "    r.onend = () => {"
+            "      const el = document.getElementById('voice-interim-text');"
             "      if (el) el.textContent = '';"
-            "      _resolve(gps + '|' + lastTxt);"
             "    };"
             "    r.start();"
-            "  } catch(ex) { _resolve('|지원안됨'); }"
+            "  } catch(ex) { resolve('|지원안됨'); }"
             "})",
             callback=DriverState.handle_global_voice_result,
         )
@@ -1219,43 +1167,38 @@ class DriverState(AuthState):
         self.voice_interim = ""
         yield rx.call_script(
             "new Promise((resolve) => {"
-            "  var _resolved = false;"
-            "  function _resolve(v) { if (!_resolved) { _resolved=true; resolve(v); } }"
-            "  var gps = '';"
-            "  var lastTxt = '';"
+            "  let gps = '';"
             "  if (navigator.geolocation) {"
             "    navigator.geolocation.getCurrentPosition("
-            "      function(p) { gps = p.coords.latitude + ',' + p.coords.longitude; },"
-            "      function() {},"
+            "      (p) => { gps = p.coords.latitude + ',' + p.coords.longitude; },"
+            "      () => {},"
             "      {timeout: 3000, maximumAge: 60000}"
             "    );"
             "  }"
             "  try {"
-            "    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
-            "    if (!SR) { _resolve('|지원안됨'); return; }"
-            "    var r = new SR();"
+            "    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;"
+            "    if (!SR) { resolve('|지원안됨'); return; }"
+            "    const r = new SR();"
             "    r.lang = 'ko-KR';"
             "    r.maxAlternatives = 1;"
             "    r.interimResults = true;"
-            "    r.onresult = function(e) {"
-            "      for (var i = e.resultIndex; i < e.results.length; i++) {"
+            "    r.onresult = (e) => {"
+            "      for (let i = e.resultIndex; i < e.results.length; i++) {"
             "        if (e.results[i].isFinal) {"
-            "          _resolve(gps + '|' + e.results[i][0].transcript);"
+            "          resolve(gps + '|' + e.results[i][0].transcript);"
             "          return;"
             "        }"
-            "        lastTxt = e.results[i][0].transcript;"
-            "        var el = document.getElementById('voice-interim-text');"
-            "        if (el) el.textContent = '🎤 ' + lastTxt;"
+            "        const el = document.getElementById('voice-interim-text');"
+            "        if (el) el.textContent = '🎤 ' + e.results[i][0].transcript;"
             "      }"
             "    };"
-            "    r.onerror = function() { _resolve(gps + '|' + lastTxt); };"
-            "    r.onend = function() {"
-            "      var el = document.getElementById('voice-interim-text');"
+            "    r.onerror = () => resolve(gps + '|');"
+            "    r.onend = () => {"
+            "      const el = document.getElementById('voice-interim-text');"
             "      if (el) el.textContent = '';"
-            "      _resolve(gps + '|' + lastTxt);"
             "    };"
             "    r.start();"
-            "  } catch(ex) { _resolve('|지원안됨'); }"
+            "  } catch(ex) { resolve('|지원안됨'); }"
             "})",
             callback=DriverState.handle_global_voice_result,
         )
