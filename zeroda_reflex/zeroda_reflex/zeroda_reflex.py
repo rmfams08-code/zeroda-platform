@@ -14,6 +14,8 @@ from zeroda_reflex.pages.privacy import privacy_page
 from zeroda_reflex.pages.terms import terms_page
 from zeroda_reflex.pages.documents import documents_page
 from zeroda_reflex.state.document_state import DocumentState
+from zeroda_reflex.pages.vendor_documents import vendor_documents_page
+from zeroda_reflex.state.vendor_document_state import VendorDocumentState
 from zeroda_reflex.state.driver_state import DriverState
 from zeroda_reflex.state.vendor_state import VendorState
 from zeroda_reflex.state.admin_state import AdminState
@@ -74,3 +76,4 @@ app.add_page(
 app.add_page(privacy_page, route="/privacy", title="ZERODA 개인정보처리방침")
 app.add_page(terms_page, route="/terms", title="ZERODA 이용약관")
 app.add_page(documents_page, route="/documents", title="ZERODA 문서함", on_load=DocumentState.on_doc_load)
+app.add_page(vendor_documents_page, route="/vendor_documents", title="외주업체 문서함", on_load=VendorDocumentState.on_vendor_doc_load)

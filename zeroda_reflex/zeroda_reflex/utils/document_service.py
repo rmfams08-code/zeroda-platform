@@ -341,6 +341,190 @@ def _next_doc_no(vendor: str, doc_type: str) -> str:
     return f"{prefix}-{year}-{seq:04d}"
 
 
+# ============================================================
+# 6. 외주업체(vendor) 전용 문서 함수
+# ============================================================
+
+def fetch_vendor_company_info(vendor: str) -> dict[str, Any]:
+    """
+    외주업체 회사정보 조회.
+    1차: vendor_company_info 테이블 (신규)
+    2차: vendor_info 테이블 (기존)
+    3차: 환경변수 폴백
+    """
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "SELECT * FROM vendor_company_info WHERE vendor_id=? LIMIT 1", (vendor,)
+        )
+        row = cur.fetchone()
+        if row:
+            d = dict(row)
+            return {
+                "company_name": d.get("company_name") or vendor,
+                "ceo":          d.get("ceo_name", ""),
+                "biz_no":       d.get("bizno", ""),
+                "address":      d.get("addr", ""),
+                "phone":        d.get("phone", ""),
+            }
+    except Exception:
+        pass
+    finally:
+        conn.close()
+    # 폴백: 기존 fetch_vendor_company 재활용
+    return fetch_vendor_company(vendor)
+
+
+def _next_vendor_doc_no(vendor: str, doc_type: str) -> str:
+    """외주업체 채번: C-<vendor>-<year>-<seq:04d>"""
+    prefix = "C" if doc_type == "contract" else "Q"
+    year   = date.today().year
+    rows   = db_get(
+        "issued_documents",
+        {"vendor": vendor, "doc_type": doc_type},
+    )
+    count = sum(
+        1 for r in rows
+        if str(r.get("issued_date", "")).startswith(str(year))
+    )
+    seq = count + 1
+    # vendor 이름에서 영숫자+한글만 추출하여 코드 생성 (공백/특수문자 제거)
+    vendor_code = re.sub(r"[^\w가-힣]", "", vendor)[:8] or "VND"
+    return f"{prefix}-{vendor_code}-{year}-{seq:04d}"
+
+
+def render_contract_for_vendor(
+    vendor: str,
+    customer_name: str,
+    template_id: int | None = None,
+    contract_start: str | None = None,
+    contract_end: str | None = None,
+) -> dict[str, Any]:
+    """
+    외주업체용 계약서 렌더.
+    - 수탁사 정보: vendor_company_info 우선 조회
+    - 발급번호: C-<vendor>-<year>-<seq> 형식
+    """
+    cust  = fetch_customer(vendor, customer_name)
+    biz   = fetch_vendor_company_info(vendor)
+    today = date.today()
+
+    start = contract_start or today.isoformat()
+    end   = contract_end or (today.replace(year=today.year + 1)).isoformat()
+
+    payload = {
+        "거래처명":          cust.get("name", ""),
+        "사업자번호":        cust.get("biz_no", ""),
+        "대표자":            cust.get("rep", ""),
+        "주소":              cust.get("addr", ""),
+        "업태":              cust.get("biz_type", ""),
+        "종목":              cust.get("biz_item", ""),
+        "전화":              cust.get("phone", ""),
+        "이메일":            cust.get("email", ""),
+        "수탁사명":          biz.get("company_name", vendor),
+        "수탁사_사업자번호": biz.get("biz_no", ""),
+        "수탁사_대표":       biz.get("ceo", ""),
+        "수탁사_주소":       biz.get("address", ""),
+        "단가_음식물":       _krw(cust.get("price_food", 0)),
+        "단가_재활용":       _krw(cust.get("price_recycle", 0)),
+        "단가_일반":         _krw(cust.get("price_general", 0)),
+        "고정월비":          _krw(cust.get("fixed_monthly_fee", 0)),
+        "계약시작일":        start,
+        "계약종료일":        end,
+        "발행일":            today.strftime("%Y년 %m월 %d일"),
+        "직인_IMG":          seal_path(vendor),
+    }
+
+    if template_id:
+        tmpl_row = db_get("contract_templates", {"id": template_id})
+        if not tmpl_row:
+            raise ValueError(f"contract_templates id={template_id} 없음")
+        body = tmpl_row[0].get("body_html") or ""
+    else:
+        body = (TEMPLATE_DIR / "contract_standard.html").read_text(encoding="utf-8")
+
+    html   = _render(body, payload)
+    doc_no = _next_vendor_doc_no(vendor, "contract")
+    return {"html": html, "doc_no": doc_no, "payload": payload}
+
+
+def render_quote_for_vendor(
+    vendor: str,
+    customer_name: str,
+    items: list[dict] | None = None,
+    auto_months: int = 1,
+    remark: str = "",
+    valid_days: int = 30,
+) -> dict[str, Any]:
+    """
+    외주업체용 견적서 렌더.
+    - 수탁사 정보: vendor_company_info 우선 조회
+    - 발급번호: Q-<vendor>-<year>-<seq> 형식
+    """
+    cust  = fetch_customer(vendor, customer_name)
+    biz   = fetch_vendor_company_info(vendor)
+    today = date.today()
+
+    if items is None or len(items) == 0:
+        items = _build_items_from_customer(cust, auto_months)
+
+    supply = sum(int(it.get("qty", 0)) * float(it.get("price", 0)) for it in items)
+    vat    = round(supply * 0.10)
+    total  = int(supply + vat)
+
+    rows: list[str] = []
+    for i, it in enumerate(items, start=1):
+        amount = int(int(it.get("qty", 0)) * float(it.get("price", 0)))
+        rows.append(
+            "<tr>"
+            f"<td style='text-align:center'>{i}</td>"
+            f"<td>{_esc(it.get('name',''))}</td>"
+            f"<td style='text-align:center'>{_esc(it.get('spec',''))}</td>"
+            f"<td class='num'>{_krw(it.get('qty',0))}</td>"
+            f"<td class='num'>{_krw(it.get('price',0))}</td>"
+            f"<td class='num'>{_krw(amount)}</td>"
+            "</tr>"
+        )
+
+    doc_no = _next_vendor_doc_no(vendor, "quote")
+    payload = {
+        "견적번호":          doc_no,
+        "발행일":            today.strftime("%Y-%m-%d"),
+        "유효기간":          (today + timedelta(days=valid_days)).strftime("%Y-%m-%d"),
+        "거래처명":          cust.get("name", ""),
+        "대표자":            cust.get("rep", ""),
+        "사업자번호":        cust.get("biz_no", ""),
+        "주소":              cust.get("addr", ""),
+        "전화":              cust.get("phone", ""),
+        "수탁사명":          biz.get("company_name", vendor),
+        "수탁사_대표":       biz.get("ceo", ""),
+        "수탁사_사업자번호": biz.get("biz_no", ""),
+        "수탁사_주소":       biz.get("address", ""),
+        "수탁사_전화":       biz.get("phone", ""),
+        "ITEMS_TBODY":       "\n".join(rows),
+        "공급가액":          _krw(int(supply)),
+        "부가세":            _krw(int(vat)),
+        "합계금액":          _krw(int(total)),
+        "합계금액_한글":     _num_to_kor(int(total)),
+        "비고":              _esc(remark).replace("\n", "<br>"),
+        "직인_IMG":          seal_path(vendor),
+    }
+
+    body = (TEMPLATE_DIR / "quote_standard.html").read_text(encoding="utf-8")
+    html = _render(body, payload)
+    return {
+        "html":        html,
+        "doc_no":      doc_no,
+        "total":       total,
+        "payload":     payload,
+        "valid_until": payload["유효기간"],
+    }
+
+
+# ============================================================
+# (원래 섹션 5 계속)
+# ============================================================
+
 _KOR_NUM   = "영일이삼사오육칠팔구"
 _KOR_UNIT4 = ["", "만", "억", "조"]
 _KOR_UNIT1 = ["", "십", "백", "천"]
