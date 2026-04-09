@@ -54,14 +54,14 @@ class DocumentState(AuthState):
     issued_rows: list[dict] = []
 
     # ── 임시 보관 (발급 전 미리보기 결과) ──
-    _last_contract_html: str = ""
-    _last_contract_doc_no: str = ""
-    _last_contract_payload: str = ""   # JSON 직렬화
-    _last_quote_html: str = ""
-    _last_quote_doc_no: str = ""
-    _last_quote_payload: str = ""      # JSON 직렬화
-    _last_quote_total: int = 0
-    _last_quote_valid_until: str = ""
+    last_contract_html: str = ""
+    last_contract_doc_no: str = ""
+    last_contract_payload: str = ""   # JSON 직렬화
+    last_quote_html: str = ""
+    last_quote_doc_no: str = ""
+    last_quote_payload: str = ""      # JSON 직렬화
+    last_quote_total: int = 0
+    last_quote_valid_until: str = ""
 
     # =====================================================
     # 페이지 on_load 핸들러
@@ -94,29 +94,29 @@ class DocumentState(AuthState):
                 contract_end=self.contract_end or None,
             )
             self.contract_preview_html = result["html"]
-            self._last_contract_html = result["html"]
-            self._last_contract_doc_no = result["doc_no"]
-            self._last_contract_payload = json.dumps(result["payload"], ensure_ascii=False)
+            self.last_contract_html = result["html"]
+            self.last_contract_doc_no = result["doc_no"]
+            self.last_contract_payload = json.dumps(result["payload"], ensure_ascii=False)
         except Exception as e:
             yield rx.toast.error(f"계약서 생성 실패: {e}")
 
     async def issue_contract(self):
-        if not self._last_contract_html:
+        if not self.last_contract_html:
             yield rx.toast.warning("먼저 [미리보기 생성]을 눌러주세요")
         try:
-            payload = json.loads(self._last_contract_payload or "{}")
+            payload = json.loads(self.last_contract_payload or "{}")
             pdf = docsvc.issue_document(
                 vendor=self.user_vendor or "",
                 doc_type="contract",
                 customer_name=self.selected_customer,
-                html=self._last_contract_html,
-                doc_no=self._last_contract_doc_no,
+                html=self.last_contract_html,
+                doc_no=self.last_contract_doc_no,
                 payload=payload,
                 template_id=self.contract_template_id or None,
                 created_by=self.user_id or "",
             )
             self.contract_pdf_path = pdf
-            yield rx.toast.success(f"계약서 발급 완료: {self._last_contract_doc_no}")
+            yield rx.toast.success(f"계약서 발급 완료: {self.last_contract_doc_no}")
         except Exception as e:
             yield rx.toast.error(f"계약서 발급 실패: {e}")
 
@@ -141,32 +141,32 @@ class DocumentState(AuthState):
                 remark=self.quote_remark or "",
             )
             self.quote_preview_html = result["html"]
-            self._last_quote_html = result["html"]
-            self._last_quote_doc_no = result["doc_no"]
-            self._last_quote_payload = json.dumps(result["payload"], ensure_ascii=False)
-            self._last_quote_total = int(result["total"])
-            self._last_quote_valid_until = result["valid_until"]
+            self.last_quote_html = result["html"]
+            self.last_quote_doc_no = result["doc_no"]
+            self.last_quote_payload = json.dumps(result["payload"], ensure_ascii=False)
+            self.last_quote_total = int(result["total"])
+            self.last_quote_valid_until = result["valid_until"]
         except Exception as e:
             yield rx.toast.error(f"견적서 생성 실패: {e}")
 
     async def issue_quote(self):
-        if not self._last_quote_html:
+        if not self.last_quote_html:
             yield rx.toast.warning("먼저 [미리보기 생성]을 눌러주세요")
         try:
-            payload = json.loads(self._last_quote_payload or "{}")
+            payload = json.loads(self.last_quote_payload or "{}")
             pdf = docsvc.issue_document(
                 vendor=self.user_vendor or "",
                 doc_type="quote",
                 customer_name=self.selected_customer,
-                html=self._last_quote_html,
-                doc_no=self._last_quote_doc_no,
+                html=self.last_quote_html,
+                doc_no=self.last_quote_doc_no,
                 payload=payload,
-                valid_until=self._last_quote_valid_until,
-                total_amount=self._last_quote_total,
+                valid_until=self.last_quote_valid_until,
+                total_amount=self.last_quote_total,
                 created_by=self.user_id or "",
             )
             self.quote_pdf_path = pdf
-            yield rx.toast.success(f"견적서 발급 완료: {self._last_quote_doc_no}")
+            yield rx.toast.success(f"견적서 발급 완료: {self.last_quote_doc_no}")
         except Exception as e:
             yield rx.toast.error(f"견적서 발급 실패: {e}")
 
