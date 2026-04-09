@@ -451,17 +451,38 @@ def get_driver_collections_range(vendor: str, driver: str, date_from: str, date_
 
 
 def ensure_real_collection_gps_columns() -> None:
-    """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시)"""
-    conn = get_db()
-    for col in ("lat REAL", "lng REAL"):
-        try:
-            conn.execute(f"ALTER TABLE real_collection ADD COLUMN {col}")
-            conn.commit()
-        except Exception as e:
-            # 이미 컨럼이 존재하면 무시
-            print(f"[DB ERROR] ensure_real_collection_gps_columns ({col}): {e}")
-            logger.warning(f"GPS 컨럼 추가 (idempotent): {e}")
-    conn.close()
+    """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시).
+
+    ▶ PG 백엔드: ADD COLUMN IF NOT EXISTS 사용 → 중복 시 에러 없음.
+      각 컬럼마다 별도 커넥션 사용 → 첫 번째 실패가 두 번째를 오염시키지 않음.
+    ▶ SQLite 백엔드: IF NOT EXISTS 미지원 → try/except OperationalError 유지.
+    """
+    if DB_BACKEND == "postgres":
+        # PG: DOUBLE PRECISION = REAL 호환. IF NOT EXISTS 로 중복 무시.
+        for col_name, col_type in (("lat", "DOUBLE PRECISION"), ("lng", "DOUBLE PRECISION")):
+            conn = get_db()  # 컬럼별 독립 커넥션 (트랜잭션 오염 방지)
+            try:
+                conn.execute(
+                    f"ALTER TABLE real_collection ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+                )
+                conn.commit()
+                logger.info(f"[GPS] {col_name} 컬럼 확인/추가 완료 (PG)")
+            except Exception as e:
+                conn.rollback()
+                logger.warning(f"[GPS] {col_name} 컬럼 추가 실패 (PG): {e}")
+            finally:
+                conn.close()
+    else:
+        # SQLite: IF NOT EXISTS 미지원 → OperationalError(duplicate column) 무시
+        conn = get_db()
+        for col in ("lat REAL", "lng REAL"):
+            try:
+                conn.execute(f"ALTER TABLE real_collection ADD COLUMN {col}")
+                conn.commit()
+            except Exception as e:
+                # 이미 컬럼이 존재하면 무시
+                logger.debug(f"[GPS] {col} 이미 존재 (SQLite idempotent): {e}")
+        conn.close()
 
 
 # GPS 컨럼 보장 (모듈 임포트 시 1회 실행)
