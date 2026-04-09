@@ -1026,9 +1026,21 @@ def save_processing_confirm(
 # ── GPS 위치 저장 ──
 
 def save_customer_gps(vendor: str, name: str, lat: float, lng: float) -> bool:
-    """거래처 GPS 좌표 업데이트"""
+    """거래처 GPS 좌표 저장 (UPDATE).
+    customer_info 행이 존재하면 latitude/longitude 갱신 후 True 반환.
+    행이 없으면 False 반환 (부분 데이터 INSERT 금지 — 가격/연락처 등 누락 방지).
+    """
     conn = get_db()
     try:
+        # 행 존재 확인 (PgWrapper는 rowcount 미노출 → SELECT COUNT 선행)
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM customer_info WHERE vendor=? AND name=?",
+            (vendor, name),
+        ).fetchone()
+        cnt = int((row or {}).get("cnt", 0)) if isinstance(row, dict) else int(row[0] if row else 0)
+        if cnt == 0:
+            logger.warning(f"[save_customer_gps] 거래처 없음 — vendor={vendor}, name={name}")
+            return False
         conn.execute(
             "UPDATE customer_info SET latitude=?, longitude=? WHERE vendor=? AND name=?",
             (lat, lng, vendor, name),
@@ -1036,8 +1048,7 @@ def save_customer_gps(vendor: str, name: str, lat: float, lng: float) -> bool:
         conn.commit()
         return True
     except Exception as e:
-        print(f"[DB ERROR] save_customer_gps: {e}")
-        logger.warning(f"save_customer_gps error: {e}")
+        logger.warning(f"save_customer_gps error: {type(e).__name__}: {e}")
         return False
     finally:
         conn.close()
