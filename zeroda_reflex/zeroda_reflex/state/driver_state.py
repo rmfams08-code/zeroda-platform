@@ -1892,7 +1892,12 @@ class DriverState(AuthState):
     # ============================================================
     @staticmethod
     def _ensure_wake_tables(conn) -> None:
-        """wake_settings / wake_stats 테이블 없으면 자동 생성 (idempotent)."""
+        """wake_settings / wake_stats 테이블 없으면 자동 생성 (idempotent).
+        PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
+        """
+        from zeroda_reflex.utils.database import DB_BACKEND
+        _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+        _now_fn = "NOW()" if DB_BACKEND == "postgres" else "datetime('now','localtime')"
         conn.execute(
             "CREATE TABLE IF NOT EXISTS wake_settings ("
             "  username TEXT PRIMARY KEY,"
@@ -1900,17 +1905,17 @@ class DriverState(AuthState):
             "  keywords_stop  TEXT NOT NULL DEFAULT '완료,끝,종료',"
             "  keywords_cancel TEXT NOT NULL DEFAULT '취소',"
             "  enabled_default INTEGER DEFAULT 0,"
-            "  updated_at TEXT DEFAULT (datetime('now','localtime'))"
+            f"  updated_at TEXT DEFAULT ({_now_fn})"
             ")"
         )
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS wake_stats ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            f"CREATE TABLE IF NOT EXISTS wake_stats ("
+            f"  id {_auto},"
             "  username TEXT NOT NULL,"
             "  event_type TEXT NOT NULL,"
             "  heard_text TEXT,"
             "  matched_keyword TEXT,"
-            "  occurred_at TEXT DEFAULT (datetime('now','localtime'))"
+            f"  occurred_at TEXT DEFAULT ({_now_fn})"
             ")"
         )
         conn.execute(

@@ -477,12 +477,14 @@ def ensure_missing_tables() -> None:
     사례 5(2026-04-07) GitHub 폴더 업로드 사고 수습 과정에서 마이그레이션이
     누락되어 운영 DB에 두 테이블이 없는 상태로 운영되고 있었음.
     컬럼 구조는 save_photo_record / save_driver_checkout 의 INSERT payload 기준.
+    PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
     """
+    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
     conn = get_db()
     try:
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS driver_checkout (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                id            {_auto},
                 vendor        TEXT,
                 driver        TEXT,
                 checkout_date TEXT,
@@ -490,9 +492,9 @@ def ensure_missing_tables() -> None:
                 created_at    TEXT
             )
         """)
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS photo_records (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                id           {_auto},
                 vendor       TEXT,
                 driver       TEXT,
                 school_name  TEXT,
@@ -519,12 +521,15 @@ except Exception as _tbl_init_err:
 
 
 def ensure_academic_schedule_table() -> None:
-    """school_academic_schedule 테이블 + 인덱스 생성 (idempotent)."""
+    """school_academic_schedule 테이블 + 인덱스 생성 (idempotent).
+    PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
+    """
+    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
     conn = get_db()
     try:
-        conn.execute("""
+        conn.execute(f"""
             CREATE TABLE IF NOT EXISTS school_academic_schedule (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                id          {_auto},
                 school_name TEXT NOT NULL,
                 sched_date  TEXT NOT NULL,
                 event_name  TEXT,
