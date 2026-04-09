@@ -494,9 +494,11 @@ class DriverState(AuthState):
         """
         if not self.is_authenticated:
             # 쿠키 자동로그인 시도 (window.location.href='/driver' 후 첫 진입 시)
+            # JSON.stringify: Reflex가 dict를 kwargs 언팩하는 버그 회피 → 문자열로 전달
             yield rx.call_script(
                 "fetch('/api/driver/check-token',{credentials:'same-origin'})"
-                ".then(r=>r.json())",
+                ".then(r=>r.json())"
+                ".then(d=>JSON.stringify(d))",
                 callback=DriverState._on_cookie_check_result,
             )
             return
@@ -512,13 +514,18 @@ class DriverState(AuthState):
             self.schedule_date = self.today_str
         self._load_schedule()
 
-    async def _on_cookie_check_result(self, data: dict):
+    def _on_cookie_check_result(self, data_str: str):
         """on_driver_load 쿠키 검증 콜백.
-        fetch('/api/driver/check-token') JSON 응답 {ok, user_id}.
-        유효하면 AuthState 필드 복원 후 redirect('/driver') — 이때 is_authenticated=True이므로 루프 없음.
+        JS가 JSON.stringify 후 전달한 문자열을 파싱 (dict 직접 전달 시 Reflex kwargs 언팩 버그 회피).
+        유효하면 AuthState 필드 복원 후 redirect('/driver') — is_authenticated=True이므로 루프 없음.
         무효하면 redirect('/').
         """
-        uid = (data or {}).get("user_id", "")
+        import json as _json
+        try:
+            data = _json.loads(data_str or "{}")
+        except Exception:
+            data = {}
+        uid = data.get("user_id", "")
         if not uid:
             yield rx.redirect("/")
             return
