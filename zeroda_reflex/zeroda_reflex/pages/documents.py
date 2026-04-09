@@ -87,8 +87,7 @@ def _quote_panel() -> rx.Component:
                 on_change=DocumentState.set_quote_mode,
             ),
             rx.input(
-                type="number",
-                placeholder="개월수(자동모드)",
+                placeholder="개월수(자동모드, 숫자 입력)",
                 value=DocumentState.quote_months.to(str),
                 on_change=DocumentState.set_quote_months,
             ),
