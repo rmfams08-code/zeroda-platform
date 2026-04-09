@@ -1934,7 +1934,7 @@ def get_vendor_info(vendor: str) -> dict:
                    COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
                    COALESCE(stamp_updated_by, '') AS stamp_updated_by
               FROM vendor_info
-             WHERE biz_name = ?
+             WHERE vendor = ?
              LIMIT 1
             """,
             (vendor,),
@@ -1986,7 +1986,7 @@ def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
                SET stamp_path = ?,
                    stamp_uploaded_at = {_now_expr},
                    stamp_updated_by = ?
-             WHERE biz_name = ?
+             WHERE vendor = ?
             """,
             (stamp_path, updated_by, vendor),
         )
@@ -2049,21 +2049,23 @@ def save_vendor_info(data: dict) -> bool:
     )
     if not ok:
         return False
-    # 추가 필드 (컬럼 없으면 무시)
+    # 추가 필드 (컬럼 없으면 무시 — 빈 값도 저장하여 지우기 가능)
     conn = get_db()
     try:
         for col in ("email", "account"):
             val = str(data.get(col, "") or "")
-            if val:
+            try:
                 conn.execute(
                     f"UPDATE vendor_info SET {col}=? WHERE vendor=?",
                     (val, str(data.get("vendor", ""))),
                 )
+            except Exception as col_e:
+                # 컬럼이 없는 구버전 DB는 조용히 무시
+                logger.debug(f"save_vendor_info: 컬럼 {col} 미존재 — 무시: {col_e}")
         conn.commit()
     except Exception as e:
         print(f"[DB ERROR] save_vendor_info: {e}")
         logger.warning(f'Exception caught: {str(e)}')
-        pass
     finally:
         conn.close()
     return True
