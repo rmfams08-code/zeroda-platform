@@ -301,6 +301,7 @@ class AdminState(AuthState):
     vf_contact: str = ""
     vf_email: str = ""
     vf_vehicle_no: str = ""
+    vf_account: str = ""  # 계약서/견적서 입금계좌 (은행명+계좌번호 한 줄)
     # P2: 학교 배정 (콤마 구분 텍스트)
     vf_schools_text: str = ""
 
@@ -1555,6 +1556,9 @@ class AdminState(AuthState):
     def set_vf_vehicle_no(self, v: str):
         self.vf_vehicle_no = v
 
+    def set_vf_account(self, v: str):
+        self.vf_account = v
+
     def set_vf_schools_text(self, v: str):
         self.vf_schools_text = v
 
@@ -1573,6 +1577,7 @@ class AdminState(AuthState):
             "contact": self.vf_contact,
             "email": self.vf_email,
             "vehicle_no": self.vf_vehicle_no,
+            "account": self.vf_account,
         })
         if ok:
             # ── P2: 학교 배정 처리 ──
@@ -1620,6 +1625,7 @@ class AdminState(AuthState):
             self.vf_contact = ""
             self.vf_email = ""
             self.vf_vehicle_no = ""
+            self.vf_account = ""
             self.vf_schools_text = ""
         else:
             self.vendor_msg = "저장 실패"
@@ -1637,6 +1643,7 @@ class AdminState(AuthState):
             self.vf_contact = v.get("contact", "")
             self.vf_email = v.get("email", "")
             self.vf_vehicle_no = v.get("vehicle_no", "")
+            self.vf_account = v.get("account", "")
             # P2: 배정 학교 로드
             schools = get_school_master_all()
             assigned = [

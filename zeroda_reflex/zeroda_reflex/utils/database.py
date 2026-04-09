@@ -2119,35 +2119,77 @@ def delete_expense(expense_id: str) -> bool:
 
 
 def get_vendor_info(vendor: str) -> dict:
-    """업체 정보 + 직인 경로 조회.
-    반환 dict keys: biz_name, rep, biz_no, address, contact,
+    """업체 정보 + 직인 경로 + 입금계좌 조회.
+    반환 dict keys: biz_name, rep, biz_no, address, contact, account,
                     stamp_path, stamp_uploaded_at, stamp_updated_by
     """
     if not vendor:
         return {}
+    # account 컬럼은 섹션 2-3에서 신규 추가. ALTER 미적용 DB 호환을 위해
+    # SELECT 실패 시 account 없는 구버전 쿼리로 폴백한다.
+    _empty = {
+        "biz_name": str(vendor), "rep": "", "biz_no": "",
+        "address": "", "contact": "", "account": "",
+        "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
+    }
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT biz_name, rep, biz_no, address, contact,
-                   COALESCE(stamp_path, '') AS stamp_path,
-                   COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
-                   COALESCE(stamp_updated_by, '') AS stamp_updated_by
-              FROM vendor_info
-             WHERE vendor = ?
-             LIMIT 1
-            """,
-            (vendor,),
-        )
-        row = cur.fetchone()
+        try:
+            cur.execute(
+                """
+                SELECT biz_name, rep, biz_no, address, contact,
+                       COALESCE(stamp_path, '') AS stamp_path,
+                       COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
+                       COALESCE(stamp_updated_by, '') AS stamp_updated_by,
+                       COALESCE(account, '') AS account
+                  FROM vendor_info
+                 WHERE vendor = ?
+                 LIMIT 1
+                """,
+                (vendor,),
+            )
+            row = cur.fetchone()
+        except Exception as e_col:
+            # account 컬럼 없는 환경 폴백 (ALTER 미적용)
+            logger.warning(f"get_vendor_info account 컬럼 폴백 ({vendor}): {e_col}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT biz_name, rep, biz_no, address, contact,
+                       COALESCE(stamp_path, '') AS stamp_path,
+                       COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
+                       COALESCE(stamp_updated_by, '') AS stamp_updated_by
+                  FROM vendor_info
+                 WHERE vendor = ?
+                 LIMIT 1
+                """,
+                (vendor,),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return dict(_empty)
+            result = dict(_empty)
+            result.update({
+                "biz_name": row[0] or str(vendor),
+                "rep":      row[1] or "",
+                "biz_no":   row[2] or "",
+                "address":  row[3] or "",
+                "contact":  row[4] or "",
+                "stamp_path":        row[5] or "",
+                "stamp_uploaded_at": row[6] or "",
+                "stamp_updated_by":  row[7] or "",
+            })
+            conn.close()
+            return result
         conn.close()
         if not row:
-            return {
-                "biz_name": str(vendor), "rep": "", "biz_no": "",
-                "address": "", "contact": "",
-                "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
-            }
+            return dict(_empty)
         return {
             "biz_name": row[0] or str(vendor),
             "rep":      row[1] or "",
@@ -2157,14 +2199,11 @@ def get_vendor_info(vendor: str) -> dict:
             "stamp_path":        row[5] or "",
             "stamp_uploaded_at": row[6] or "",
             "stamp_updated_by":  row[7] or "",
+            "account":           row[8] or "",
         }
     except Exception as e:
         logger.error(f"get_vendor_info 실패 ({vendor}): {e}")
-        return {
-            "biz_name": str(vendor), "rep": "", "biz_no": "",
-            "address": "", "contact": "",
-            "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
-        }
+        return dict(_empty)
 
 
 def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:

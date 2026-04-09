@@ -26,7 +26,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from .database import get_db, db_get
+from .database import get_db, db_get, get_vendor_info
 
 # ─────────────────────────────────────────────
 # wkhtmltopdf 래퍼 (pdf_export.py에 html_to_pdf 없으므로 여기서 정의)
@@ -98,6 +98,7 @@ def fetch_vendor_company(vendor: str) -> dict[str, Any]:
                 "biz_no":       d.get("biz_no", ""),
                 "address":      d.get("address", ""),
                 "phone":        d.get("contact") or d.get("phone", ""),
+                "account":      d.get("account", "") or "",
             }
     except Exception:
         pass  # vendor_info 테이블이 없는 환경 폴백 (SQLite OperationalError / PG UndefinedTable 모두 처리)
@@ -110,13 +111,36 @@ def fetch_vendor_company(vendor: str) -> dict[str, Any]:
         "biz_no":       os.getenv("VENDOR_BIZNO", ""),
         "address":      os.getenv("VENDOR_ADDR", ""),
         "phone":        os.getenv("VENDOR_PHONE", ""),
+        "account":      os.getenv("VENDOR_ACCOUNT", ""),
     }
 
 
 def seal_path(vendor: str) -> str:
-    """직인 멀티테넌트(직인멀티테넌트_자료 와 동일 규약)"""
+    """직인 경로 조회 (멀티테넌트).
+
+    우선순위:
+      1차: vendor_info.stamp_path (DB 등록 경로 — 본사/업체관리자 직인 업로드 UI가 기록)
+      2차: {SEAL_DIR}/{vendor}.png 파일시스템 폴백 (레거시 규약)
+      3차: "" (빈 문자열 → 템플릿은 <img src=""> 로 렌더, 도장 빈칸)
+
+    참고: 실제 업로드 경로는 /opt/zeroda-platform/storage/stamps/ 로
+         database.set_vendor_stamp() 가 기록. SEAL_DIR 과 엇갈리므로
+         DB 조회가 반드시 우선이어야 한다.
+    """
+    # 1차: DB 우선
+    try:
+        info = get_vendor_info(vendor) or {}
+        db_path = info.get("stamp_path") or ""
+        if db_path and os.path.exists(db_path):
+            return db_path
+    except Exception as e:
+        _log.warning("[document_service] seal_path DB lookup 실패 (%s): %s", vendor, e)
+    # 2차: 파일시스템 폴백
     p = SEAL_DIR / f"{vendor}.png"
-    return str(p) if p.exists() else ""
+    if p.exists():
+        return str(p)
+    # 3차: 없음
+    return ""
 
 
 # ============================================================
@@ -152,6 +176,7 @@ def render_contract(
         "수탁사_사업자번호": biz.get("biz_no", ""),
         "수탁사_대표":       biz.get("ceo", ""),
         "수탁사_주소":       biz.get("address", ""),
+        "수탁사_계좌":       biz.get("account", ""),
         "단가_음식물":       _krw(cust.get("price_food", 0)),
         "단가_재활용":       _krw(cust.get("price_recycle", 0)),
         "단가_일반":         _krw(cust.get("price_general", 0)),
@@ -229,6 +254,7 @@ def render_quote(
         "수탁사_사업자번호": biz.get("biz_no", ""),
         "수탁사_주소":       biz.get("address", ""),
         "수탁사_전화":       biz.get("phone", ""),
+        "수탁사_계좌":       biz.get("account", ""),
         "ITEMS_TBODY":       "\n".join(rows),
         "공급가액":          _krw(int(supply)),
         "부가세":            _krw(int(vat)),
@@ -282,10 +308,24 @@ def issue_document(
     total_amount: int = 0,
     created_by: str = "",
 ) -> str:
-    """HTML → PDF 저장 → issued_documents INSERT → pdf_path 반환"""
+    """HTML → PDF 저장 → issued_documents INSERT → pdf_path 반환.
+
+    BUG-C 가드: PDF 변환이 실패하면 DB INSERT 하지 않고 RuntimeError 발생.
+    호출부(state)는 try/except 로 toast.error 표시.
+    """
     fname = f"{doc_no}_{re.sub(r'[^0-9A-Za-z가-힣]', '_', customer_name)}.pdf"
     pdf_path = ISSUED_PDF_DIR / fname
-    html_to_pdf(html, str(pdf_path))
+
+    # ── PDF 변환 실패 시 즉시 중단 (데이터 정합성 보호) ──
+    ok = html_to_pdf(html, str(pdf_path))
+    if not ok:
+        raise RuntimeError(
+            "PDF 변환 실패 — wkhtmltopdf 미설치 또는 HTML 오류. "
+            "서버 로그(_log) 확인 필요."
+        )
+    # 파일 실제 존재 + 0바이트 아님 재확인
+    if not pdf_path.exists() or pdf_path.stat().st_size == 0:
+        raise RuntimeError(f"PDF 생성 후 파일 검증 실패: {pdf_path}")
 
     conn = get_db()
     try:
@@ -378,6 +418,7 @@ def fetch_vendor_company_info(vendor: str) -> dict[str, Any]:
                     "biz_no":       d.get("bizno", ""),
                     "address":      d.get("addr", ""),
                     "phone":        d.get("phone", ""),
+                    "account":      d.get("account", "") or "",
                 }
 
         # 2차: vendor_info 테이블 (기존 운영 데이터)
@@ -394,6 +435,7 @@ def fetch_vendor_company_info(vendor: str) -> dict[str, Any]:
                 "biz_no":       d2.get("biz_no", ""),
                 "address":      d2.get("address", ""),
                 "phone":        d2.get("contact") or d2.get("phone", ""),
+                "account":      d2.get("account", "") or "",
             }
     except Exception:
         pass
@@ -406,6 +448,7 @@ def fetch_vendor_company_info(vendor: str) -> dict[str, Any]:
         "biz_no":       os.getenv("VENDOR_BIZNO", ""),
         "address":      os.getenv("VENDOR_ADDR", ""),
         "phone":        os.getenv("VENDOR_PHONE", ""),
+        "account":      os.getenv("VENDOR_ACCOUNT", ""),
     }
 
 
@@ -459,6 +502,7 @@ def render_contract_for_vendor(
         "수탁사_사업자번호": biz.get("biz_no", ""),
         "수탁사_대표":       biz.get("ceo", ""),
         "수탁사_주소":       biz.get("address", ""),
+        "수탁사_계좌":       biz.get("account", ""),
         "단가_음식물":       _krw(cust.get("price_food", 0)),
         "단가_재활용":       _krw(cust.get("price_recycle", 0)),
         "단가_일반":         _krw(cust.get("price_general", 0)),
@@ -535,6 +579,7 @@ def render_quote_for_vendor(
         "수탁사_사업자번호": biz.get("biz_no", ""),
         "수탁사_주소":       biz.get("address", ""),
         "수탁사_전화":       biz.get("phone", ""),
+        "수탁사_계좌":       biz.get("account", ""),
         "ITEMS_TBODY":       "\n".join(rows),
         "공급가액":          _krw(int(supply)),
         "부가세":            _krw(int(vat)),
