@@ -313,6 +313,50 @@ class AuthState(rx.State):
         self.is_user_active = True
         yield rx.redirect("/driver")
 
+    async def check_cookie_login(self):
+        """로그인 페이지(/) on_load — HttpOnly 쿠키 자동로그인 시도.
+        이미 인증된 상태면 역할별 페이지로 리다이렉트.
+        미인증이면 /api/driver/check-token fetch → ok이면 window.location.href='/driver'.
+        """
+        if self.is_authenticated:
+            yield self._redirect_by_role()
+            return
+        yield rx.call_script(
+            "fetch('/api/driver/check-token',{credentials:'same-origin'})"
+            ".then(r=>r.json())"
+            ".then(d=>{if(d&&d.ok)window.location.href='/driver';});"
+        )
+
+    async def restore_driver_session_silent(self, data: dict):
+        """on_driver_load cookie 검증 콜백 — 세션 복원 후 /driver 재진입.
+        data: fetch('/api/driver/check-token') JSON 응답 {ok, user_id}.
+        복원 성공 → redirect('/driver') (이때 is_authenticated=True 이므로 루프 없음).
+        복원 실패 → redirect('/').
+        """
+        uid = (data or {}).get("user_id", "")
+        if not uid:
+            yield rx.redirect("/")
+            return
+        from zeroda_reflex.utils.database import db_get
+        rows = db_get("users", {"user_id": uid})
+        if not rows:
+            yield rx.redirect("/")
+            return
+        u = rows[0]
+        if u.get("approval_status") != "approved" or not int(u.get("is_active", 0) or 0):
+            yield rx.redirect("/")
+            return
+        self.user_id = u.get("user_id") or ""
+        self.user_name = u.get("name") or ""
+        self.user_role = u.get("role") or ""
+        self.user_vendor = u.get("vendor") or ""
+        self.user_schools = u.get("schools") or ""
+        self.user_edu_office = u.get("edu_office") or ""
+        self.is_authenticated = True
+        self.is_user_active = True
+        # is_authenticated=True 이므로 on_driver_load 재실행 시 무한루프 없음
+        yield rx.redirect("/driver")
+
     def check_auth(self):
         """페이지 로드 시 인증 확인. 미인증 시 로그인으로 리다이렉트"""
         if not self.is_authenticated:

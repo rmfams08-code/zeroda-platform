@@ -487,10 +487,19 @@ class DriverState(AuthState):
         items = self.vehicle_check_items
         return len(items) > 0 and all(item.get("checked", False) for item in items)
 
-    def on_driver_load(self):
-        """기사 페이지 로드 시"""
+    async def on_driver_load(self):
+        """기사 페이지 로드 시.
+        인증 상태이면 데이터 로드.
+        미인증이면 HttpOnly 쿠키 검증 시도 → 유효하면 restore_driver_session_silent 콜백으로 세션 복원.
+        """
         if not self.is_authenticated:
-            return rx.redirect("/")
+            # 쿠키 자동로그인 시도 (window.location.href='/driver' 후 첫 진입 시)
+            yield rx.call_script(
+                "fetch('/api/driver/check-token',{credentials:'same-origin'})"
+                ".then(r=>r.json())",
+                callback=AuthState.restore_driver_session_silent,
+            )
+            return
         self._load_weather()
         self._load_safety_status()
         self._load_today_collections()
