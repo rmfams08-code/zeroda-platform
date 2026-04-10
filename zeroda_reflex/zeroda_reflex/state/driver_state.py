@@ -349,6 +349,7 @@ class DriverState(AuthState):
     weather_alerts: list[str] = []
     weather_level: str = "normal"   # normal / caution / warning
     weather_source: str = ""
+    weather_gps_coords: str = ""    # GPS 위치 캐시 "lat,lon"
 
     # ── 안전점검 ──
     safety_done_today: bool = False
@@ -490,8 +491,9 @@ class DriverState(AuthState):
     def on_driver_load(self):
         """기사 페이지 로드 시"""
         if not self.is_authenticated:
-            return rx.redirect("/")
-        self._load_weather()
+            yield rx.redirect("/")
+            return
+        self._load_weather()  # 기본 격자(DEFAULT_GRID)로 즉시 로드
         self._load_safety_status()
         self._load_today_collections()
         self._load_recent_collections()
@@ -502,11 +504,38 @@ class DriverState(AuthState):
         if not self.schedule_date:
             self.schedule_date = self.today_str
         self._load_schedule()
+        # GPS 취득 → 날씨 업데이트 (비동기, 실패 시 위 기본 날씨 유지)
+        yield rx.call_script(
+            "new Promise((resolve) => {"
+            "  if (!navigator.geolocation) { resolve(''); return; }"
+            "  navigator.geolocation.getCurrentPosition("
+            "    (pos) => resolve(pos.coords.latitude + ',' + pos.coords.longitude),"
+            "    () => resolve(''),"
+            "    {timeout: 5000, maximumAge: 300000}"
+            "  );"
+            "})",
+            callback=DriverState.load_weather_with_gps,
+        )
 
-    def _load_weather(self):
-        """기상청 API로 오늘 날씨 로드"""
+    def load_weather_with_gps(self, coords: str):
+        """GPS 콜백 — 'lat,lon' 문자열 수신 후 날씨 업데이트"""
+        if not coords:
+            return
         try:
-            result = fetch_today_weather_alert()
+            parts = coords.split(",")
+            if len(parts) != 2:
+                return
+            lat = float(parts[0].strip())
+            lon = float(parts[1].strip())
+            self.weather_gps_coords = coords
+            self._load_weather(lat=lat, lon=lon)
+        except Exception as e:
+            logger.warning(f"GPS 날씨 업데이트 실패: {e}")
+
+    def _load_weather(self, lat: float | None = None, lon: float | None = None):
+        """기상청 API로 오늘 날씨 로드. lat/lon 제공 시 GPS 격자 변환."""
+        try:
+            result = fetch_today_weather_alert(lat=lat, lon=lon)
             self.weather_available = result.get("available", False)
             self.weather_icon = result.get("icon", "🌐")
             self.weather_summary = result.get("summary", "")

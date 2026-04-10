@@ -3,6 +3,7 @@
 # ① 지상관측 일자료 (ASOS) — 과거 데이터 분석용
 # ② 초단기실황 조회 — 당일 실시간 날씨 (기사 알림용)
 import json
+import math
 import os
 import logging
 import urllib.request
@@ -30,6 +31,50 @@ GRID_MAP = {
     "인천": (55, 124),
 }
 DEFAULT_GRID = (57, 119)  # 화성시 기본
+
+# ── 위경도 → 기상청 격자 변환 (Lambert Conformal Conic) ──
+
+def latlon_to_grid(lat: float, lon: float) -> tuple:
+    """위경도 → 기상청 초단기실황 격자 좌표 (nx, ny) 변환.
+    기상청 공식 파라미터 사용.
+    """
+    RE = 6371.00877   # 지구반경 (km)
+    GRID = 5.0        # 격자 간격 (km)
+    SLAT1 = 30.0      # 표준위도 1
+    SLAT2 = 60.0      # 표준위도 2
+    OLON = 126.0      # 기준점 경도
+    OLAT = 38.0       # 기준점 위도
+    XO = 43.0         # 기준점 격자 X
+    YO = 136.0        # 기준점 격자 Y
+
+    DEGRAD = math.pi / 180.0
+
+    re = RE / GRID
+    slat1 = SLAT1 * DEGRAD
+    slat2 = SLAT2 * DEGRAD
+    olon = OLON * DEGRAD
+    olat = OLAT * DEGRAD
+
+    sn = math.tan(math.pi * 0.25 + slat2 * 0.5) / math.tan(math.pi * 0.25 + slat1 * 0.5)
+    sn = math.log(math.cos(slat1) / math.cos(slat2)) / math.log(sn)
+    sf = math.tan(math.pi * 0.25 + slat1 * 0.5)
+    sf = (sf ** sn) * math.cos(slat1) / sn
+    ro = math.tan(math.pi * 0.25 + olat * 0.5)
+    ro = re * sf / (ro ** sn)
+
+    ra = math.tan(math.pi * 0.25 + lat * DEGRAD * 0.5)
+    ra = re * sf / (ra ** sn)
+    theta = lon * DEGRAD - olon
+    if theta > math.pi:
+        theta -= 2.0 * math.pi
+    if theta < -math.pi:
+        theta += 2.0 * math.pi
+    theta *= sn
+
+    nx = int(ra * math.sin(theta) + XO + 0.5)
+    ny = int(ro - ra * math.cos(theta) + YO + 0.5)
+    return nx, ny
+
 
 # ── 강수형태 코드 ──
 RAIN_TYPE_NAMES = {
@@ -250,9 +295,12 @@ def fetch_today_weather_alert(
     nx: int | None = None,
     ny: int | None = None,
     station_id: int = DEFAULT_STATION,
+    lat: float | None = None,
+    lon: float | None = None,
 ) -> dict:
     """
     기사모드용 날씨 알림.
+    lat/lon 제공 시 GPS 좌표를 격자로 변환 (nx/ny 우선).
     초단기실황(실시간) 우선 → ASOS(전일) 폴백 → 알림 생성.
     Returns: dict {
         'available': bool,
@@ -264,6 +312,13 @@ def fetch_today_weather_alert(
         'source': str,    # 'realtime' 또는 'yesterday'
     }
     """
+    # GPS 좌표 → 격자 변환 (lat/lon 제공 시, nx/ny 미지정인 경우)
+    if lat is not None and lon is not None and nx is None and ny is None:
+        try:
+            nx, ny = latlon_to_grid(lat, lon)
+        except Exception as e:
+            logger.warning(f"위경도→격자 변환 실패: {e}")
+
     # ── 1차: 초단기실황 (실시간) ──
     rt = fetch_ultra_srt_ncst(nx, ny)
     if rt.get("success") and rt.get("data"):
