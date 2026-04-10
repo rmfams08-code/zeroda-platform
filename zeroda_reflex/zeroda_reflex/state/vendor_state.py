@@ -2394,7 +2394,7 @@ class VendorState(AuthState):
             return
 
         try:
-            ok = db_save_vinfo({
+            data = {
                 "vendor":   vendor,
                 "biz_name": self.vinfo_biz_name.strip(),
                 "rep":      self.vinfo_rep.strip(),
@@ -2403,15 +2403,20 @@ class VendorState(AuthState):
                 "contact":  self.vinfo_contact.strip(),
                 "email":    self.vinfo_email.strip(),
                 "account":  self.vinfo_account.strip(),
-            })
+            }
+            print(f"[VENDOR SAVE] vendor={vendor}, data keys={list(data.keys())}")
+            ok = db_save_vinfo(data)
             if ok:
                 self.info_save_msg = "업체 정보가 저장되었습니다."
                 self.info_save_ok = True
                 # 저장 후 재로드 — UI 반영 + 본사관리자 연동 보장
                 self.load_vendor_info()
             else:
-                self.info_save_msg = "저장에 실패했습니다. 서버 로그를 확인하세요."
+                self.info_save_msg = "저장에 실패했습니다 (DB 함수가 False 반환). 서버 로그를 확인하세요."
         except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            print(f"[VENDOR SAVE ERROR] {e}\n{tb}")
             self.info_save_msg = f"저장 중 오류: {e}"
             self.info_save_ok = False
 

@@ -1092,37 +1092,46 @@ class AdminState(AuthState):
         self.doc_extra_valid_period = v
 
     def search_doc_customers(self):
-        """거래처 후보 조회 (상호/사업자번호 LIKE 검색)."""
+        """거래처 후보 조회 (상호/사업자번호 LIKE 검색).
+
+        2026-04-10 수정: customer_info 실제 컬럼명 사용
+        - name (not customer_name), biz_no (not business_no),
+          rep (not representative), addr (not address)
+        - PG는 id 컬럼이 없을 수 있으므로 rowid 대신 name을 키로 사용
+        """
         q = (self.doc_customer_query or "").strip()
         if not q:
             self.doc_customer_candidates = []
             return
         try:
-            from ..utils.database import get_db
+            from ..utils.database import get_db, DB_BACKEND
             conn = get_db()
             like = f"%{q}%"
             rows = conn.execute(
-                "SELECT id, customer_name, business_no, representative, "
-                "address, phone, price_food, price_recycle, price_general "
+                "SELECT name, biz_no, rep, addr, phone, "
+                "price_food, price_recycle, price_general, vendor "
                 "FROM customer_info "
-                "WHERE customer_name LIKE ? OR business_no LIKE ? "
+                "WHERE name LIKE ? OR biz_no LIKE ? "
                 "LIMIT 20",
                 (like, like),
             ).fetchall()
             self.doc_customer_candidates = []
+            idx = 1
             for r in rows:
                 d = dict(r)
                 self.doc_customer_candidates.append({
-                    "id": d.get("id"),
-                    "customer_name": d.get("customer_name") or "",
-                    "business_no": d.get("business_no") or "",
-                    "representative": d.get("representative") or "",
-                    "address": d.get("address") or "",
-                    "phone": d.get("phone") or "",
+                    "id": idx,
+                    "customer_name": str(d.get("name", "") or ""),
+                    "business_no": str(d.get("biz_no", "") or ""),
+                    "representative": str(d.get("rep", "") or ""),
+                    "address": str(d.get("addr", "") or ""),
+                    "phone": str(d.get("phone", "") or ""),
                     "price_food": d.get("price_food") or 0,
                     "price_recycle": d.get("price_recycle") or 0,
                     "price_general": d.get("price_general") or 0,
+                    "vendor": str(d.get("vendor", "") or ""),
                 })
+                idx += 1
             conn.close()
         except Exception as e:
             self.doc_issue_msg = f"거래처 조회 실패: {e}"
@@ -1263,24 +1272,21 @@ class AdminState(AuthState):
                 "price_general": 0,
             }
         elif self.doc_selected_customer_id:
-            c_row = conn.execute(
-                "SELECT id, customer_name, business_no, representative, address, phone, "
-                "price_food, price_recycle, price_general FROM customer_info WHERE id = ?",
-                (self.doc_selected_customer_id,),
-            ).fetchone()
-            if c_row:
-                c = dict(c_row)
-                customer_row = {
-                    "id": c.get("id"),
-                    "customer_name": c.get("customer_name") or "",
-                    "business_no": c.get("business_no") or "",
-                    "representative": c.get("representative") or "",
-                    "address": c.get("address") or "",
-                    "phone": c.get("phone") or "",
-                    "price_food": c.get("price_food") or 0,
-                    "price_recycle": c.get("price_recycle") or 0,
-                    "price_general": c.get("price_general") or 0,
-                }
+            # 후보 목록에서 이미 매핑된 데이터 사용 (DB 컬럼명 불일치 방지)
+            for cc in self.doc_customer_candidates:
+                if cc.get("id") == self.doc_selected_customer_id:
+                    customer_row = {
+                        "id": cc.get("id"),
+                        "customer_name": str(cc.get("customer_name") or ""),
+                        "business_no": str(cc.get("business_no") or ""),
+                        "representative": str(cc.get("representative") or ""),
+                        "address": str(cc.get("address") or ""),
+                        "phone": str(cc.get("phone") or ""),
+                        "price_food": cc.get("price_food") or 0,
+                        "price_recycle": cc.get("price_recycle") or 0,
+                        "price_general": cc.get("price_general") or 0,
+                    }
+                    break
         conn.close()
         extra = {
             "계약기간_시작": self.doc_extra_start,
