@@ -894,8 +894,9 @@ class VendorState(AuthState):
                     if c.get('cust_type', '') == self.stmt_cust_type and c.get('name')
                 ]
         except Exception as e:
+            logger.error(f"[load_stmt_cust_list] {e}", exc_info=True)
             self.stmt_cust_list = []
-            self.stmt_load_msg = f"거래처 목록 로드 실패: {e}"
+            self.stmt_load_msg = "거래처 목록 로드에 실패했습니다."
 
     def load_stmt_customers(self):
         """명세서 발송 서브탭 진입 시 호출"""
@@ -983,7 +984,8 @@ class VendorState(AuthState):
             self._build_email_template()
             self.stmt_load_msg = f"{len(rows)}건 로드 완료"
         except Exception as e:
-            self.stmt_load_msg = f"로드 실패: {e}"
+            logger.error(f"[load_statement_data] {e}", exc_info=True)
+            self.stmt_load_msg = "데이터 로드에 실패했습니다."
 
     def _build_biz_info(self) -> dict:
         """pdf_generator가 기대하는 한글 키로 수급자 정보 dict 구성."""
@@ -1319,7 +1321,8 @@ class VendorState(AuthState):
                 self.neis_month = datetime.now().strftime("%Y-%m")
         except Exception as e:
             self.neis_school_list = []
-            self.neis_msg = f"❌ 학교 로드 실패: {e}"
+            logger.error(f"[load_neis_schools] {e}", exc_info=True)
+            self.neis_msg = "❌ 학교 정보 로드에 실패했습니다."
 
     @rx.var
     def neis_school_options(self) -> list[str]:
@@ -1440,7 +1443,8 @@ class VendorState(AuthState):
             self.meal_draft_rows = []
             self.meal_pending_count = 0
             self.meal_approved_count = 0
-            self.meal_apv_msg = f"❌ 로드 실패: {e}"
+            logger.error(f"[load_meal_approvals] {e}", exc_info=True)
+            self.meal_apv_msg = "❌ 데이터 로드에 실패했습니다."
 
     @rx.var
     def meal_draft_school_groups(self) -> list[dict]:
@@ -1486,7 +1490,8 @@ class VendorState(AuthState):
             except Exception:
                 pass
         except Exception as e:
-            self.meal_apv_msg = f"❌ 승인 실패: {e}"
+            logger.error(f"[approve_meal] {e}", exc_info=True)
+            self.meal_apv_msg = "❌ 승인 처리에 실패했습니다."
 
     def reject_school_meals(self, school_name: str):
         """학교별 전체 반려"""
@@ -1503,7 +1508,8 @@ class VendorState(AuthState):
             self.meal_apv_msg = f"⚠️ {school_name}: {success}건 반려"
             self.load_meal_approvals()
         except Exception as e:
-            self.meal_apv_msg = f"❌ 반려 실패: {e}"
+            logger.error(f"[reject_meal] {e}", exc_info=True)
+            self.meal_apv_msg = "❌ 반려 처리에 실패했습니다."
 
     def set_schedule_mode(self, mode: str):
         self.schedule_mode = mode
@@ -2414,10 +2420,8 @@ class VendorState(AuthState):
             else:
                 self.info_save_msg = "저장에 실패했습니다 (DB 함수가 False 반환). 서버 로그를 확인하세요."
         except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            print(f"[VENDOR SAVE ERROR] {e}\n{tb}")
-            self.info_save_msg = f"저장 중 오류: {e}"
+            logger.error(f"[save_vendor_info] {e}", exc_info=True)
+            self.info_save_msg = "저장 중 오류가 발생했습니다."
             self.info_save_ok = False
 
     def do_change_password(self):
@@ -2644,8 +2648,9 @@ class VendorState(AuthState):
             self.sms_ok = ok
             self.sms_msg = msg
         except Exception as e:
+            logger.error(f"[send_sms] {e}", exc_info=True)
             self.sms_ok = False
-            self.sms_msg = f"발송 실패: {e}"
+            self.sms_msg = "문자 발송에 실패했습니다."
         finally:
             self.sms_sending = False
 
@@ -2689,7 +2694,8 @@ class VendorState(AuthState):
                 self.edit_col_memo = ""
                 self.load_dashboard_data()
         except Exception as e:
-            self.edit_col_msg = f"❌ {str(e)}"
+            logger.error(f"[edit_collection] {e}", exc_info=True)
+            self.edit_col_msg = "❌ 수정 중 오류가 발생했습니다."
 
     def delete_collection_record(self, row_id: str):
         """수거 데이터 삭제"""
@@ -2700,7 +2706,8 @@ class VendorState(AuthState):
             if ok:
                 self.load_dashboard_data()
         except Exception as e:
-            self.edit_col_msg = f"❌ {str(e)}"
+            logger.error(f"[delete_collection] {e}", exc_info=True)
+            self.edit_col_msg = "❌ 삭제 중 오류가 발생했습니다."
 
     # ════════════════════════════════════════════
     #  월말정산 상세화 (P2 섹션6)
@@ -2868,7 +2875,8 @@ class VendorState(AuthState):
         try:
             rows = get_monthly_collections(vendor, year, month) or []
         except Exception as e:
-            self.an_load_msg = f"❌ 데이터 로드 실패: {e}"
+            logger.error(f"[load_analysis_data] {e}", exc_info=True)
+            self.an_load_msg = "❌ 데이터 로드에 실패했습니다."
             return
 
         if not rows:
@@ -3207,7 +3215,8 @@ class VendorState(AuthState):
             self.an_weather_temp_bins = temp_bins
             self.an_weather_msg = f"✅ {len(merged)}일 분석 완료"
         except Exception as e:
-            self.an_weather_msg = f"❌ 오류: {e}"
+            logger.error(f"[load_weather_analysis] {e}", exc_info=True)
+            self.an_weather_msg = "❌ 날씨 데이터 조회에 실패했습니다."
         finally:
             self.an_weather_running = False
 
@@ -3307,10 +3316,9 @@ class VendorState(AuthState):
                     f"일정 {stats['events']}건"
                 )
         except Exception as e:
-            import logging as _log
-            _log.getLogger(__name__).error(f"[vendor] sync_my_school_schedules 실패: {e}", exc_info=True)
+            logger.error(f"[sync_my_school_schedules] {e}", exc_info=True)
             async with self:
-                self.sched_sync_msg = f"동기화 실패: {e}"
+                self.sched_sync_msg = "일정 동기화에 실패했습니다."
         finally:
             async with self:
                 self.sched_sync_running = False
@@ -3412,7 +3420,8 @@ class VendorState(AuthState):
             else:
                 self.stamp_upload_status = "DB 저장 실패. 서버 로그를 확인하세요."
         except Exception as e:
-            self.stamp_upload_status = str(e)
+            logger.error(f"[upload_stamp_image] {e}", exc_info=True)
+            self.stamp_upload_status = "업로드 중 오류가 발생했습니다."
         finally:
             self.stamp_upload_loading = False
 

@@ -1607,8 +1607,8 @@ class DriverState(AuthState):
             print(f"[WEIGHSLIP-REG] thumbnail ready, thumb_size={len(thumb)}")
 
         except Exception as e:
-            print(f"[WEIGHSLIP-REG] exception: {e}")
-            self.weighslip_ocr_error = f"사진 등록 오류: {e}"
+            logger.error(f"[WEIGHSLIP-REG] exception: {e}", exc_info=True)
+            self.weighslip_ocr_error = "사진 등록 중 오류가 발생했습니다."
 
     async def run_weighslip_ocr(self):
         """Step 2: OCR 실행 — stash된 원본 바이트로 Claude Vision 호출"""
@@ -1666,8 +1666,8 @@ class DriverState(AuthState):
                 self.weighslip_ocr_done = True
 
         except Exception as e:
-            print(f"[WEIGHSLIP-OCR] exception: {e}")
-            self.weighslip_ocr_error = f"OCR 오류: {e}"
+            logger.error(f"[WEIGHSLIP-OCR] exception: {e}", exc_info=True)
+            self.weighslip_ocr_error = "OCR 처리 중 오류가 발생했습니다."
         finally:
             self.weighslip_ocr_loading = False
 

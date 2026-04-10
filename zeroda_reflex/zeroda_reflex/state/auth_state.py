@@ -92,7 +92,7 @@ class AuthState(rx.State):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"[submit_register] 예외: {e}", exc_info=True)
-            self.reg_error = f"가입 처리 중 오류가 발생했습니다: {e}"
+            self.reg_error = "가입 처리 중 오류가 발생했습니다. 관리자에게 문의하세요."
             self.reg_loading = False
 
     def _do_register(self):

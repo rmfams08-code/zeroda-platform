@@ -904,7 +904,8 @@ class AdminState(AuthState):
             finally:
                 conn.close()
         except Exception as e:
-            self.doc_upload_msg = f"문서서비스 로드 실패: {e}"
+            logger.error(f"[load_doc_service] {e}", exc_info=True)
+            self.doc_upload_msg = "문서서비스 로드에 실패했습니다."
             self.doc_upload_ok = False
 
     def set_doc_sub_tab(self, tab: str):
@@ -1222,7 +1223,8 @@ class AdminState(AuthState):
             self.load_doc_service()
 
         except Exception as e:
-            self.doc_issue_msg = f"발급 실패: {e}"
+            logger.error(f"[issue_document] {e}", exc_info=True)
+            self.doc_issue_msg = "문서 발급에 실패했습니다."
             self.doc_issue_ok = False
 
     def search_doc_customers(self):
@@ -1268,7 +1270,8 @@ class AdminState(AuthState):
                 idx += 1
             conn.close()
         except Exception as e:
-            self.doc_issue_msg = f"거래처 조회 실패: {e}"
+            logger.error(f"[search_doc_customers] {e}", exc_info=True)
+            self.doc_issue_msg = "거래처 조회에 실패했습니다."
             self.doc_issue_ok = False
             self.doc_customer_candidates = []
 
@@ -1311,7 +1314,8 @@ class AdminState(AuthState):
             with open(save_path, "wb") as out:
                 out.write(data)
         except Exception as e:
-            self.doc_upload_msg = f"파일 저장 실패: {e}"
+            logger.error(f"[upload_template_file] 파일 저장: {e}", exc_info=True)
+            self.doc_upload_msg = "파일 저장에 실패했습니다."
             self.doc_upload_ok = False
             return
 
@@ -1321,7 +1325,8 @@ class AdminState(AuthState):
             tags = extract_tags(save_path)
         except Exception as e:
             tags = []
-            self.doc_upload_msg = f"태그 추출 실패(저장은 완료): {e}"
+            logger.error(f"[upload_template_file] 태그 추출: {e}", exc_info=True)
+            self.doc_upload_msg = "태그 추출에 실패했습니다(파일 저장은 완료)."
 
         # DB insert
         try:
@@ -1343,7 +1348,8 @@ class AdminState(AuthState):
             conn.commit()
             conn.close()
         except Exception as e:
-            self.doc_upload_msg = f"DB 등록 실패: {e}"
+            logger.error(f"[upload_template_file] DB 등록: {e}", exc_info=True)
+            self.doc_upload_msg = "DB 등록에 실패했습니다."
             self.doc_upload_ok = False
             return
 
@@ -1367,7 +1373,8 @@ class AdminState(AuthState):
             self.doc_upload_msg = "양식을 비활성화했습니다."
             self.doc_upload_ok = True
         except Exception as e:
-            self.doc_upload_msg = f"비활성화 실패: {e}"
+            logger.error(f"[deactivate_template] {e}", exc_info=True)
+            self.doc_upload_msg = "비활성화에 실패했습니다."
             self.doc_upload_ok = False
 
     def _build_issue_data(self) -> tuple[dict, dict, dict, str]:
@@ -1488,7 +1495,8 @@ class AdminState(AuthState):
             )
             self.doc_issue_ok = True
         except Exception as e:
-            self.doc_issue_msg = "미리보기 실패: " + str(e)
+            logger.error(f"[preview_document] {e}", exc_info=True)
+            self.doc_issue_msg = "미리보기에 실패했습니다."
             self.doc_issue_ok = False
 
     def issue_document(self):
@@ -1616,7 +1624,8 @@ class AdminState(AuthState):
 
             self.load_doc_service()
         except Exception as e:
-            self.doc_issue_msg = f"발급 실패: {e}"
+            logger.error(f"[issue_document] {e}", exc_info=True)
+            self.doc_issue_msg = "문서 발급에 실패했습니다."
             self.doc_issue_ok = False
 
     def _get_stamp_image_path(self) -> str:
@@ -1991,7 +2000,7 @@ class AdminState(AuthState):
         except Exception as e:
             logger.error(f"[admin] sync_all_school_schedules 실패: {e}", exc_info=True)
             async with self:
-                self.sched_sync_msg = f"동기화 실패: {e}"
+                self.sched_sync_msg = "일정 동기화에 실패했습니다."
         finally:
             async with self:
                 self.sched_sync_running = False
@@ -3719,7 +3728,8 @@ class AdminState(AuthState):
             self.cust_rows = get_customers_by_vendor(vendor, cust_type)
         except Exception as e:
             self.cust_rows = []
-            self.cust_msg = f"❌ 거래처 조회 실패: {e}"
+            logger.error(f"[load_customers] {e}", exc_info=True)
+            self.cust_msg = "❌ 거래처 조회에 실패했습니다."
             self.cust_ok = False
 
     def _safe_int(self, v: str) -> int:
@@ -3751,7 +3761,8 @@ class AdminState(AuthState):
         try:
             ok = save_customer(data)
         except Exception as e:
-            self.cust_msg = f"❌ 저장 실패: {e}"
+            logger.error(f"[save_customer] {e}", exc_info=True)
+            self.cust_msg = "❌ 저장에 실패했습니다."
             self.cust_ok = False
             return
         if ok:
@@ -3798,7 +3809,8 @@ class AdminState(AuthState):
         try:
             ok = delete_customer(self.cust_vendor_filter, name)
         except Exception as e:
-            self.cust_msg = f"❌ 삭제 실패: {e}"
+            logger.error(f"[delete_customer] {e}", exc_info=True)
+            self.cust_msg = "❌ 삭제에 실패했습니다."
             self.cust_ok = False
             return
         if ok:
@@ -3846,7 +3858,8 @@ class AdminState(AuthState):
             self.photo_msg = f"✅ {len(rows)}건 조회"
         except Exception as e:
             self.photo_rows = []
-            self.photo_msg = f"❌ 조회 실패: {e}"
+            logger.error(f"[load_photo_records] {e}", exc_info=True)
+            self.photo_msg = "❌ 조회에 실패했습니다."
 
     # ══════════════════════════════
     #  P2: 폐기물분석 — 서브탭 + 이상치 + 기상분석
@@ -3867,7 +3880,8 @@ class AdminState(AuthState):
             ym = year if month == "전체" else f"{year}-{month.zfill(2)}"
             all_colls = get_filtered_collections(year_month=ym)
         except Exception as e:
-            self.anomaly_msg = f"❌ 데이터 조회 실패: {e}"
+            logger.error(f"[load_anomaly_data] {e}", exc_info=True)
+            self.anomaly_msg = "❌ 데이터 조회에 실패했습니다."
             self.anomaly_rows = []
             self.anomaly_count = 0
             return
@@ -3939,7 +3953,8 @@ class AdminState(AuthState):
         try:
             wresp = fetch_daily_weather(self.weather_start_date, self.weather_end_date)
         except Exception as e:
-            self.weather_msg = f"❌ 기상 API 호출 실패: {e}"
+            logger.error(f"[load_weather_analysis] 기상 API: {e}", exc_info=True)
+            self.weather_msg = "❌ 기상 데이터 조회에 실패했습니다."
             self.weather_ok = False
             return
 
@@ -3959,7 +3974,8 @@ class AdminState(AuthState):
             year = self.weather_start_date[:4]
             all_colls = get_filtered_collections(year_month=year)
         except Exception as e:
-            self.weather_msg = f"❌ 수거 데이터 조회 실패: {e}"
+            logger.error(f"[load_weather_analysis] 수거 데이터: {e}", exc_info=True)
+            self.weather_msg = "❌ 수거 데이터 조회에 실패했습니다."
             self.weather_ok = False
             return
 
@@ -4488,7 +4504,8 @@ class AdminState(AuthState):
             else:
                 self.stamp_upload_status = "❌ DB 저장 실패"
         except Exception as e:
-            self.stamp_upload_status = f"❌ 업로드 오류: {e}"
+            logger.error(f"[upload_stamp_image] {e}", exc_info=True)
+            self.stamp_upload_status = "❌ 업로드 중 오류가 발생했습니다."
         finally:
             self.stamp_upload_loading = False
 
