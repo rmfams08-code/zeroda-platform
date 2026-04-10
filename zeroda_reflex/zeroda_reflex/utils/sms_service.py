@@ -124,11 +124,12 @@ def send_statement_sms(
             err_code = err_body.get("errorCode", "")
             err_msg = err_body.get("errorMessage", "알 수 없는 오류")
             return False, f"❌ SOLAPI 오류 ({err_code}): {err_msg}"
-        except Exception:
-            return False, f"❌ SOLAPI HTTP 오류: {e.code}"
+        except Exception as parse_err:
+            logger.warning(f"SOLAPI 에러 응답 파싱 실패: {parse_err}")
+            return False, f"❌ SOLAPI HTTP 오류 (코드: {e.code})"
     except Exception as e:
         logger.warning(f"SMS 발송 실패: {e}")
-        return False, f"❌ 문자 발송 실패: {e}"
+        return False, "❌ 문자 발송에 실패했습니다."
 
 
 # ══════════════════════════════════════════

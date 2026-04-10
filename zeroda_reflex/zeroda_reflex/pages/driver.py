@@ -16,7 +16,7 @@ def _header() -> rx.Component:
                 color="white",
             ),
             rx.text(
-                DriverState.user_name + " 기사님",
+                DriverState.user_name.to(str) + " 기사님",
                 font_size="14px",
                 color="rgba(255,255,255,0.85)",
             ),
@@ -1000,7 +1000,7 @@ def _schedule_section() -> rx.Component:
                 ),
                 rx.spacer(),
                 rx.badge(
-                    DriverState.record_filter_label + ": "
+                    DriverState.record_filter_label.to(str) + ": "
                     + DriverState.recent_collection_count.to(str) + "건",
                     color_scheme="blue",
                     size="1",

@@ -536,7 +536,7 @@ def _standard_accordion() -> rx.Component:
                             rx.vstack(
                                 rx.text("기준 대비 잔반율", font_size="11px", color="#64748b"),
                                 rx.text(
-                                    MealState.standard_compliance + "%",
+                                    MealState.standard_compliance.to(str) + "%",
                                     font_size="20px", font_weight="800", color="#ef4444",
                                 ),
                                 rx.text("(기준 245g 대비)", font_size="10px", color="#94a3b8"),
