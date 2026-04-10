@@ -844,44 +844,43 @@ class AdminState(AuthState):
         try:
             from ..utils.database import get_db
             conn = get_db()
-            cur = conn.cursor()
             # 활성 양식 목록
-            cur.execute(
+            tpl_rows = conn.execute(
                 "SELECT id, template_name, category, file_path, tag_list, "
                 "created_by, created_at FROM document_templates "
                 "WHERE is_active = 1 ORDER BY id DESC"
-            )
-            self.doc_templates = [
-                {
-                    "id": r[0],
-                    "template_name": r[1] or "",
-                    "category": r[2] or "",
-                    "file_path": r[3] or "",
-                    "tag_list": r[4] or "",
-                    "created_by": r[5] or "",
-                    "created_at": r[6] or "",
-                }
-                for r in cur.fetchall()
-            ]
+            ).fetchall()
+            self.doc_templates = []
+            for r in tpl_rows:
+                d = dict(r)
+                self.doc_templates.append({
+                    "id": d.get("id"),
+                    "template_name": d.get("template_name") or "",
+                    "category": d.get("category") or "",
+                    "file_path": d.get("file_path") or "",
+                    "tag_list": d.get("tag_list") or "",
+                    "created_by": d.get("created_by") or "",
+                    "created_at": d.get("created_at") or "",
+                })
             # 최근 발급이력 (최근 100건)
-            cur.execute(
+            log_rows = conn.execute(
                 "SELECT id, vendor, template_name, customer_name, issued_by, "
                 "issued_at, file_path, issue_number FROM document_issue_log "
                 "ORDER BY id DESC LIMIT 100"
-            )
-            self.doc_issue_log = [
-                {
-                    "id": r[0],
-                    "vendor": r[1] or "",
-                    "template_name": r[2] or "",
-                    "customer_name": r[3] or "",
-                    "issued_by": r[4] or "",
-                    "issued_at": r[5] or "",
-                    "file_path": r[6] or "",
-                    "issue_number": r[7] or "",
-                }
-                for r in cur.fetchall()
-            ]
+            ).fetchall()
+            self.doc_issue_log = []
+            for r in log_rows:
+                d = dict(r)
+                self.doc_issue_log.append({
+                    "id": d.get("id"),
+                    "vendor": d.get("vendor") or "",
+                    "template_name": d.get("template_name") or "",
+                    "customer_name": d.get("customer_name") or "",
+                    "issued_by": d.get("issued_by") or "",
+                    "issued_at": d.get("issued_at") or "",
+                    "file_path": d.get("file_path") or "",
+                    "issue_number": d.get("issue_number") or "",
+                })
             conn.close()
         except Exception as e:
             self.doc_upload_msg = f"문서서비스 로드 실패: {e}"
@@ -934,31 +933,29 @@ class AdminState(AuthState):
         try:
             from ..utils.database import get_db
             conn = get_db()
-            cur = conn.cursor()
             like = f"%{q}%"
-            cur.execute(
+            rows = conn.execute(
                 "SELECT id, customer_name, business_no, representative, "
                 "address, phone, price_food, price_recycle, price_general "
                 "FROM customer_info "
                 "WHERE customer_name LIKE ? OR business_no LIKE ? "
                 "LIMIT 20",
                 (like, like),
-            )
-            rows = cur.fetchall()
-            self.doc_customer_candidates = [
-                {
-                    "id": r[0],
-                    "customer_name": r[1] or "",
-                    "business_no": r[2] or "",
-                    "representative": r[3] or "",
-                    "address": r[4] or "",
-                    "phone": r[5] or "",
-                    "price_food": r[6] or 0,
-                    "price_recycle": r[7] or 0,
-                    "price_general": r[8] or 0,
-                }
-                for r in rows
-            ]
+            ).fetchall()
+            self.doc_customer_candidates = []
+            for r in rows:
+                d = dict(r)
+                self.doc_customer_candidates.append({
+                    "id": d.get("id"),
+                    "customer_name": d.get("customer_name") or "",
+                    "business_no": d.get("business_no") or "",
+                    "representative": d.get("representative") or "",
+                    "address": d.get("address") or "",
+                    "phone": d.get("phone") or "",
+                    "price_food": d.get("price_food") or 0,
+                    "price_recycle": d.get("price_recycle") or 0,
+                    "price_general": d.get("price_general") or 0,
+                })
             conn.close()
         except Exception as e:
             self.doc_issue_msg = f"거래처 조회 실패: {e}"
@@ -1019,8 +1016,7 @@ class AdminState(AuthState):
         # DB insert
         try:
             conn = get_db()
-            cur = conn.cursor()
-            cur.execute(
+            conn.execute(
                 "INSERT INTO document_templates "
                 "(template_name, category, file_path, file_type, tag_list, "
                 " created_by, created_at, is_active) "
@@ -1051,8 +1047,7 @@ class AdminState(AuthState):
         try:
             from ..utils.database import get_db
             conn = get_db()
-            cur = conn.cursor()
-            cur.execute(
+            conn.execute(
                 "UPDATE document_templates SET is_active = 0 WHERE id = ?",
                 (int(tpl_id),),
             )
@@ -1069,38 +1064,41 @@ class AdminState(AuthState):
         """발급에 필요한 template row, customer row, extra dict, template file_path 수집."""
         from ..utils.database import get_db
         conn = get_db()
-        cur = conn.cursor()
         # 양식
-        cur.execute(
+        tpl_row = conn.execute(
             "SELECT id, template_name, category, file_path FROM document_templates "
             "WHERE id = ?",
             (self.doc_selected_template_id,),
-        )
-        tpl = cur.fetchone()
-        template_row = {
-            "id": tpl[0], "template_name": tpl[1],
-            "category": tpl[2], "file_path": tpl[3],
-        } if tpl else {}
+        ).fetchone()
+        template_row = {}
+        if tpl_row:
+            td = dict(tpl_row)
+            template_row = {
+                "id": td.get("id"),
+                "template_name": td.get("template_name") or "",
+                "category": td.get("category") or "",
+                "file_path": td.get("file_path") or "",
+            }
         # 거래처
         customer_row = {}
         if self.doc_selected_customer_id:
-            cur.execute(
+            c_row = conn.execute(
                 "SELECT id, customer_name, business_no, representative, address, phone, "
                 "price_food, price_recycle, price_general FROM customer_info WHERE id = ?",
                 (self.doc_selected_customer_id,),
-            )
-            c = cur.fetchone()
-            if c:
+            ).fetchone()
+            if c_row:
+                c = dict(c_row)
                 customer_row = {
-                    "id": c[0],
-                    "customer_name": c[1] or "",
-                    "business_no": c[2] or "",
-                    "representative": c[3] or "",
-                    "address": c[4] or "",
-                    "phone": c[5] or "",
-                    "price_food": c[6] or 0,
-                    "price_recycle": c[7] or 0,
-                    "price_general": c[8] or 0,
+                    "id": c.get("id"),
+                    "customer_name": c.get("customer_name") or "",
+                    "business_no": c.get("business_no") or "",
+                    "representative": c.get("representative") or "",
+                    "address": c.get("address") or "",
+                    "phone": c.get("phone") or "",
+                    "price_food": c.get("price_food") or 0,
+                    "price_recycle": c.get("price_recycle") or 0,
+                    "price_general": c.get("price_general") or 0,
                 }
         conn.close()
         extra = {
@@ -1117,13 +1115,16 @@ class AdminState(AuthState):
         try:
             from ..utils.database import get_db
             conn = get_db()
-            cur = conn.cursor()
-            cur.execute(
+            row = conn.execute(
                 "SELECT vendor FROM users WHERE user_id = ? LIMIT 1",
                 (self.user_id or "",),
-            )
-            row = cur.fetchone()
-            vendor_name = row[0] if row else "하영자원"
+            ).fetchone()
+            vendor_name = ""
+            if row:
+                rd = dict(row)
+                vendor_name = rd.get("vendor") or ""
+            if not vendor_name:
+                vendor_name = "하영자원"
             conn.close()
             return {
                 "company_name": vendor_name or "하영자원",
@@ -1200,13 +1201,22 @@ class AdminState(AuthState):
 
             # 발급번호 채번 (당일 순번 단순 COUNT+1)
             conn = get_db()
-            cur = conn.cursor()
             today = _dt.now().strftime("%Y-%m-%d")
-            cur.execute(
-                "SELECT COUNT(*) FROM document_issue_log WHERE issued_at LIKE ?",
+            cnt_row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM document_issue_log WHERE issued_at LIKE ?",
                 (f"{today}%",),
-            )
-            seq = (cur.fetchone()[0] or 0) + 1
+            ).fetchone()
+            seq = 1
+            if cnt_row:
+                try:
+                    rd = dict(cnt_row)
+                    seq = int(rd.get("cnt") or 0) + 1
+                except Exception:
+                    # sqlite3.Row 인덱스 fallback
+                    try:
+                        seq = int(cnt_row[0] or 0) + 1
+                    except Exception:
+                        seq = 1
             issue_no = generate_issue_number(tpl.get("category", ""), seq)
 
             data = build_template_data(
@@ -1240,7 +1250,7 @@ class AdminState(AuthState):
             pdf_ok = convert_to_pdf(stamped_hwpx, output_pdf)
 
             # 4) 로그 insert
-            cur.execute(
+            conn.execute(
                 "INSERT INTO document_issue_log "
                 "(vendor, template_id, template_name, customer_id, customer_name, "
                 " issued_by, issued_at, file_path, issue_number, output_format) "
@@ -1283,7 +1293,6 @@ class AdminState(AuthState):
         try:
             from ..utils.database import get_db
             conn = get_db()
-            cur = conn.cursor()
             # 기존 외주업체관리자 쪽 직인 컬럼은 환경별로 다를 수 있어
             # 여러 후보 컬럼을 순회 조회 (없으면 skip)
             candidates = [
@@ -1294,11 +1303,15 @@ class AdminState(AuthState):
             ]
             for table, col in candidates:
                 try:
-                    cur.execute(f"SELECT {col} FROM {table} LIMIT 1")
-                    r = cur.fetchone()
-                    if r and r[0]:
-                        conn.close()
-                        return str(r[0])
+                    r = conn.execute(
+                        f"SELECT {col} AS v FROM {table} LIMIT 1"
+                    ).fetchone()
+                    if r:
+                        rd = dict(r)
+                        val = rd.get("v") or rd.get(col)
+                        if val:
+                            conn.close()
+                            return str(val)
                 except Exception:
                     continue
             conn.close()
