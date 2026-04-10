@@ -598,11 +598,13 @@ class DriverState(AuthState):
         return [s["school_name"] for s in self.schedule_schools if s["school_name"] not in done]
 
     def _load_today_collections(self):
-        """오늘 수거 기록 로드"""
+        """오늘 수거 기록 로드 — 토요일은 금요일로 변환 (학교 수거 토→금 저장과 동일)"""
+        _d = date.today()
+        query_date = (_d - timedelta(days=1)).strftime("%Y-%m-%d") if _d.weekday() == 5 else self.today_str
         self.today_collections = get_today_collections(
             vendor=self.user_vendor,
             driver=self.user_name,
-            collect_date=self.today_str,
+            collect_date=query_date,
         )
 
     def _load_recent_collections(self):
@@ -1205,10 +1207,14 @@ class DriverState(AuthState):
 
     def save_collection_for_school_with_gps(self, coords: str):
         """GPS 콜백 — active_save_school 수거량 submitted로 저장"""
+        if not coords:
+            yield rx.toast.warning("📍 GPS 위치를 가져오지 못했습니다. 위치 권한을 확인해주세요.")
         self._do_save_for_school(coords, "submitted")
 
     def save_collection_for_school_draft_with_gps(self, coords: str):
         """GPS 콜백 — active_save_school 수거량 draft로 저장"""
+        if not coords:
+            yield rx.toast.warning("📍 GPS 위치를 가져오지 못했습니다. 위치 권한을 확인해주세요.")
         self._do_save_for_school(coords, "draft")
 
     def _do_save_for_school(self, coords: str, status: str):
