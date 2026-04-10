@@ -350,6 +350,7 @@ class DriverState(AuthState):
     weather_level: str = "normal"   # normal / caution / warning
     weather_source: str = ""
     weather_gps_coords: str = ""    # GPS 위치 캐시 "lat,lon"
+    weather_location: str = ""      # GPS 기반 현재 지역명
 
     # ── 안전점검 ──
     safety_done_today: bool = False
@@ -542,6 +543,7 @@ class DriverState(AuthState):
             self.weather_alerts = result.get("alerts", [])
             self.weather_level = result.get("level", "normal")
             self.weather_source = result.get("source", "")
+            self.weather_location = result.get("location", "")
         except Exception as e:
             logger.warning(f"날씨 로드 실패: {e}")
             self.weather_available = False

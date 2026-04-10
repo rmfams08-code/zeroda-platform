@@ -47,6 +47,15 @@ def _weather_section() -> rx.Component:
                     font_size="28px",
                 ),
                 rx.vstack(
+                    rx.cond(
+                        DriverState.weather_location != "",
+                        rx.text(
+                            "📍 " + DriverState.weather_location.to(str),
+                            font_size="11px",
+                            color="#6b7280",
+                            font_weight="500",
+                        ),
+                    ),
                     rx.text(
                         DriverState.weather_summary,
                         font_size="13px",

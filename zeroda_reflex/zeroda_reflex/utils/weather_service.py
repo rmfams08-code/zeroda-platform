@@ -29,8 +29,37 @@ GRID_MAP = {
     "수원": (60, 121),
     "서울": (60, 127),
     "인천": (55, 124),
+    "평택": (52, 110),
+    "안양": (59, 124),
+    "안산": (56, 122),
+    "시흥": (57, 123),
+    "광명": (58, 125),
+    "군포": (59, 122),
+    "의왕": (60, 122),
+    "용인": (64, 119),
+    "성남": (63, 124),
+    "과천": (60, 124),
+    "서초": (61, 125),
+    "강남": (61, 126),
+    "동작": (60, 126),
+    "관악": (59, 125),
+    "금천": (58, 125),
+    "영등포": (58, 126),
+    "구로": (58, 126),
 }
 DEFAULT_GRID = (57, 119)  # 화성시 기본
+
+
+def grid_to_region(nx: int, ny: int) -> str:
+    """격자 좌표 (nx, ny) → 가장 가까운 지역명 반환 (유클리드 거리)"""
+    best_name = "화성"
+    best_dist = float("inf")
+    for name, (gx, gy) in GRID_MAP.items():
+        dist = (nx - gx) ** 2 + (ny - gy) ** 2
+        if dist < best_dist:
+            best_dist = dist
+            best_name = name
+    return best_name
 
 # ── 위경도 → 기상청 격자 변환 (Lambert Conformal Conic) ──
 
@@ -319,10 +348,17 @@ def fetch_today_weather_alert(
         except Exception as e:
             logger.warning(f"위경도→격자 변환 실패: {e}")
 
+    # 격자 좌표 → 지역명 결정
+    _used_nx = nx if nx is not None else DEFAULT_GRID[0]
+    _used_ny = ny if ny is not None else DEFAULT_GRID[1]
+    location = grid_to_region(_used_nx, _used_ny)
+
     # ── 1차: 초단기실황 (실시간) ──
     rt = fetch_ultra_srt_ncst(nx, ny)
     if rt.get("success") and rt.get("data"):
-        return _build_realtime_alert(rt["data"])
+        alert = _build_realtime_alert(rt["data"])
+        alert["location"] = location
+        return alert
 
     # ── 2차 폴백: ASOS 전일 데이터 ──
     now = datetime.now(ZoneInfo("Asia/Seoul"))
@@ -338,9 +374,12 @@ def fetch_today_weather_alert(
             "icon": "🌐",
             "level": "normal",
             "source": "none",
+            "location": location,
         }
 
-    return _build_yesterday_alert(result["data"][-1])
+    alert = _build_yesterday_alert(result["data"][-1])
+    alert["location"] = location
+    return alert
 
 
 def _build_realtime_alert(d: dict) -> dict:
