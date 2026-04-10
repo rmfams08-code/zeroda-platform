@@ -841,9 +841,18 @@ def ensure_users_neis_columns() -> None:
         "pending_school_name TEXT",
     ]:
         try:
+            if DB_BACKEND == "postgres":
+                conn.execute("SAVEPOINT _add_col")
             conn.execute(f"ALTER TABLE users ADD COLUMN {col_def}")
+            if DB_BACKEND == "postgres":
+                conn.execute("RELEASE SAVEPOINT _add_col")
             conn.commit()
         except Exception:
+            if DB_BACKEND == "postgres":
+                try:
+                    conn.execute("ROLLBACK TO SAVEPOINT _add_col")
+                except Exception:
+                    pass
             pass  # 이미 존재하면 무시
     conn.close()
 
@@ -1142,9 +1151,18 @@ def get_customers_with_gps(vendor: str) -> list[dict]:
         # idempotent: 컬럼이 없으면 추가
         for col in ("latitude", "longitude"):
             try:
+                if DB_BACKEND == "postgres":
+                    conn.execute("SAVEPOINT _add_col")
                 conn.execute(f"ALTER TABLE customer_info ADD COLUMN {col} REAL")
+                if DB_BACKEND == "postgres":
+                    conn.execute("RELEASE SAVEPOINT _add_col")
                 conn.commit()
             except Exception:
+                if DB_BACKEND == "postgres":
+                    try:
+                        conn.execute("ROLLBACK TO SAVEPOINT _add_col")
+                    except Exception:
+                        pass
                 pass  # 이미 존재하면 무시
         rows = conn.execute(
             "SELECT name, latitude, longitude FROM customer_info "
@@ -2299,26 +2317,41 @@ def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
             )
         """)
         try:
+            if DB_BACKEND == "postgres":
+                conn.execute("SAVEPOINT _idx")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_info_vendor "
                 "ON vendor_info(vendor)"
             )
+            if DB_BACKEND == "postgres":
+                conn.execute("RELEASE SAVEPOINT _idx")
         except Exception:
-            pass
+            if DB_BACKEND == "postgres":
+                try:
+                    conn.execute("ROLLBACK TO SAVEPOINT _idx")
+                except Exception:
+                    pass
 
-        # ── stamp 관련 컬럼 보장 (ALTER 안전) ──
+        # ── stamp 관련 컬럼 보장 ──
+        # PostgreSQL: ALTER 실패 시 트랜잭션 abort → SAVEPOINT 필수
         for col in ("stamp_path", "stamp_uploaded_at", "stamp_updated_by",
                      "email", "account"):
             try:
+                if DB_BACKEND == "postgres":
+                    conn.execute("SAVEPOINT _add_col")
                 conn.execute(
                     f"ALTER TABLE vendor_info ADD COLUMN {col} TEXT DEFAULT ''"
                 )
+                if DB_BACKEND == "postgres":
+                    conn.execute("RELEASE SAVEPOINT _add_col")
             except Exception:
+                if DB_BACKEND == "postgres":
+                    conn.execute("ROLLBACK TO SAVEPOINT _add_col")
                 pass  # 이미 존재
 
         # ── 현재시각 ──
         if DB_BACKEND == "postgres":
-            _now_expr = "compat.datetime_now_localtime()"
+            _now_expr = "NOW() AT TIME ZONE 'Asia/Seoul'"
         else:
             _now_expr = "datetime('now', 'localtime')"
 
@@ -2421,18 +2454,33 @@ def save_vendor_info(data: dict) -> bool:
         """)
         # UNIQUE INDEX 보장 (구버전 DB: vendor가 PK가 아닐 수 있음)
         try:
+            if DB_BACKEND == "postgres":
+                conn.execute("SAVEPOINT _idx")
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_info_vendor "
                 "ON vendor_info(vendor)"
             )
+            if DB_BACKEND == "postgres":
+                conn.execute("RELEASE SAVEPOINT _idx")
         except Exception:
-            pass  # 이미 PK이면 무시
+            if DB_BACKEND == "postgres":
+                try:
+                    conn.execute("ROLLBACK TO SAVEPOINT _idx")
+                except Exception:
+                    pass
 
-        # ── 2) email/account 컬럼 보장 (ALTER TABLE 안전) ──
+        # ── 2) email/account 컬럼 보장 ──
+        # PostgreSQL: ALTER 실패 시 트랜잭션 abort → SAVEPOINT 필수
         for col in ("email", "account"):
             try:
+                if DB_BACKEND == "postgres":
+                    conn.execute("SAVEPOINT _add_col")
                 conn.execute(f"ALTER TABLE vendor_info ADD COLUMN {col} TEXT DEFAULT ''")
+                if DB_BACKEND == "postgres":
+                    conn.execute("RELEASE SAVEPOINT _add_col")
             except Exception:
+                if DB_BACKEND == "postgres":
+                    conn.execute("ROLLBACK TO SAVEPOINT _add_col")
                 pass  # 이미 존재하면 무시
 
         # ── 3) 기존 행 존재 여부 확인 ──
@@ -2460,9 +2508,12 @@ def save_vendor_info(data: dict) -> bool:
         logger.info("save_vendor_info OK: vendor=%s", vendor)
         return True
     except Exception as e:
-        print(f"[DB ERROR] save_vendor_info: {e}")
-        logger.warning("save_vendor_info 실패 (%s): %s", vendor, e)
-        return False
+        import traceback
+        tb = traceback.format_exc()
+        print(f"[DB ERROR] save_vendor_info: {e}\n{tb}")
+        logger.warning("save_vendor_info 실패 (%s): %s\n%s", vendor, e, tb)
+        # 에러를 raise하여 호출측에서 구체적 원인 표시
+        raise RuntimeError(f"DB 저장 오류: {e}") from e
     finally:
         conn.close()
 
@@ -5394,11 +5445,20 @@ def save_meal_schedule_drafts(site_name: str, dates: list) -> int:
 def _ensure_voice_aliases_col(conn) -> None:
     """customer_info 테이블에 voice_aliases 컬럼이 없으면 추가 (idempotent)"""
     try:
+        if DB_BACKEND == "postgres":
+            conn.execute("SAVEPOINT _add_col")
         conn.execute(
             "ALTER TABLE customer_info ADD COLUMN voice_aliases TEXT DEFAULT ''"
         )
+        if DB_BACKEND == "postgres":
+            conn.execute("RELEASE SAVEPOINT _add_col")
         conn.commit()
     except Exception:
+        if DB_BACKEND == "postgres":
+            try:
+                conn.execute("ROLLBACK TO SAVEPOINT _add_col")
+            except Exception:
+                pass
         pass  # 이미 존재하면 무시
 
 
