@@ -2207,90 +2207,77 @@ def delete_expense(expense_id: str) -> bool:
 
 def get_vendor_info(vendor: str) -> dict:
     """업체 정보 + 직인 경로 + 입금계좌 조회.
-    반환 dict keys: biz_name, rep, biz_no, address, contact, account,
+
+    2026-04-10 재작성: conn.execute() 사용 (PgWrapper 호환),
+    dict(row) 변환으로 인덱스 접근 제거.
+
+    반환 dict keys: biz_name, rep, biz_no, address, contact, account, email,
                     stamp_path, stamp_uploaded_at, stamp_updated_by
     """
     if not vendor:
         return {}
-    # account 컬럼은 섹션 2-3에서 신규 추가. ALTER 미적용 DB 호환을 위해
-    # SELECT 실패 시 account 없는 구버전 쿼리로 폴백한다.
     _empty = {
         "biz_name": str(vendor), "rep": "", "biz_no": "",
-        "address": "", "contact": "", "account": "",
+        "address": "", "contact": "", "email": "", "account": "",
         "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
     }
+    conn = get_db()
     try:
-        conn = get_db()
-        cur = conn.cursor()
+        # account/email 컬럼 포함 쿼리 시도
         try:
-            cur.execute(
-                """
-                SELECT biz_name, rep, biz_no, address, contact,
-                       COALESCE(stamp_path, '') AS stamp_path,
-                       COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
-                       COALESCE(stamp_updated_by, '') AS stamp_updated_by,
-                       COALESCE(account, '') AS account
-                  FROM vendor_info
-                 WHERE vendor = ?
-                 LIMIT 1
-                """,
+            if DB_BACKEND == "postgres":
+                conn.execute("SAVEPOINT _gvi")
+            result = conn.execute(
+                "SELECT biz_name, rep, biz_no, address, contact,"
+                " COALESCE(stamp_path, '') AS stamp_path,"
+                " COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,"
+                " COALESCE(stamp_updated_by, '') AS stamp_updated_by,"
+                " COALESCE(account, '') AS account,"
+                " COALESCE(email, '') AS email"
+                " FROM vendor_info WHERE vendor = ? LIMIT 1",
                 (vendor,),
             )
-            row = cur.fetchone()
+            row = result.fetchone()
+            if DB_BACKEND == "postgres":
+                conn.execute("RELEASE SAVEPOINT _gvi")
         except Exception as e_col:
-            # account 컬럼 없는 환경 폴백 (ALTER 미적용)
-            logger.warning(f"get_vendor_info account 컬럼 폴백 ({vendor}): {e_col}")
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT biz_name, rep, biz_no, address, contact,
-                       COALESCE(stamp_path, '') AS stamp_path,
-                       COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
-                       COALESCE(stamp_updated_by, '') AS stamp_updated_by
-                  FROM vendor_info
-                 WHERE vendor = ?
-                 LIMIT 1
-                """,
+            # account/email 컬럼 없는 환경 폴백
+            logger.warning(f"get_vendor_info 컬럼 폴백 ({vendor}): {e_col}")
+            if DB_BACKEND == "postgres":
+                try:
+                    conn.execute("ROLLBACK TO SAVEPOINT _gvi")
+                except Exception:
+                    pass
+            result = conn.execute(
+                "SELECT biz_name, rep, biz_no, address, contact,"
+                " COALESCE(stamp_path, '') AS stamp_path,"
+                " COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,"
+                " COALESCE(stamp_updated_by, '') AS stamp_updated_by"
+                " FROM vendor_info WHERE vendor = ? LIMIT 1",
                 (vendor,),
             )
-            row = cur.fetchone()
-            if not row:
-                conn.close()
-                return dict(_empty)
-            result = dict(_empty)
-            result.update({
-                "biz_name": row[0] or str(vendor),
-                "rep":      row[1] or "",
-                "biz_no":   row[2] or "",
-                "address":  row[3] or "",
-                "contact":  row[4] or "",
-                "stamp_path":        row[5] or "",
-                "stamp_uploaded_at": row[6] or "",
-                "stamp_updated_by":  row[7] or "",
-            })
-            conn.close()
-            return result
-        conn.close()
+            row = result.fetchone()
+
         if not row:
             return dict(_empty)
+        d = dict(row)
         return {
-            "biz_name": row[0] or str(vendor),
-            "rep":      row[1] or "",
-            "biz_no":   row[2] or "",
-            "address":  row[3] or "",
-            "contact":  row[4] or "",
-            "stamp_path":        row[5] or "",
-            "stamp_uploaded_at": row[6] or "",
-            "stamp_updated_by":  row[7] or "",
-            "account":           row[8] or "",
+            "biz_name":          str(d.get("biz_name", "") or vendor),
+            "rep":               str(d.get("rep", "") or ""),
+            "biz_no":            str(d.get("biz_no", "") or ""),
+            "address":           str(d.get("address", "") or ""),
+            "contact":           str(d.get("contact", "") or ""),
+            "email":             str(d.get("email", "") or ""),
+            "account":           str(d.get("account", "") or ""),
+            "stamp_path":        str(d.get("stamp_path", "") or ""),
+            "stamp_uploaded_at": str(d.get("stamp_uploaded_at", "") or ""),
+            "stamp_updated_by":  str(d.get("stamp_updated_by", "") or ""),
         }
     except Exception as e:
         logger.error(f"get_vendor_info 실패 ({vendor}): {e}")
         return dict(_empty)
+    finally:
+        conn.close()
 
 
 def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
@@ -3242,6 +3229,7 @@ def get_all_vendor_info() -> list[dict]:
                 "contact":    str(d.get("contact", "") or ""),
                 "email":      str(d.get("email", "") or ""),
                 "vehicle_no": str(d.get("vehicle_no", "") or ""),
+                "account":    str(d.get("account", "") or ""),
             })
         return result
     except Exception as e:
@@ -3253,8 +3241,60 @@ def get_all_vendor_info() -> list[dict]:
 
 
 def save_hq_vendor_info(data: dict) -> bool:
-    """업체 정보 등록/수정 (본사관리자용)"""
-    return db_upsert("vendor_info", data, key_col="vendor")
+    """업체 정보 등록/수정 (본사관리자용).
+
+    2026-04-10 수정: db_upsert 대신 save_vendor_info 통일 사용.
+    - PG SAVEPOINT 트랜잭션 안전성 보장
+    - 테이블/컬럼 존재 자동 보장
+    - vehicle_no 등 추가 컬럼은 별도 UPDATE로 처리
+    """
+    vendor = str(data.get("vendor", "")).strip()
+    if not vendor:
+        return False
+
+    # vehicle_no는 save_vendor_info에서 처리하지 않으므로 별도 처리
+    vehicle_no = str(data.get("vehicle_no", "") or "")
+
+    # 공통 save_vendor_info로 핵심 정보 저장
+    try:
+        ok = save_vendor_info(data)
+    except Exception as e:
+        logger.warning(f"save_hq_vendor_info → save_vendor_info 실패: {e}")
+        return False
+
+    if not ok:
+        return False
+
+    # vehicle_no 별도 UPDATE (컬럼 보장 포함)
+    if vehicle_no:
+        conn = get_db()
+        try:
+            try:
+                if DB_BACKEND == "postgres":
+                    conn.execute("SAVEPOINT _vno")
+                conn.execute(
+                    "ALTER TABLE vendor_info ADD COLUMN vehicle_no TEXT DEFAULT ''"
+                )
+                if DB_BACKEND == "postgres":
+                    conn.execute("RELEASE SAVEPOINT _vno")
+            except Exception:
+                if DB_BACKEND == "postgres":
+                    try:
+                        conn.execute("ROLLBACK TO SAVEPOINT _vno")
+                    except Exception:
+                        pass
+
+            conn.execute(
+                "UPDATE vendor_info SET vehicle_no = ? WHERE vendor = ?",
+                (vehicle_no, vendor),
+            )
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"save_hq_vendor_info vehicle_no 업데이트 실패: {e}")
+        finally:
+            conn.close()
+
+    return True
 
 
 def get_school_master_all() -> list[dict]:
