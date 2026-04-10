@@ -2382,25 +2382,38 @@ class VendorState(AuthState):
         self.vinfo_account = info.get("account", "")
 
     def save_vendor_info_form(self):
-        """업체 정보 저장"""
+        """업체 정보 저장 (2026-04-10 개선: vendor 체크 + 재로드 + 상세 에러)"""
         from zeroda_reflex.utils.database import save_vendor_info as db_save_vinfo
         self.info_save_msg = ""
         self.info_save_ok = False
-        ok = db_save_vinfo({
-            "vendor":   self.user_vendor,
-            "biz_name": self.vinfo_biz_name.strip(),
-            "rep":      self.vinfo_rep.strip(),
-            "biz_no":   self.vinfo_biz_no.strip(),
-            "address":  self.vinfo_address.strip(),
-            "contact":  self.vinfo_contact.strip(),
-            "email":    self.vinfo_email.strip(),
-            "account":  self.vinfo_account.strip(),
-        })
-        if ok:
-            self.info_save_msg = "업체 정보가 저장되었습니다."
-            self.info_save_ok = True
-        else:
-            self.info_save_msg = "저장에 실패했습니다."
+
+        # vendor 빈값 방어
+        vendor = (self.user_vendor or "").strip()
+        if not vendor:
+            self.info_save_msg = "업체(vendor) 정보가 없습니다. 다시 로그인해주세요."
+            return
+
+        try:
+            ok = db_save_vinfo({
+                "vendor":   vendor,
+                "biz_name": self.vinfo_biz_name.strip(),
+                "rep":      self.vinfo_rep.strip(),
+                "biz_no":   self.vinfo_biz_no.strip(),
+                "address":  self.vinfo_address.strip(),
+                "contact":  self.vinfo_contact.strip(),
+                "email":    self.vinfo_email.strip(),
+                "account":  self.vinfo_account.strip(),
+            })
+            if ok:
+                self.info_save_msg = "업체 정보가 저장되었습니다."
+                self.info_save_ok = True
+                # 저장 후 재로드 — UI 반영 + 본사관리자 연동 보장
+                self.load_vendor_info()
+            else:
+                self.info_save_msg = "저장에 실패했습니다. 서버 로그를 확인하세요."
+        except Exception as e:
+            self.info_save_msg = f"저장 중 오류: {e}"
+            self.info_save_ok = False
 
     def do_change_password(self):
         """비밀번호 변경"""
@@ -3315,8 +3328,15 @@ class VendorState(AuthState):
         info = get_vendor_info(vendor)
         self.stamp_current_path = info.get("stamp_path", "")
 
-    async def handle_stamp_upload(self, files: list):
-        """업체관리자 직인 업로드 (본인 업체만)."""
+    async def handle_stamp_upload(self, files: list[rx.UploadFile]):
+        """업체관리자 직인 업로드 (본인 업체만).
+
+        2026-04-10 수정:
+          - f.filename → getattr 안전 접근 (Reflex UploadFile 호환)
+          - set_vendor_stamp 행 없을 때 INSERT 보장 (DB 함수 수정됨)
+          - PIL 검증 후 파일 재사용 안전 처리
+          - 업로드 성공 후 load_current_stamp 재호출
+        """
         import os
         import uuid
         from zeroda_reflex.utils.database import set_vendor_stamp
@@ -3327,57 +3347,67 @@ class VendorState(AuthState):
 
         vendor = (self.user_vendor or "").strip()
         if not vendor:
-            self.stamp_upload_status = "❌ 업체 정보를 불러올 수 없습니다."
+            self.stamp_upload_status = "업체 정보를 불러올 수 없습니다. 다시 로그인하세요."
             return
         if not files:
-            self.stamp_upload_status = "❌ 파일이 없습니다."
+            self.stamp_upload_status = "파일이 없습니다. 이미지를 선택해주세요."
             return
 
         self.stamp_upload_loading = True
         self.stamp_upload_status = ""
-        yield
 
         try:
             f = files[0]
             raw = await f.read()
             if len(raw) > MAX_SIZE:
-                self.stamp_upload_status = "❌ 파일 크기 2MB 초과."
+                self.stamp_upload_status = "파일 크기 2MB 초과."
                 self.stamp_upload_loading = False
                 return
 
-            ext = os.path.splitext(f.filename or "")[1].lower()
+            # 파일명 안전 추출 — Reflex UploadFile은 .name 사용
+            filename = getattr(f, "name", None) or getattr(f, "filename", "stamp.png")
+            ext = os.path.splitext(filename)[1].lower()
             if ext not in ALLOWED_EXT:
-                self.stamp_upload_status = "❌ PNG/JPG 만 가능합니다."
+                self.stamp_upload_status = "PNG/JPG 만 가능합니다."
                 self.stamp_upload_loading = False
                 return
 
             os.makedirs(STAMP_DIR, exist_ok=True)
             safe_slug = "".join(c for c in vendor if c.isalnum() or c in "-_")[:20] or "vendor"
-            fname = f"{safe_slug}_{uuid.uuid4().hex[:8]}{ext}"
+            fname = str(safe_slug) + "_" + uuid.uuid4().hex[:8] + ext
             target = os.path.join(STAMP_DIR, fname)
 
             with open(target, "wb") as w:
                 w.write(raw)
 
+            # PIL 이미지 검증 (선택적 — PIL 미설치 환경 대비)
             try:
                 from PIL import Image
                 img = Image.open(target)
                 img.verify()
+                img.close()
+            except ImportError:
+                pass  # PIL 미설치 — 검증 건너뜀
             except Exception:
-                os.remove(target)
-                self.stamp_upload_status = "❌ 유효한 이미지가 아닙니다."
+                try:
+                    os.remove(target)
+                except Exception:
+                    pass
+                self.stamp_upload_status = "유효한 이미지가 아닙니다."
                 self.stamp_upload_loading = False
                 return
 
             updated_by = self.user_name or self.user_id or "vendor"
             ok = set_vendor_stamp(vendor, target, updated_by)
             if ok:
-                self.stamp_upload_status = f"✅ 직인 등록 완료"
+                self.stamp_upload_status = "직인 등록 완료"
                 self.stamp_current_path = target
+                # 재로드하여 UI 반영 + 본사관리자 연동 보장
+                self.load_current_stamp()
             else:
-                self.stamp_upload_status = "❌ DB 저장 실패"
+                self.stamp_upload_status = "DB 저장 실패. 서버 로그를 확인하세요."
         except Exception as e:
-            self.stamp_upload_status = f"❌ 업로드 오류: {e}"
+            self.stamp_upload_status = str(e)
         finally:
             self.stamp_upload_loading = False
 

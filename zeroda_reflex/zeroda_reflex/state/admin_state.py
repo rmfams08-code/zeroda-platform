@@ -202,6 +202,17 @@ class AdminState(AuthState):
     doc_selected_category: str = ""
     doc_customer_query: str = ""
     doc_customer_candidates: list[dict] = []
+    # 선택된 거래처 상세 + 외주업체(수집운반) 정보 (2026-04-10 추가)
+    doc_selected_customer_info: dict = {}
+    doc_vendor_info: dict = {}
+    # 신규거래처 직접입력 모드 (2026-04-10 추가)
+    doc_new_customer_mode: bool = False  # True=신규직접입력, False=기존검색
+    doc_new_cust_name: str = ""          # 상호명
+    doc_new_cust_bizno: str = ""         # 사업자번호
+    doc_new_cust_rep: str = ""           # 대표자
+    doc_new_cust_address: str = ""       # 주소
+    doc_new_cust_phone: str = ""         # 연락처
+    doc_new_cust_type: str = ""          # 업종
     doc_extra_start: str = ""
     doc_extra_end: str = ""
     doc_extra_memo: str = ""
@@ -942,8 +953,103 @@ class AdminState(AuthState):
         except (ValueError, TypeError):
             self.doc_selected_customer_id = 0
 
+        # ── 선택된 거래처 상세정보 세팅 (후보 목록에서 찾기) ──
+        self.doc_selected_customer_info = {}
+        for c in self.doc_customer_candidates:
+            if c.get("id") == self.doc_selected_customer_id:
+                self.doc_selected_customer_info = {
+                    "customer_name": str(c.get("customer_name") or ""),
+                    "business_no": str(c.get("business_no") or ""),
+                    "representative": str(c.get("representative") or ""),
+                    "address": str(c.get("address") or ""),
+                    "phone": str(c.get("phone") or ""),
+                    "price_food": str(c.get("price_food") or "0"),
+                    "price_recycle": str(c.get("price_recycle") or "0"),
+                    "price_general": str(c.get("price_general") or "0"),
+                }
+                break
+
+        # ── 외주업체(수집운반업체) 정보 로드 — vendor_info 테이블 ──
+        self.doc_vendor_info = {}
+        try:
+            from ..utils.database import get_vendor_info
+            vendor_name = ""
+            # 로그인 사용자의 vendor 확인
+            try:
+                from ..utils.database import get_db
+                conn = get_db()
+                row = conn.execute(
+                    "SELECT vendor FROM users WHERE user_id = ? LIMIT 1",
+                    (self.user_id or "",),
+                ).fetchone()
+                if row:
+                    rd = dict(row)
+                    vendor_name = rd.get("vendor") or ""
+                conn.close()
+            except Exception:
+                pass
+            if not vendor_name:
+                vendor_name = "하영자원"
+            vi = get_vendor_info(vendor_name)
+            self.doc_vendor_info = {
+                "biz_name": str(vi.get("biz_name") or vendor_name),
+                "rep": str(vi.get("rep") or ""),
+                "biz_no": str(vi.get("biz_no") or ""),
+                "address": str(vi.get("address") or ""),
+                "contact": str(vi.get("contact") or ""),
+                "account": str(vi.get("account") or ""),
+                "license_no": str(vi.get("license_no") or ""),
+            }
+        except Exception as e:
+            logger.warning("doc_vendor_info 로드 실패: %s", e)
+            self.doc_vendor_info = {
+                "biz_name": "하영자원",
+                "rep": "", "biz_no": "", "address": "",
+                "contact": "", "account": "", "license_no": "",
+            }
+
     def set_doc_customer_query(self, q: str):
         self.doc_customer_query = q
+
+    def noop(self):
+        """아무 동작 안 함 (토글 버튼 비활성 상태용)."""
+        pass
+
+    # ── 신규거래처 모드 전환 + setter (2026-04-10 추가) ──
+    def toggle_new_customer_mode(self):
+        """기존거래처 검색 ↔ 신규거래처 직접입력 모드 전환."""
+        self.doc_new_customer_mode = not self.doc_new_customer_mode
+        if self.doc_new_customer_mode:
+            # 신규 모드로 전환 → 기존 선택 초기화
+            self.doc_selected_customer_id = 0
+            self.doc_selected_customer_info = {}
+            self.doc_customer_candidates = []
+        else:
+            # 기존 모드로 복귀 → 신규 입력 초기화
+            self.doc_new_cust_name = ""
+            self.doc_new_cust_bizno = ""
+            self.doc_new_cust_rep = ""
+            self.doc_new_cust_address = ""
+            self.doc_new_cust_phone = ""
+            self.doc_new_cust_type = ""
+
+    def set_doc_new_cust_name(self, v: str):
+        self.doc_new_cust_name = v
+
+    def set_doc_new_cust_bizno(self, v: str):
+        self.doc_new_cust_bizno = v
+
+    def set_doc_new_cust_rep(self, v: str):
+        self.doc_new_cust_rep = v
+
+    def set_doc_new_cust_address(self, v: str):
+        self.doc_new_cust_address = v
+
+    def set_doc_new_cust_phone(self, v: str):
+        self.doc_new_cust_phone = v
+
+    def set_doc_new_cust_type(self, v: str):
+        self.doc_new_cust_type = v
 
     def set_doc_extra_start(self, v: str):
         self.doc_extra_start = v
@@ -1140,9 +1246,23 @@ class AdminState(AuthState):
                 "category": td.get("category") or "",
                 "file_path": td.get("file_path") or "",
             }
-        # 거래처
+        # 거래처 — 신규직접입력 모드 또는 기존검색 모드
         customer_row = {}
-        if self.doc_selected_customer_id:
+        if self.doc_new_customer_mode and self.doc_new_cust_name.strip():
+            # 신규거래처 직접입력 모드
+            customer_row = {
+                "id": 0,
+                "customer_name": self.doc_new_cust_name.strip(),
+                "business_no": self.doc_new_cust_bizno.strip(),
+                "representative": self.doc_new_cust_rep.strip(),
+                "address": self.doc_new_cust_address.strip(),
+                "phone": self.doc_new_cust_phone.strip(),
+                "cust_type": self.doc_new_cust_type.strip(),
+                "price_food": 0,
+                "price_recycle": 0,
+                "price_general": 0,
+            }
+        elif self.doc_selected_customer_id:
             c_row = conn.execute(
                 "SELECT id, customer_name, business_no, representative, address, phone, "
                 "price_food, price_recycle, price_general FROM customer_info WHERE id = ?",
@@ -1221,8 +1341,13 @@ class AdminState(AuthState):
             self.doc_issue_msg = "양식을 먼저 선택하세요."
             self.doc_issue_ok = False
             return
-        if not self.doc_selected_customer_id:
-            self.doc_issue_msg = "거래처를 먼저 선택하세요."
+        # 거래처 체크: 신규모드면 상호명 필수, 기존모드면 ID 필수
+        has_customer = (
+            (self.doc_new_customer_mode and self.doc_new_cust_name.strip())
+            or (not self.doc_new_customer_mode and self.doc_selected_customer_id)
+        )
+        if not has_customer:
+            self.doc_issue_msg = "거래처를 선택하거나 신규거래처 정보를 입력하세요."
             self.doc_issue_ok = False
             return
         try:
@@ -1258,8 +1383,13 @@ class AdminState(AuthState):
             self.doc_issue_msg = "양식을 먼저 선택하세요."
             self.doc_issue_ok = False
             return
-        if not self.doc_selected_customer_id:
-            self.doc_issue_msg = "거래처를 먼저 선택하세요."
+        # 거래처 체크: 신규모드면 상호명 필수, 기존모드면 ID 필수
+        has_customer = (
+            (self.doc_new_customer_mode and self.doc_new_cust_name.strip())
+            or (not self.doc_new_customer_mode and self.doc_selected_customer_id)
+        )
+        if not has_customer:
+            self.doc_issue_msg = "거래처를 선택하거나 신규거래처 정보를 입력하세요."
             self.doc_issue_ok = False
             return
 

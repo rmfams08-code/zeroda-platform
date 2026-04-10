@@ -239,47 +239,375 @@ def _issue_panel() -> rx.Component:
                 rx.divider(),
                 # 2단계: 거래처 선택
                 rx.text("2. 거래처 선택", weight="bold"),
+                # ── 기존거래처 / 신규거래처 토글 (2026-04-10 추가) ──
                 rx.hstack(
-                    rx.input(
-                        placeholder="거래처 검색 (상호명/사업자번호)",
-                        on_change=AdminState.set_doc_customer_query,
-                        width="280px",
+                    rx.button(
+                        rx.icon("search", size=14),
+                        " 기존거래처 검색",
+                        variant=rx.cond(
+                            AdminState.doc_new_customer_mode,
+                            "soft",
+                            "solid",
+                        ),
+                        color_scheme=rx.cond(
+                            AdminState.doc_new_customer_mode,
+                            "gray",
+                            "blue",
+                        ),
+                        on_click=rx.cond(
+                            AdminState.doc_new_customer_mode,
+                            AdminState.toggle_new_customer_mode,
+                            AdminState.noop,
+                        ),
+                        size="2",
                     ),
                     rx.button(
-                        "거래처 조회",
-                        on_click=AdminState.search_doc_customers,
-                        color_scheme="blue",
+                        rx.icon("plus", size=14),
+                        " 신규거래처 직접입력",
+                        variant=rx.cond(
+                            AdminState.doc_new_customer_mode,
+                            "solid",
+                            "soft",
+                        ),
+                        color_scheme=rx.cond(
+                            AdminState.doc_new_customer_mode,
+                            "green",
+                            "gray",
+                        ),
+                        on_click=rx.cond(
+                            AdminState.doc_new_customer_mode,
+                            AdminState.noop,
+                            AdminState.toggle_new_customer_mode,
+                        ),
                         size="2",
                     ),
                     spacing="2",
                 ),
+                # ── 기존거래처 검색 모드 ──
                 rx.cond(
-                    AdminState.doc_customer_candidates.length() > 0,
+                    ~AdminState.doc_new_customer_mode,
                     rx.vstack(
-                        rx.foreach(
-                            AdminState.doc_customer_candidates,
-                            lambda c: rx.button(
-                                rx.text(
-                                    c["customer_name"],
-                                    " / ",
-                                    c["business_no"],
-                                ),
-                                on_click=AdminState.set_doc_selected_customer(c["id"]),
-                                variant=rx.cond(
-                                    AdminState.doc_selected_customer_id == c["id"],
-                                    "solid",
-                                    "soft",
-                                ),
-                                color_scheme=rx.cond(
-                                    AdminState.doc_selected_customer_id == c["id"],
-                                    "blue",
-                                    "gray",
-                                ),
+                        rx.hstack(
+                            rx.input(
+                                placeholder="거래처 검색 (상호명/사업자번호)",
+                                on_change=AdminState.set_doc_customer_query,
+                                width="280px",
+                            ),
+                            rx.button(
+                                "거래처 조회",
+                                on_click=AdminState.search_doc_customers,
+                                color_scheme="blue",
                                 size="2",
+                            ),
+                            spacing="2",
+                        ),
+                        rx.cond(
+                            AdminState.doc_customer_candidates.length() > 0,
+                            rx.vstack(
+                                rx.foreach(
+                                    AdminState.doc_customer_candidates,
+                                    lambda c: rx.button(
+                                        rx.text(
+                                            c["customer_name"],
+                                            " / ",
+                                            c["business_no"],
+                                        ),
+                                        on_click=AdminState.set_doc_selected_customer(c["id"]),
+                                        variant=rx.cond(
+                                            AdminState.doc_selected_customer_id == c["id"],
+                                            "solid",
+                                            "soft",
+                                        ),
+                                        color_scheme=rx.cond(
+                                            AdminState.doc_selected_customer_id == c["id"],
+                                            "blue",
+                                            "gray",
+                                        ),
+                                        size="2",
+                                        width="100%",
+                                    ),
+                                ),
+                                spacing="1",
                                 width="100%",
                             ),
                         ),
-                        spacing="1",
+                        spacing="2",
+                        width="100%",
+                    ),
+                ),
+                # ── 신규거래처 직접입력 모드 (2026-04-10 추가) ──
+                rx.cond(
+                    AdminState.doc_new_customer_mode,
+                    rx.box(
+                        rx.vstack(
+                            rx.hstack(
+                                rx.icon("building_2", size=16, color="#059669"),
+                                rx.text(
+                                    "신규거래처 정보 직접입력",
+                                    size="2", weight="bold", color="#059669",
+                                ),
+                                spacing="2",
+                                align="center",
+                            ),
+                            rx.hstack(
+                                rx.vstack(
+                                    rx.text("상호명 *", size="1", color="#6b7280"),
+                                    rx.input(
+                                        placeholder="거래처 상호명",
+                                        value=AdminState.doc_new_cust_name,
+                                        on_change=AdminState.set_doc_new_cust_name,
+                                        width="200px",
+                                    ),
+                                    spacing="1",
+                                ),
+                                rx.vstack(
+                                    rx.text("사업자번호", size="1", color="#6b7280"),
+                                    rx.input(
+                                        placeholder="000-00-00000",
+                                        value=AdminState.doc_new_cust_bizno,
+                                        on_change=AdminState.set_doc_new_cust_bizno,
+                                        width="160px",
+                                    ),
+                                    spacing="1",
+                                ),
+                                rx.vstack(
+                                    rx.text("대표자", size="1", color="#6b7280"),
+                                    rx.input(
+                                        placeholder="대표자명",
+                                        value=AdminState.doc_new_cust_rep,
+                                        on_change=AdminState.set_doc_new_cust_rep,
+                                        width="120px",
+                                    ),
+                                    spacing="1",
+                                ),
+                                spacing="4",
+                                wrap="wrap",
+                            ),
+                            rx.hstack(
+                                rx.vstack(
+                                    rx.text("주소", size="1", color="#6b7280"),
+                                    rx.input(
+                                        placeholder="사업장 주소",
+                                        value=AdminState.doc_new_cust_address,
+                                        on_change=AdminState.set_doc_new_cust_address,
+                                        width="300px",
+                                    ),
+                                    spacing="1",
+                                ),
+                                rx.vstack(
+                                    rx.text("연락처", size="1", color="#6b7280"),
+                                    rx.input(
+                                        placeholder="000-0000-0000",
+                                        value=AdminState.doc_new_cust_phone,
+                                        on_change=AdminState.set_doc_new_cust_phone,
+                                        width="160px",
+                                    ),
+                                    spacing="1",
+                                ),
+                                spacing="4",
+                                wrap="wrap",
+                            ),
+                            rx.hstack(
+                                rx.vstack(
+                                    rx.text("업종/업태", size="1", color="#6b7280"),
+                                    rx.input(
+                                        placeholder="예: 폐기물처리업",
+                                        value=AdminState.doc_new_cust_type,
+                                        on_change=AdminState.set_doc_new_cust_type,
+                                        width="200px",
+                                    ),
+                                    spacing="1",
+                                ),
+                                spacing="4",
+                                wrap="wrap",
+                            ),
+                            rx.text(
+                                "* 상호명은 필수 입력입니다. 나머지는 선택사항입니다.",
+                                size="1", color="#9ca3af",
+                            ),
+                            spacing="3",
+                        ),
+                        padding="12px",
+                        border="1px solid #d1fae5",
+                        border_radius="8px",
+                        background="#f0fdf4",
+                        width="100%",
+                    ),
+                ),
+                # ── 선택된 거래처 + 외주업체 정보 카드 (기존모드일 때만 표시) ──
+                rx.cond(
+                    (~AdminState.doc_new_customer_mode) & (AdminState.doc_selected_customer_id > 0),
+                    rx.vstack(
+                        # 거래처(배출사업장) 정보
+                        rx.box(
+                            rx.vstack(
+                                rx.hstack(
+                                    rx.icon("building_2", size=16, color="#059669"),
+                                    rx.text(
+                                        "선택된 거래처 (배출사업장)",
+                                        size="2", weight="bold", color="#059669",
+                                    ),
+                                    spacing="2",
+                                    align="center",
+                                ),
+                                rx.hstack(
+                                    rx.vstack(
+                                        rx.text("상호명", size="1", color="#6b7280"),
+                                        rx.text(
+                                            AdminState.doc_selected_customer_info["customer_name"],
+                                            size="2", weight="bold",
+                                        ),
+                                        spacing="0",
+                                    ),
+                                    rx.vstack(
+                                        rx.text("사업자번호", size="1", color="#6b7280"),
+                                        rx.text(
+                                            AdminState.doc_selected_customer_info["business_no"],
+                                            size="2",
+                                        ),
+                                        spacing="0",
+                                    ),
+                                    rx.vstack(
+                                        rx.text("대표자", size="1", color="#6b7280"),
+                                        rx.text(
+                                            AdminState.doc_selected_customer_info["representative"],
+                                            size="2",
+                                        ),
+                                        spacing="0",
+                                    ),
+                                    spacing="6",
+                                    wrap="wrap",
+                                ),
+                                rx.hstack(
+                                    rx.vstack(
+                                        rx.text("주소", size="1", color="#6b7280"),
+                                        rx.text(
+                                            AdminState.doc_selected_customer_info["address"],
+                                            size="2",
+                                        ),
+                                        spacing="0",
+                                    ),
+                                    rx.vstack(
+                                        rx.text("연락처", size="1", color="#6b7280"),
+                                        rx.text(
+                                            AdminState.doc_selected_customer_info["phone"],
+                                            size="2",
+                                        ),
+                                        spacing="0",
+                                    ),
+                                    spacing="6",
+                                    wrap="wrap",
+                                ),
+                                rx.hstack(
+                                    rx.badge(
+                                        "음식물 ",
+                                        AdminState.doc_selected_customer_info["price_food"],
+                                        "원/kg",
+                                        color_scheme="green",
+                                    ),
+                                    rx.badge(
+                                        "재활용 ",
+                                        AdminState.doc_selected_customer_info["price_recycle"],
+                                        "원/kg",
+                                        color_scheme="blue",
+                                    ),
+                                    rx.badge(
+                                        "일반 ",
+                                        AdminState.doc_selected_customer_info["price_general"],
+                                        "원/kg",
+                                        color_scheme="orange",
+                                    ),
+                                    spacing="2",
+                                    wrap="wrap",
+                                ),
+                                spacing="2",
+                            ),
+                            padding="12px",
+                            border="1px solid #d1fae5",
+                            border_radius="8px",
+                            background="#f0fdf4",
+                            width="100%",
+                        ),
+                        # 외주업체(수집운반업체) 정보
+                        rx.cond(
+                            AdminState.doc_vendor_info.length() > 0,
+                            rx.box(
+                                rx.vstack(
+                                    rx.hstack(
+                                        rx.icon("truck", size=16, color="#2563eb"),
+                                        rx.text(
+                                            "수집운반업체 정보",
+                                            size="2", weight="bold", color="#2563eb",
+                                        ),
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    rx.hstack(
+                                        rx.vstack(
+                                            rx.text("업체명", size="1", color="#6b7280"),
+                                            rx.text(
+                                                AdminState.doc_vendor_info["biz_name"],
+                                                size="2", weight="bold",
+                                            ),
+                                            spacing="0",
+                                        ),
+                                        rx.vstack(
+                                            rx.text("사업자번호", size="1", color="#6b7280"),
+                                            rx.text(
+                                                AdminState.doc_vendor_info["biz_no"],
+                                                size="2",
+                                            ),
+                                            spacing="0",
+                                        ),
+                                        rx.vstack(
+                                            rx.text("대표자", size="1", color="#6b7280"),
+                                            rx.text(
+                                                AdminState.doc_vendor_info["rep"],
+                                                size="2",
+                                            ),
+                                            spacing="0",
+                                        ),
+                                        spacing="6",
+                                        wrap="wrap",
+                                    ),
+                                    rx.hstack(
+                                        rx.vstack(
+                                            rx.text("주소", size="1", color="#6b7280"),
+                                            rx.text(
+                                                AdminState.doc_vendor_info["address"],
+                                                size="2",
+                                            ),
+                                            spacing="0",
+                                        ),
+                                        rx.vstack(
+                                            rx.text("연락처", size="1", color="#6b7280"),
+                                            rx.text(
+                                                AdminState.doc_vendor_info["contact"],
+                                                size="2",
+                                            ),
+                                            spacing="0",
+                                        ),
+                                        rx.vstack(
+                                            rx.text("입금계좌", size="1", color="#6b7280"),
+                                            rx.text(
+                                                AdminState.doc_vendor_info["account"],
+                                                size="2",
+                                            ),
+                                            spacing="0",
+                                        ),
+                                        spacing="6",
+                                        wrap="wrap",
+                                    ),
+                                    spacing="2",
+                                ),
+                                padding="12px",
+                                border="1px solid #bfdbfe",
+                                border_radius="8px",
+                                background="#eff6ff",
+                                width="100%",
+                            ),
+                        ),
+                        spacing="2",
                         width="100%",
                     ),
                 ),

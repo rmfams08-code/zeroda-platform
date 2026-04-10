@@ -2277,6 +2277,8 @@ def get_vendor_info(vendor: str) -> dict:
 
 def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
     """업체 직인 경로 저장.
+
+    2026-04-10 수정: 테이블/컬럼 보장 + 행이 없으면 INSERT 수행.
     stamp_path: /opt/zeroda-platform/storage/stamps/ 하위 절대경로
     updated_by: 로그인 사용자명
     """
@@ -2284,28 +2286,71 @@ def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
         return False
     try:
         conn = get_db()
-        # 백엔드 무관 현재시각 표현
+
+        # ── 테이블 존재 보장 ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vendor_info (
+                vendor   TEXT PRIMARY KEY,
+                biz_name TEXT DEFAULT '',
+                rep      TEXT DEFAULT '',
+                biz_no   TEXT DEFAULT '',
+                address  TEXT DEFAULT '',
+                contact  TEXT DEFAULT ''
+            )
+        """)
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_info_vendor "
+                "ON vendor_info(vendor)"
+            )
+        except Exception:
+            pass
+
+        # ── stamp 관련 컬럼 보장 (ALTER 안전) ──
+        for col in ("stamp_path", "stamp_uploaded_at", "stamp_updated_by",
+                     "email", "account"):
+            try:
+                conn.execute(
+                    f"ALTER TABLE vendor_info ADD COLUMN {col} TEXT DEFAULT ''"
+                )
+            except Exception:
+                pass  # 이미 존재
+
+        # ── 현재시각 ──
         if DB_BACKEND == "postgres":
             _now_expr = "compat.datetime_now_localtime()"
         else:
             _now_expr = "datetime('now', 'localtime')"
-        result = conn.execute(
-            f"""
-            UPDATE vendor_info
-               SET stamp_path = ?,
-                   stamp_uploaded_at = {_now_expr},
-                   stamp_updated_by = ?
-             WHERE vendor = ?
-            """,
-            (stamp_path, updated_by, vendor),
-        )
+
+        # ── 기존 행 확인 ──
+        existing = conn.execute(
+            "SELECT 1 FROM vendor_info WHERE vendor = ? LIMIT 1",
+            (vendor,),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                f"UPDATE vendor_info "
+                f"SET stamp_path = ?, stamp_uploaded_at = {_now_expr}, "
+                f"    stamp_updated_by = ? "
+                f"WHERE vendor = ?",
+                (stamp_path, updated_by, vendor),
+            )
+        else:
+            # 행이 없으면 INSERT (업체정보 미저장 상태에서 직인만 먼저 등록)
+            conn.execute(
+                f"INSERT INTO vendor_info "
+                f"(vendor, biz_name, stamp_path, stamp_uploaded_at, stamp_updated_by) "
+                f"VALUES (?, ?, ?, {_now_expr}, ?)",
+                (vendor, vendor, stamp_path, updated_by),
+            )
+
         conn.commit()
-        # PgWrapper.execute() 는 rowcount 없으므로 True로 간주
-        ok = True
         conn.close()
-        return ok
+        logger.info("set_vendor_stamp OK: vendor=%s, path=%s", vendor, stamp_path)
+        return True
     except Exception as e:
-        logger.error(f"set_vendor_stamp 실패 ({vendor}): {e}")
+        logger.error("set_vendor_stamp 실패 (%s): %s", vendor, e)
         return False
 
 
@@ -2343,41 +2388,83 @@ def delete_biz_customer(vendor: str, biz_name: str) -> bool:
 
 
 def save_vendor_info(data: dict) -> bool:
-    """업체 기본 정보 저장 (vendor_info upsert)"""
-    ok = db_upsert(
-        "vendor_info",
-        {
-            "vendor":   str(data.get("vendor", "")),
-            "biz_name": str(data.get("biz_name", "")),
-            "rep":      str(data.get("rep", "")),
-            "biz_no":   str(data.get("biz_no", "")),
-            "address":  str(data.get("address", "")),
-            "contact":  str(data.get("contact", "")),
-        },
-        key_col="vendor",
-    )
-    if not ok:
+    """업체 기본 정보 저장 (vendor_info upsert).
+
+    2026-04-10 수정: vendor_info 테이블/UNIQUE 보장 + ON CONFLICT 실패 시
+    UPDATE 폴백으로 안전하게 저장.
+    """
+    vendor = str(data.get("vendor", "")).strip()
+    if not vendor:
+        logger.warning("save_vendor_info: vendor가 비어 있음 — 저장 중단")
         return False
-    # 추가 필드 (컬럼 없으면 무시 — 빈 값도 저장하여 지우기 가능)
+
+    biz_name = str(data.get("biz_name", ""))
+    rep      = str(data.get("rep", ""))
+    biz_no   = str(data.get("biz_no", ""))
+    address  = str(data.get("address", ""))
+    contact  = str(data.get("contact", ""))
+    email    = str(data.get("email", "") or "")
+    account  = str(data.get("account", "") or "")
+
     conn = get_db()
     try:
+        # ── 1) 테이블 존재 보장 ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vendor_info (
+                vendor   TEXT PRIMARY KEY,
+                biz_name TEXT DEFAULT '',
+                rep      TEXT DEFAULT '',
+                biz_no   TEXT DEFAULT '',
+                address  TEXT DEFAULT '',
+                contact  TEXT DEFAULT ''
+            )
+        """)
+        # UNIQUE INDEX 보장 (구버전 DB: vendor가 PK가 아닐 수 있음)
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_info_vendor "
+                "ON vendor_info(vendor)"
+            )
+        except Exception:
+            pass  # 이미 PK이면 무시
+
+        # ── 2) email/account 컬럼 보장 (ALTER TABLE 안전) ──
         for col in ("email", "account"):
-            val = str(data.get(col, "") or "")
             try:
-                conn.execute(
-                    f"UPDATE vendor_info SET {col}=? WHERE vendor=?",
-                    (val, str(data.get("vendor", ""))),
-                )
-            except Exception as col_e:
-                # 컬럼이 없는 구버전 DB는 조용히 무시
-                logger.debug(f"save_vendor_info: 컬럼 {col} 미존재 — 무시: {col_e}")
+                conn.execute(f"ALTER TABLE vendor_info ADD COLUMN {col} TEXT DEFAULT ''")
+            except Exception:
+                pass  # 이미 존재하면 무시
+
+        # ── 3) 기존 행 존재 여부 확인 ──
+        existing = conn.execute(
+            "SELECT 1 FROM vendor_info WHERE vendor = ? LIMIT 1",
+            (vendor,),
+        ).fetchone()
+
+        if existing:
+            # UPDATE
+            conn.execute(
+                "UPDATE vendor_info SET biz_name=?, rep=?, biz_no=?, "
+                "address=?, contact=?, email=?, account=? WHERE vendor=?",
+                (biz_name, rep, biz_no, address, contact, email, account, vendor),
+            )
+        else:
+            # INSERT
+            conn.execute(
+                "INSERT INTO vendor_info "
+                "(vendor, biz_name, rep, biz_no, address, contact, email, account) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (vendor, biz_name, rep, biz_no, address, contact, email, account),
+            )
         conn.commit()
+        logger.info("save_vendor_info OK: vendor=%s", vendor)
+        return True
     except Exception as e:
         print(f"[DB ERROR] save_vendor_info: {e}")
-        logger.warning(f'Exception caught: {str(e)}')
+        logger.warning("save_vendor_info 실패 (%s): %s", vendor, e)
+        return False
     finally:
         conn.close()
-    return True
 
 
 def save_safety_education(data: dict) -> bool:

@@ -3713,7 +3713,7 @@ def _settings_info_panel() -> rx.Component:
                     VendorState.stamp_upload_status != "",
                     rx.text(VendorState.stamp_upload_status, font_size="12px",
                             color=rx.cond(
-                                VendorState.stamp_upload_status.startswith("✅"),
+                                VendorState.stamp_upload_status.contains("완료"),
                                 "green", "#ef4444"
                             )),
                     rx.fragment(),
