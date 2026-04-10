@@ -541,6 +541,75 @@ except Exception as _tbl_init_err:
     print(f"[DB ERROR] 누락 테이블 초기화 실패: {_tbl_init_err}")
 
 
+def ensure_document_service_tables() -> None:
+    """문서서비스 엔진용 테이블 생성 (idempotent).
+
+    2026-04-10 신규: 양식 기반 자동채움 + 직인 삽입 + PDF 발급 기능.
+    - document_templates : 본사관리자가 업로드한 hwpx 양식 메타데이터
+    - document_issue_log : 발급 이력 (누가/언제/어떤 양식으로/어느 거래처에)
+    기존 테이블 변경 없음 (CLAUDE.md 섹션 7 준수).
+    """
+    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn = get_db()
+    try:
+        # 양식 메타데이터 (본사관리자 전용, 전사 공유)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS document_templates (
+                id              {_auto},
+                template_name   TEXT NOT NULL,
+                category        TEXT,
+                file_path       TEXT NOT NULL,
+                file_type       TEXT DEFAULT 'hwpx',
+                tag_list        TEXT,
+                created_by      TEXT,
+                created_at      TEXT,
+                is_active       INTEGER DEFAULT 1
+            )
+        """)
+        # 발급 이력
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS document_issue_log (
+                id              {_auto},
+                vendor          TEXT,
+                template_id     INTEGER,
+                template_name   TEXT,
+                customer_id     INTEGER,
+                customer_name   TEXT,
+                issued_by       TEXT,
+                issued_at       TEXT,
+                file_path       TEXT,
+                issue_number    TEXT,
+                output_format   TEXT DEFAULT 'pdf'
+            )
+        """)
+        # 조회 성능용 인덱스
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_doc_issue_vendor "
+            "ON document_issue_log(vendor)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_doc_issue_issued_at "
+            "ON document_issue_log(issued_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_doc_tpl_active "
+            "ON document_templates(is_active)"
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"[DB ERROR] ensure_document_service_tables: {e}")
+        logger.warning(f"ensure_document_service_tables 실패 (idempotent): {e}")
+    finally:
+        conn.close()
+
+
+# 문서서비스 테이블 자동 생성 (모듈 임포트 시 1회 실행)
+try:
+    ensure_document_service_tables()
+except Exception as _doc_init_err:
+    print(f"[DB ERROR] 문서서비스 테이블 초기화 실패: {_doc_init_err}")
+
+
 def ensure_driver_auth_tokens_table() -> None:
     """driver_auth_tokens 테이블 + 인덱스 생성 (idempotent).
     PG 전용 — SQLite 모드에서는 경고 후 no-op.

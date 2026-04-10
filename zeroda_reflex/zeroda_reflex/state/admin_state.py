@@ -52,6 +52,13 @@ HQ_TABS = [
     "문서서비스",
 ]
 
+# ── 문서서비스 서브탭 (본사관리자 — 2026-04-10 신규) ──
+# 본사관리자는 "양식관리" 접근 가능 (업로드/삭제/태그미리보기)
+DOC_SERVICE_HQ_TABS = ["문서발급", "양식관리", "발급내역"]
+
+# 문서 카테고리 (hwpx 양식 업로드 시 분류)
+DOC_CATEGORIES = ["2자계약서", "3자계약서", "견적서", "처리확인서", "기타"]
+
 # ── 현장사진 유형 옵션 (P3) ──
 PHOTO_TYPE_OPTIONS = ["전체", "before", "after", "issue", "etc"]
 PHOTO_TYPE_MAP = {
@@ -173,6 +180,33 @@ class AdminState(AuthState):
     active_tab: str = "대시보드"
     selected_year: str = str(datetime.now().year)
     selected_month: str = str(datetime.now().month)
+
+    # ══════════════════════════════
+    #  문서서비스 (2026-04-10 신규)
+    # ══════════════════════════════
+    doc_sub_tab: str = "문서발급"
+    # 양식관리
+    doc_templates: list[dict] = []
+    doc_upload_name: str = ""
+    doc_upload_category: str = "2자계약서"
+    doc_upload_msg: str = ""
+    doc_upload_ok: bool = False
+    # 문서발급
+    doc_selected_template_id: int = 0
+    doc_selected_customer_id: int = 0
+    doc_selected_category: str = ""
+    doc_customer_query: str = ""
+    doc_customer_candidates: list[dict] = []
+    doc_extra_start: str = ""
+    doc_extra_end: str = ""
+    doc_extra_memo: str = ""
+    doc_issue_msg: str = ""
+    doc_issue_ok: bool = False
+    doc_last_issued_pdf: str = ""
+    # 발급내역
+    doc_issue_log: list[dict] = []
+    doc_log_filter_from: str = ""
+    doc_log_filter_to: str = ""
 
     # ══════════════════════════════
     #  대시보드
@@ -796,6 +830,481 @@ class AdminState(AuthState):
             self.acct_msg = ""
             self.acct_ok = False
             self.load_users()
+        elif tab == "문서서비스":
+            self.load_doc_service()
+
+    # ══════════════════════════════
+    #  이벤트 — 문서서비스 (2026-04-10 신규)
+    # ══════════════════════════════
+
+    def load_doc_service(self):
+        """문서서비스 진입 시: 활성 양식 목록 + 발급이력 로드."""
+        self.doc_upload_msg = ""
+        self.doc_issue_msg = ""
+        try:
+            from ..utils.database import get_db
+            conn = get_db()
+            cur = conn.cursor()
+            # 활성 양식 목록
+            cur.execute(
+                "SELECT id, template_name, category, file_path, tag_list, "
+                "created_by, created_at FROM document_templates "
+                "WHERE is_active = 1 ORDER BY id DESC"
+            )
+            self.doc_templates = [
+                {
+                    "id": r[0],
+                    "template_name": r[1] or "",
+                    "category": r[2] or "",
+                    "file_path": r[3] or "",
+                    "tag_list": r[4] or "",
+                    "created_by": r[5] or "",
+                    "created_at": r[6] or "",
+                }
+                for r in cur.fetchall()
+            ]
+            # 최근 발급이력 (최근 100건)
+            cur.execute(
+                "SELECT id, vendor, template_name, customer_name, issued_by, "
+                "issued_at, file_path, issue_number FROM document_issue_log "
+                "ORDER BY id DESC LIMIT 100"
+            )
+            self.doc_issue_log = [
+                {
+                    "id": r[0],
+                    "vendor": r[1] or "",
+                    "template_name": r[2] or "",
+                    "customer_name": r[3] or "",
+                    "issued_by": r[4] or "",
+                    "issued_at": r[5] or "",
+                    "file_path": r[6] or "",
+                    "issue_number": r[7] or "",
+                }
+                for r in cur.fetchall()
+            ]
+            conn.close()
+        except Exception as e:
+            self.doc_upload_msg = f"문서서비스 로드 실패: {e}"
+            self.doc_upload_ok = False
+
+    def set_doc_sub_tab(self, tab: str):
+        """문서서비스 서브탭 전환."""
+        self.doc_sub_tab = tab
+        # 서브탭 바뀔 때마다 최신화
+        self.load_doc_service()
+
+    def set_doc_upload_category(self, cat: str):
+        self.doc_upload_category = cat
+
+    def set_doc_upload_name(self, name: str):
+        self.doc_upload_name = name
+
+    def set_doc_selected_template(self, tpl_id: int):
+        self.doc_selected_template_id = int(tpl_id) if tpl_id else 0
+        # 선택된 양식의 카테고리 자동 세팅
+        for t in self.doc_templates:
+            if t.get("id") == self.doc_selected_template_id:
+                self.doc_selected_category = t.get("category", "")
+                break
+
+    def set_doc_selected_customer(self, cust_id):
+        try:
+            self.doc_selected_customer_id = int(cust_id) if cust_id else 0
+        except (ValueError, TypeError):
+            self.doc_selected_customer_id = 0
+
+    def set_doc_customer_query(self, q: str):
+        self.doc_customer_query = q
+
+    def set_doc_extra_start(self, v: str):
+        self.doc_extra_start = v
+
+    def set_doc_extra_end(self, v: str):
+        self.doc_extra_end = v
+
+    def set_doc_extra_memo(self, v: str):
+        self.doc_extra_memo = v
+
+    def search_doc_customers(self):
+        """거래처 후보 조회 (상호/사업자번호 LIKE 검색)."""
+        q = (self.doc_customer_query or "").strip()
+        if not q:
+            self.doc_customer_candidates = []
+            return
+        try:
+            from ..utils.database import get_db
+            conn = get_db()
+            cur = conn.cursor()
+            like = f"%{q}%"
+            cur.execute(
+                "SELECT id, customer_name, business_no, representative, "
+                "address, phone, price_food, price_recycle, price_general "
+                "FROM customer_info "
+                "WHERE customer_name LIKE ? OR business_no LIKE ? "
+                "LIMIT 20",
+                (like, like),
+            )
+            rows = cur.fetchall()
+            self.doc_customer_candidates = [
+                {
+                    "id": r[0],
+                    "customer_name": r[1] or "",
+                    "business_no": r[2] or "",
+                    "representative": r[3] or "",
+                    "address": r[4] or "",
+                    "phone": r[5] or "",
+                    "price_food": r[6] or 0,
+                    "price_recycle": r[7] or 0,
+                    "price_general": r[8] or 0,
+                }
+                for r in rows
+            ]
+            conn.close()
+        except Exception as e:
+            self.doc_issue_msg = f"거래처 조회 실패: {e}"
+            self.doc_issue_ok = False
+            self.doc_customer_candidates = []
+
+    async def upload_document_template(self, files: list[rx.UploadFile]):
+        """hwpx 양식 업로드 → 서버 저장 → 태그 추출 → DB 기록."""
+        import json
+        import os as _os
+        from datetime import datetime as _dt
+        from ..utils.database import get_db
+
+        if not files:
+            self.doc_upload_msg = "파일이 선택되지 않았습니다."
+            self.doc_upload_ok = False
+            return
+        if not self.doc_upload_name.strip():
+            self.doc_upload_msg = "양식 이름을 입력하세요."
+            self.doc_upload_ok = False
+            return
+
+        f = files[0]
+        filename = getattr(f, "name", None) or getattr(f, "filename", "template.hwpx")
+        if not filename.lower().endswith(".hwpx"):
+            self.doc_upload_msg = "hwpx 파일만 업로드 가능합니다."
+            self.doc_upload_ok = False
+            return
+
+        # 저장 경로 — /opt/zeroda-platform/uploads/templates/
+        base_dir = _os.environ.get(
+            "ZERODA_UPLOAD_DIR", "/opt/zeroda-platform/uploads"
+        )
+        tpl_dir = _os.path.join(base_dir, "templates")
+        _os.makedirs(tpl_dir, exist_ok=True)
+
+        stamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = f"{stamp}_{filename}"
+        save_path = _os.path.join(tpl_dir, safe_name)
+
+        try:
+            data = await f.read()
+            with open(save_path, "wb") as out:
+                out.write(data)
+        except Exception as e:
+            self.doc_upload_msg = f"파일 저장 실패: {e}"
+            self.doc_upload_ok = False
+            return
+
+        # 태그 추출
+        try:
+            from ..utils.hwpx_engine import extract_tags
+            tags = extract_tags(save_path)
+        except Exception as e:
+            tags = []
+            self.doc_upload_msg = f"태그 추출 실패(저장은 완료): {e}"
+
+        # DB insert
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO document_templates "
+                "(template_name, category, file_path, file_type, tag_list, "
+                " created_by, created_at, is_active) "
+                "VALUES (?, ?, ?, 'hwpx', ?, ?, ?, 1)",
+                (
+                    self.doc_upload_name.strip(),
+                    self.doc_upload_category,
+                    save_path,
+                    json.dumps(tags, ensure_ascii=False),
+                    self.user_id or "admin",
+                    _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                ),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            self.doc_upload_msg = f"DB 등록 실패: {e}"
+            self.doc_upload_ok = False
+            return
+
+        self.doc_upload_msg = f"업로드 완료. 추출된 태그 {len(tags)}개"
+        self.doc_upload_ok = True
+        self.doc_upload_name = ""
+        self.load_doc_service()
+
+    def deactivate_doc_template(self, tpl_id: int):
+        """양식 비활성화 (삭제 아닌 숨김)."""
+        try:
+            from ..utils.database import get_db
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE document_templates SET is_active = 0 WHERE id = ?",
+                (int(tpl_id),),
+            )
+            conn.commit()
+            conn.close()
+            self.load_doc_service()
+            self.doc_upload_msg = "양식을 비활성화했습니다."
+            self.doc_upload_ok = True
+        except Exception as e:
+            self.doc_upload_msg = f"비활성화 실패: {e}"
+            self.doc_upload_ok = False
+
+    def _build_issue_data(self) -> tuple[dict, dict, dict, str]:
+        """발급에 필요한 template row, customer row, extra dict, template file_path 수집."""
+        from ..utils.database import get_db
+        conn = get_db()
+        cur = conn.cursor()
+        # 양식
+        cur.execute(
+            "SELECT id, template_name, category, file_path FROM document_templates "
+            "WHERE id = ?",
+            (self.doc_selected_template_id,),
+        )
+        tpl = cur.fetchone()
+        template_row = {
+            "id": tpl[0], "template_name": tpl[1],
+            "category": tpl[2], "file_path": tpl[3],
+        } if tpl else {}
+        # 거래처
+        customer_row = {}
+        if self.doc_selected_customer_id:
+            cur.execute(
+                "SELECT id, customer_name, business_no, representative, address, phone, "
+                "price_food, price_recycle, price_general FROM customer_info WHERE id = ?",
+                (self.doc_selected_customer_id,),
+            )
+            c = cur.fetchone()
+            if c:
+                customer_row = {
+                    "id": c[0],
+                    "customer_name": c[1] or "",
+                    "business_no": c[2] or "",
+                    "representative": c[3] or "",
+                    "address": c[4] or "",
+                    "phone": c[5] or "",
+                    "price_food": c[6] or 0,
+                    "price_recycle": c[7] or 0,
+                    "price_general": c[8] or 0,
+                }
+        conn.close()
+        extra = {
+            "계약기간_시작": self.doc_extra_start,
+            "계약기간_종료": self.doc_extra_end,
+            "확인기간_시작": self.doc_extra_start,
+            "확인기간_종료": self.doc_extra_end,
+            "특약사항": self.doc_extra_memo,
+        }
+        return template_row, customer_row, extra, (template_row.get("file_path") or "")
+
+    def _get_vendor_info(self) -> dict:
+        """로그인한 본사(또는 외주업체) 회사정보 조회 — 수집운반업체 태그용."""
+        try:
+            from ..utils.database import get_db
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT vendor FROM users WHERE user_id = ? LIMIT 1",
+                (self.user_id or "",),
+            )
+            row = cur.fetchone()
+            vendor_name = row[0] if row else "하영자원"
+            conn.close()
+            return {
+                "company_name": vendor_name or "하영자원",
+                "business_no": "",
+                "representative": "정석완",
+                "address": "경기 화성시 남양읍 남양성지로 219, 2층",
+                "phone": "010-3114-4030",
+                "license_no": "제20-35호",
+            }
+        except Exception:
+            return {
+                "company_name": "하영자원",
+                "representative": "정석완",
+                "address": "경기 화성시 남양읍 남양성지로 219, 2층",
+                "phone": "010-3114-4030",
+                "license_no": "제20-35호",
+            }
+
+    def preview_document(self):
+        """미리보기 — 현재는 태그 치환 결과 요약 메시지만."""
+        if not self.doc_selected_template_id:
+            self.doc_issue_msg = "양식을 먼저 선택하세요."
+            self.doc_issue_ok = False
+            return
+        if not self.doc_selected_customer_id:
+            self.doc_issue_msg = "거래처를 먼저 선택하세요."
+            self.doc_issue_ok = False
+            return
+        try:
+            from ..utils.document_mapper import build_template_data
+            tpl, cust, extra, _ = self._build_issue_data()
+            vendor = self._get_vendor_info()
+            data = build_template_data(
+                category=tpl.get("category", ""),
+                customer_row=cust,
+                vendor_row=vendor,
+                issuer=self.user_id or "admin",
+                extra=extra,
+            )
+            filled = sum(1 for v in data.values() if v)
+            self.doc_issue_msg = (
+                f"미리보기 OK — 양식: {tpl.get('template_name')} / "
+                f"거래처: {cust.get('customer_name')} / 채워진 태그: {filled}개"
+            )
+            self.doc_issue_ok = True
+        except Exception as e:
+            self.doc_issue_msg = f"미리보기 실패: {e}"
+            self.doc_issue_ok = False
+
+    def issue_document(self):
+        """실제 PDF 발급: fill_template → insert_stamp → convert_to_pdf → log insert."""
+        import os as _os
+        from datetime import datetime as _dt
+        from ..utils.database import get_db
+        from ..utils.hwpx_engine import fill_template, insert_stamp, convert_to_pdf
+        from ..utils.document_mapper import build_template_data, generate_issue_number
+
+        if not self.doc_selected_template_id:
+            self.doc_issue_msg = "양식을 먼저 선택하세요."
+            self.doc_issue_ok = False
+            return
+        if not self.doc_selected_customer_id:
+            self.doc_issue_msg = "거래처를 먼저 선택하세요."
+            self.doc_issue_ok = False
+            return
+
+        try:
+            tpl, cust, extra, tpl_path = self._build_issue_data()
+            if not tpl_path or not _os.path.exists(tpl_path):
+                self.doc_issue_msg = "양식 파일이 서버에 없습니다."
+                self.doc_issue_ok = False
+                return
+            vendor = self._get_vendor_info()
+
+            # 발급번호 채번 (당일 순번 단순 COUNT+1)
+            conn = get_db()
+            cur = conn.cursor()
+            today = _dt.now().strftime("%Y-%m-%d")
+            cur.execute(
+                "SELECT COUNT(*) FROM document_issue_log WHERE issued_at LIKE ?",
+                (f"{today}%",),
+            )
+            seq = (cur.fetchone()[0] or 0) + 1
+            issue_no = generate_issue_number(tpl.get("category", ""), seq)
+
+            data = build_template_data(
+                category=tpl.get("category", ""),
+                customer_row=cust,
+                vendor_row=vendor,
+                issuer=self.user_id or "admin",
+                extra=extra,
+                issue_number=issue_no,
+            )
+
+            # 출력 경로
+            base_dir = _os.environ.get(
+                "ZERODA_UPLOAD_DIR", "/opt/zeroda-platform/uploads"
+            )
+            out_dir = _os.path.join(base_dir, "issued")
+            _os.makedirs(out_dir, exist_ok=True)
+            stamp_str = _dt.now().strftime("%Y%m%d_%H%M%S")
+            filled_hwpx = _os.path.join(out_dir, f"{issue_no}_filled.hwpx")
+            stamped_hwpx = _os.path.join(out_dir, f"{issue_no}_stamped.hwpx")
+            output_pdf = _os.path.join(out_dir, f"{issue_no}.pdf")
+
+            # 1) 태그 치환
+            fill_template(tpl_path, data, filled_hwpx)
+
+            # 2) 직인 삽입 — 발급자의 직인 이미지 경로 조회
+            stamp_path = self._get_stamp_image_path()
+            insert_stamp(filled_hwpx, stamp_path or "", stamped_hwpx)
+
+            # 3) PDF 변환
+            pdf_ok = convert_to_pdf(stamped_hwpx, output_pdf)
+
+            # 4) 로그 insert
+            cur.execute(
+                "INSERT INTO document_issue_log "
+                "(vendor, template_id, template_name, customer_id, customer_name, "
+                " issued_by, issued_at, file_path, issue_number, output_format) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    vendor.get("company_name") or "",
+                    tpl.get("id"),
+                    tpl.get("template_name") or "",
+                    cust.get("id"),
+                    cust.get("customer_name") or "",
+                    self.user_id or "admin",
+                    _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    output_pdf if pdf_ok else stamped_hwpx,
+                    issue_no,
+                    "pdf" if pdf_ok else "hwpx",
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            if pdf_ok:
+                self.doc_last_issued_pdf = output_pdf
+                self.doc_issue_msg = f"발급 완료: {issue_no}"
+                self.doc_issue_ok = True
+            else:
+                self.doc_last_issued_pdf = stamped_hwpx
+                self.doc_issue_msg = (
+                    f"PDF 변환 실패 — hwpx로 저장됨: {issue_no}. "
+                    "서버에 libreoffice 설치 여부 확인 필요."
+                )
+                self.doc_issue_ok = False
+
+            self.load_doc_service()
+        except Exception as e:
+            self.doc_issue_msg = f"발급 실패: {e}"
+            self.doc_issue_ok = False
+
+    def _get_stamp_image_path(self) -> str:
+        """발급자의 외주업체 등록 직인 이미지 경로. 없으면 빈 문자열."""
+        try:
+            from ..utils.database import get_db
+            conn = get_db()
+            cur = conn.cursor()
+            # 기존 외주업체관리자 쪽 직인 컬럼은 환경별로 다를 수 있어
+            # 여러 후보 컬럼을 순회 조회 (없으면 skip)
+            candidates = [
+                ("company_info", "stamp_image_path"),
+                ("company_info", "stamp_path"),
+                ("vendor_info", "stamp_image"),
+                ("users", "stamp_path"),
+            ]
+            for table, col in candidates:
+                try:
+                    cur.execute(f"SELECT {col} FROM {table} LIMIT 1")
+                    r = cur.fetchone()
+                    if r and r[0]:
+                        conn.close()
+                        return str(r[0])
+                except Exception:
+                    continue
+            conn.close()
+        except Exception:
+            pass
+        return ""
 
     def set_selected_year(self, y: str):
         self.selected_year = y
