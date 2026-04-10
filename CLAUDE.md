@@ -1,5 +1,5 @@
 # zeroda 플랫폼 — 코워크(Cowork) 작업 지침
-> Reflex 전환 완료 | 2026-04-06 | 작업 시작 전 반드시 이 파일을 먼저 읽으세요
+> Reflex 전환 완료 | 2026-04-06 | PG 단일화 2026-04-10 | 작업 시작 전 반드시 이 파일을 먼저 읽으세요
 
 ---
 
@@ -10,6 +10,28 @@
 - 사장님 프롬프트 상단에 `[로컬수정]` → 사장님이 로컬에서 직접 수정. 디스패치는 배포만 지시
 - 기존코드유지 필수
 - 복잡한 작업은 섹션을 나눠서 진행
+
+### 0.2 도구별 권한 엄격 분리 (2026-04-10 사고 후 강화 — 최우선 규칙)
+
+> ⚠️ **이 규칙은 CLAUDE.md 전체에서 가장 강한 제약입니다. 코워크 세션은 어떤 상황에서도 git을 건드리지 않습니다.**
+
+| 도구 | 허용 | 절대 금지 |
+|---|---|---|
+| **코워크 (기획 세션)** | 파일 읽기·편집·저장, **3단계 검증** (ast.parse → Reflex Var 패턴 검사 → import 정합성), grep/glob 탐색, 작업지시서 작성, 스킬 사용 | **git 전 명령어** (add/commit/push/reset/checkout/update-index/read-tree/status/diff 포함), `.git/` 내부 접근, 파일 모드(chmod) 변경, 서버 SSH, systemctl, webhook 트리거 |
+| **디스패치 세션** | 위 전부 + git 전 과정 + 서버 배포 + Windows 네이티브 환경에서 수행 | — |
+| **사장님 로컬 (Windows)** | 전부 가능 | — |
+
+**작업 흐름 원칙**
+1. 코워크가 요구사항 분석, 파일 편집, 문법 검증까지 완료 → "편집 완료, git 작업은 디스패치/로컬에 인계" 상태로 종료
+2. 디스패치 세션 또는 사장님 로컬이 `git add → diff 확인 → commit → push` 수행
+3. webhook 자동 배포 후 결과 검증
+
+**코워크가 git을 건드리면 안 되는 이유**
+- 세션 VM은 사장님 Windows 폴더를 마운트한 구조 → `.git/objects/` 임시파일 unlink가 Windows 권한 정책에 막힘
+- 파일 모드가 전부 `100755`로 보고돼 `chmod 644`로도 복원 불가 → `100644 → 100755` 모드 플립 commit
+- working tree(CRLF) vs index(LF) 미스매치로 `git status`가 전체 파일 수정 상태로 오인
+- `core.fileMode`/`core.autocrlf` 교정으로 해결되지만 "git config 수정 금지"(섹션 7) 규칙과 충돌
+- **결론: 읽기성 명령(`git status`/`git diff`)조차 index 잠금을 유발할 수 있으므로 원천 금지**
 
 ---
 
@@ -47,7 +69,7 @@
 - [ ] 대상 파일 절대경로 + 줄번호
 - [ ] 수정 전/후 차이 (의사코드 또는 명세)
 - [ ] DB 스키마 변경 시 ALTER TABLE 문장
-- [ ] 검증 명령 (ast.parse, grep 검증 등)
+- [ ] **3단계 검증 명령** (①ast.parse ②Var패턴grep ③import정합성 — 섹션 3-1 필수)
 - [ ] CLAUDE.md 사고 사례 체크리스트 (Var + 결합, 폴더 구조 등)
 - [ ] 배포 명령 (git push 후 webhook or update.sh)
 - [ ] 한 항목씩 순차 진행 지시 (한꺼번에 X)
@@ -72,6 +94,7 @@
 | **배포 URL** | **https://zeroda.co.kr** (네이버클라우드 Reflex, ✅ 운영 중) |
 | 로컬 작업 폴더 | C:\Users\admin\Desktop\신규제로다코워크전용\zeroda_platform |
 | **개발 프레임워크** | **Reflex** (Streamlit 전환 완료, 2026-04-06) |
+| **DB** | **네이버클라우드 PostgreSQL 15.15** (2026-04-10 전환, 단일 백엔드) |
 | 개발 도구 | Claude Chat (기획) + Cowork 디스패치 (실행) |
 | **메인 코드 폴더** | **zeroda_reflex/** |
 | Streamlit 코드 | `legacy-streamlit` 브랜치 (main에서 삭제됨, 2026-04-07) |
@@ -84,7 +107,7 @@
 
 ```
 zeroda_reflex/
-├── rxconfig.py                        ← Reflex 설정 (포트 3000/8000, DB경로)
+├── rxconfig.py                        ← Reflex 설정 (포트 3000/8000, PG연결설정)
 ├── requirements.txt                   ← reflex, bcrypt, openpyxl, anthropic
 ├── deploy/                            ← 서버 배포 파일
 │   ├── DEPLOY_GUIDE.md               ← 배포 가이드 (zeroda.co.kr 직결)
@@ -112,7 +135,7 @@ zeroda_reflex/
     │   ├── edu_office.py              ← 교육청 (6탭)
     │   └── meal_manager.py            ← 급식담당자 (6탭+차트)
     └── utils/
-        ├── database.py                ← DB 유틸 (기존 zeroda.db 공유)
+        ├── database.py                ← DB 유틸 (PG 15.15 단일 백엔드)
         ├── weather_service.py         ← 기상청 API (ASOS+초단기실황)
         ├── sms_service.py             ← SOLAPI SMS 발송
         ├── email_service.py           ← 네이버웍스 SMTP 이메일+PDF 첨부
@@ -132,12 +155,61 @@ zeroda_reflex/
 
 | 원칙 | 내용 |
 |---|---|
-| ✅ 작업 후 문법 검증 | ast.parse로 Python 문법 오류 확인 |
+| ✅ 작업 후 **3단계 검증** | ①ast.parse 문법 → ②Reflex Var 패턴 검사(아래 3-1 참조) → ③import 정합성 확인 |
 | ✅ 함수명/파일명 변경 금지 | 다른 파일에서 참조 중 |
-| ✅ DB 스키마 변경 금지 | zeroda.db 테이블 구조 그대로 유지 |
+| ✅ DB 스키마 변경 금지 | PostgreSQL 테이블 구조 그대로 유지 |
 | ✅ 새 작업은 zeroda_reflex/ 에서 | Reflex 코드만 수정 |
 | ✅ Streamlit 코드 수정 금지 | 레거시 — 롤백용으로만 보존 |
 | ✅ 환경변수로 API 키 관리 | os.environ 사용 (Streamlit secrets 사용 안함) |
+| ✅ **SQL은 PG 문법 전용** | PostgreSQL 15.15 단일 백엔드 — `NOW()`, `CURRENT_DATE`, `SERIAL` 등 PG 문법 직접 사용. SQLite 분기 불필요 |
+
+### 3-1. Reflex 3단계 검증 프로토콜 (2026-04-10 추가 — 필수)
+
+> ⚠️ **`ast.parse` 통과 ≠ 서버 정상 동작**. ast.parse는 Python 문법만 검사하며, Reflex 컴파일 타임 오류(Var 결합, import 누락 등)를 잡지 못함. 사례7 참조.
+
+**코드 수정 후 반드시 3단계를 모두 수행해야 "검증 완료"를 선언할 수 있다:**
+
+| 단계 | 검증 내용 | 방법 | 잡히는 오류 |
+|---|---|---|---|
+| ① Python 문법 | 구문 오류 | `ast.parse(open(f).read())` | SyntaxError |
+| ② **Reflex Var 패턴** | Var + 문자열 결합, f-string 내 Var 사용 | grep 패턴 검사 (아래 명령) | TypeError (컴파일 타임) |
+| ③ import 정합성 | 참조하는 클래스/함수가 실제 존재하는지 | grep으로 import 대상 존재 확인 | ImportError, AttributeError |
+
+**② Reflex Var 패턴 검사 — 수정된 pages/*.py 파일에 반드시 실행:**
+
+```bash
+# 위험 패턴 1: "문자열" + State변수 또는 State변수 + "문자열" (+ 연산)
+grep -n '\".*\" +\|+ \".*\"' <수정된파일>.py | grep -v '#' | grep -v 'def \|self\.'
+
+# 위험 패턴 2: f-string 내에 State 변수 직접 사용
+grep -n 'f".*{[A-Z][a-zA-Z]*State\.' <수정된파일>.py
+```
+
+**안전한 패턴 vs 위험한 패턴:**
+
+| ❌ 위험 (서버 터짐) | ✅ 안전 |
+|---|---|
+| `"https://..." + address` | `"https://..." + address.to(str)` |
+| `StateVar + "kg"` | `StateVar.to(str) + "kg"` |
+| `f"총 {AdminState.count}건"` | `AdminState.count.to(str) + "건"` 또는 `rx.text(AdminState.count, "건")` |
+| `"완료 " + StateVar.length()` | `"완료 " + StateVar.length().to(str)` |
+
+**③ import 정합성 — 수정된 파일의 import 줄에서 참조하는 함수/클래스가 실제 존재하는지:**
+
+```bash
+# 예: pages/hq_admin.py가 admin_state에서 DOC_SERVICE_HQ_TABS를 import한다면
+grep -n 'DOC_SERVICE_HQ_TABS' state/admin_state.py
+```
+
+> **"검증 완료" 선언 조건**: 3단계 모두 통과 + 검사 결과를 사장님에게 보고 (어떤 패턴 검사를 했고, 결과가 무엇이었는지)
+
+> **⚠️ DB 규칙 (2026-04-10 PG 단일화)**
+> - **PostgreSQL 15.15 단일 백엔드** — SQLite 듀얼 백엔드 제거됨 (2026-04-10)
+> - `PgWrapper` (psycopg 커넥션 풀) 사용
+> - SQL 작성 시 **`?` placeholder** 사용 (PgWrapper가 자동으로 `%s` 변환)
+> - 날짜/시간 함수: `NOW()`, `CURRENT_DATE`, `CURRENT_TIMESTAMP` 직접 사용
+> - `DB_BACKEND` 분기 코드 작성 금지 — PG 문법만 사용
+> - `INSERT OR REPLACE`, `GROUP_CONCAT`, `datetime('now')` 등 SQLite 전용 함수 사용 금지
 
 ---
 
@@ -197,7 +269,8 @@ zeroda_reflex/
 | **서비스명** | zeroda-reflex (systemd) |
 | 프론트 포트 | 3000 |
 | 백엔드 포트 | 8000 |
-| DB | /opt/zeroda-platform/zeroda.db |
+| **DB** | **네이버클라우드 PostgreSQL 15.15 (단일 백엔드)** |
+| DB 환경변수 | `ZERODA_PG_HOST`, `ZERODA_PG_PORT`, `ZERODA_PG_DB`, `ZERODA_PG_USER`, `ZERODA_PG_PASSWORD` (서버 `.env`에만) |
 | 인증서 | Let's Encrypt (자동갱신) |
 
 ### 6-2. 최초 배포 (한 번만)
@@ -272,7 +345,9 @@ git push origin main
 | DB 컬럼 DROP / RENAME | 기존 데이터 손실 위험 (ADD COLUMN은 사장님 승인 시 가능) |
 | 기존 함수 삭제·이름 변경 | 다른 파일에서 참조 중 |
 | .env 파일을 GitHub에 업로드 | API 키 노출 위험 |
-| zeroda.db 를 GitHub에 commit | 사례5 보안사고 재발 방지 |
+| zeroda.db / DB 덤프를 GitHub에 commit | 사례5 보안사고 재발 방지 |
+| SQLite 전용 SQL 문법 사용 (`datetime('now')`, `INSERT OR REPLACE` 등) | PG 단일 백엔드 — PG 문법만 사용 |
+| `DB_BACKEND` 분기 코드 작성 | SQLite 듀얼 백엔드 제거됨 — 분기 코드 작성 금지 |
 | GitHub 웹 "Upload files" 사용 | 사례5 폴더구조 손상 사고 |
 | `git add .` / `git add -A` | DB/캐시 동반 commit 위험 → 파일 명시 |
 | Reflex Var 와 Python 문자열 `+` 결합 | 사례5 컴파일 실패 → `.to(str)` 또는 f-string |
@@ -291,10 +366,12 @@ git push origin main
 | 네이버웍스 SMTP | 거래명세서 이메일+PDF 발송 | `WORKS_SMTP_USER`, `WORKS_SMTP_APP_PW` |
 | NEIS Open API | 학교 급식일정 조회 | `NEIS_API_KEY` |
 | Anthropic | AI 잔반분석 | `ANTHROPIC_API_KEY` |
+| **네이버클라우드 PostgreSQL** | **운영 DB (PG 15.15 단일 백엔드)** | `ZERODA_PG_HOST`, `ZERODA_PG_PORT`, `ZERODA_PG_DB`, `ZERODA_PG_USER`, `ZERODA_PG_PASSWORD` |
 
 > ⚠️ **모든 키는 서버 `/opt/zeroda-platform/.env`에만 등록**. CLAUDE.md/코드/GitHub에 절대 노출 금지.
 > 2026-04-07 webhook 정상화 재검증 완료
 > 2026-04-08 환경변수명 정정 (NAVER_SMTP_* → WORKS_SMTP_*, COOLSMS_SENDER → COOLSMS_SENDER_PHONE), NEIS_API_KEY 추가
+> 2026-04-10 네이버클라우드 PostgreSQL 15.15 전환, DB 환경변수 추가
 
 ---
 
@@ -327,7 +404,57 @@ git push origin main
 1. **GitHub 웹 "Upload files" 영구 금지** — 반드시 로컬 `git push` 표준 방식
 2. **로컬 PC는 git clone으로 셋업** — 폴더 복사/드래그 금지
 3. **운영 DB는 `.gitignore` 필수** — 한 번 올라가면 히스토리에서도 지워야 함 (`git-filter-repo` 또는 `bfg`)
-4. **Reflex Var는 `+` 결합 금지** — `rx.Var.create()` 감싸거나 `.to(str)` 형변환, f-string 형태 권장
+4. **Reflex Var는 `+` 결합 금지** — `rx.Var.create()` 감싸거나 `.to(str)` 형변환. Reflex 컴포넌트 트리에서는 f-string + State Var 조합 금지 (사례5), `.to(str)` 또는 `rx.cond` 사용
 5. **systemd 재시작 루프 방지 설정 필수** — `StartLimitBurst` 로 폭주 차단
 6. **webhook은 `fetch + reset --hard`** — `git pull` 은 force push 후 divergence 로 멈춤
 7. **폴더 구조 엄격** — Reflex는 이중 패키지(`zeroda_reflex/zeroda_reflex/`) 구조를 깨면 `ModuleNotFoundError`
+
+---
+
+### 사례 6: 코워크 세션의 git 작업 시도로 인한 index 손상 (2026-04-10)
+
+**사고 경위**
+- 본사/외주업체 관리자 사이드바에 "문서서비스" 메뉴 추가 작업 중
+- 코워크(기획) 세션이 파일 편집 3곳(`admin_state.py`, `hq_admin.py`, `vendor_admin.py`)까지는 정확히 완료, `ast.parse` 검증 통과
+- 이어서 git 커밋까지 밀어붙이려고 `git add` → `git update-index --chmod=-x` 실행
+- Windows 마운트 파일시스템이 `.git/objects/` 임시파일 unlink를 거부 → `error: bad signature 0x00000000 fatal: index file corrupt`
+- index.lock 파일도 `Operation not permitted`로 삭제 불가
+
+**복구 과정**
+1. `mcp__cowork__allow_cowork_file_delete`로 삭제 권한 획득
+2. `.git/index`, `.git/index.lock` 제거 후 `git read-tree HEAD`로 index 재구성
+3. 소스 파일 3개는 디스크에 그대로 보존 (내용 정확)
+4. git 작업 포기, 사장님 로컬 또는 디스패치 세션에 인계
+
+**복합 원인**
+- Windows 마운트: 파일 모드가 강제로 `100755`로 보고됨 → `chmod 644`로 내려도 git은 "mode change 100644→100755"로 인식
+- CRLF/LF 미스매치: working tree는 CRLF, git index는 LF → `git diff`가 모든 줄을 변경으로 오인 (실제 변경은 13줄인데 12,000줄로 보임)
+- `core.fileMode false` / `core.autocrlf input` 설정으로 해결 가능하지만 "git config 수정 금지" 규칙(섹션 7)과 충돌
+
+**교훈**
+1. **코워크는 git에 절대 손대지 않는다** — 섹션 0.2에 최우선 규칙으로 명시됨
+2. **파일 편집 완료 시점이 코워크의 종료점** — 그 이후는 디스패치 또는 사장님 로컬의 영역
+3. **세션 VM의 Windows 마운트는 git 서버가 아니다** — 읽기성 git 명령조차 index 잠금 유발 가능
+4. **문법 검증은 ast.parse만으로 부족** — 반드시 섹션 3-1의 3단계 검증 수행. git은 건드리지 말 것
+5. **`allow_cowork_file_delete`는 비상용** — 일반 편집 흐름에서는 사용 금지
+
+---
+
+### 사례 7: ast.parse 통과했지만 서버에서 Reflex 컴파일 실패 (2026-04-10)
+
+**사고 경위**
+- 코워크에서 코드 수정 후 `ast.parse` 통과 → "검증 완료" 선언 → 사장님이 믿고 배포
+- 서버에서 Reflex 컴파일 시 `TypeError` 발생 (Var 객체와 Python 문자열 `+` 결합)
+- ast.parse는 Python 문법만 보기 때문에 Reflex 런타임/컴파일 오류를 전혀 감지 못함
+
+**전수 조사 결과 (2026-04-10)**
+- driver.py: `+` 연산 10곳, f-string 내 State변수 5곳
+- vendor_admin.py: f-string 내 State변수 8곳
+- hq_admin.py: `+` 연산 1곳, f-string 1곳
+- meal_manager.py: `+` 연산 1곳
+- 이 중 `.to(str)` 처리된 것은 안전, 미처리된 것이 서버 터짐의 원인
+
+**교훈**
+1. **ast.parse 통과 ≠ 서버 정상 동작** — Reflex 전용 패턴 검사가 반드시 필요
+2. **"검증 완료" 선언 기준 강화** — 섹션 3-1의 3단계를 모두 수행해야만 선언 가능
+3. **코워크는 검증 결과를 사장님에게 구체적으로 보고** — "통과했습니다"가 아니라 "어떤 검사를 했고 결과가 이렇습니다"
