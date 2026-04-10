@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import reflex as rx
 
-from ..state.admin_state import AdminState, DOC_SERVICE_HQ_TABS, DOC_CATEGORIES
+from ..state.admin_state import (
+    AdminState, DOC_SERVICE_HQ_TABS, DOC_CATEGORIES,
+    WASTE_TYPE_OPTIONS, TREATMENT_OPTIONS, FREQUENCY_OPTIONS,
+)
 
 
 # ══════════════════════════════════════════
@@ -281,27 +284,458 @@ def _issue_panel() -> rx.Component:
                     ),
                 ),
                 rx.divider(),
-                # 3단계: 수동입력 (계약기간 등)
+                # 3단계: 양식별 동적 입력 필드
                 rx.text("3. 수동 입력 항목", weight="bold"),
-                rx.text(
-                    "양식 카테고리에 따라 계약기간, 특약사항 등을 입력하세요.",
-                    size="1", color="#9ca3af",
-                ),
-                rx.hstack(
-                    rx.input(
-                        placeholder="계약기간 시작 (YYYY-MM-DD)",
-                        on_change=AdminState.set_doc_extra_start,
+                rx.cond(
+                    AdminState.doc_selected_template_id == 0,
+                    rx.text(
+                        "위에서 양식을 먼저 선택하면 해당 양식에 필요한 입력 항목이 표시됩니다.",
+                        size="1", color="#9ca3af",
                     ),
-                    rx.input(
-                        placeholder="계약기간 종료 (YYYY-MM-DD)",
-                        on_change=AdminState.set_doc_extra_end,
+                    rx.text(
+                        "선택된 양식: ",
+                        AdminState.doc_selected_category,
+                        size="1", color="#6b7280",
                     ),
-                    spacing="2",
                 ),
-                rx.text_area(
-                    placeholder="특약사항 / 비고",
-                    on_change=AdminState.set_doc_extra_memo,
-                    height="80px",
+                # ── 처리확인서 필드 ──
+                rx.cond(
+                    AdminState.doc_selected_category == "처리확인서",
+                    rx.vstack(
+                        rx.text("확인기간", size="2", weight="bold", color="#374151"),
+                        rx.hstack(
+                            rx.input(
+                                placeholder="확인기간 시작 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_start,
+                                on_change=AdminState.set_doc_extra_start,
+                                width="200px",
+                            ),
+                            rx.text("~", color="#9ca3af"),
+                            rx.input(
+                                placeholder="확인기간 종료 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_end,
+                                on_change=AdminState.set_doc_extra_end,
+                                width="200px",
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("폐기물 종류", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    WASTE_TYPE_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_waste_type,
+                                    on_change=AdminState.set_doc_extra_waste_type,
+                                    width="200px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("처리방법", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    TREATMENT_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_treatment,
+                                    on_change=AdminState.set_doc_extra_treatment,
+                                    width="200px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("처리량 (톤)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 5.0",
+                                    value=AdminState.doc_extra_quantity,
+                                    on_change=AdminState.set_doc_extra_quantity,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            spacing="4",
+                            wrap="wrap",
+                        ),
+                        rx.vstack(
+                            rx.text("비고", size="2", weight="bold", color="#374151"),
+                            rx.text_area(
+                                placeholder="비고 사항을 입력하세요",
+                                value=AdminState.doc_extra_memo,
+                                on_change=AdminState.set_doc_extra_memo,
+                                height="80px",
+                                width="100%",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                        padding="12px",
+                        border="1px solid #e5e7eb",
+                        border_radius="8px",
+                        background="#f9fafb",
+                    ),
+                ),
+                # ── 2자계약서 필드 ──
+                rx.cond(
+                    AdminState.doc_selected_category == "2자계약서",
+                    rx.vstack(
+                        rx.text("계약기간", size="2", weight="bold", color="#374151"),
+                        rx.hstack(
+                            rx.input(
+                                placeholder="계약기간 시작 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_start,
+                                on_change=AdminState.set_doc_extra_start,
+                                width="200px",
+                            ),
+                            rx.text("~", color="#9ca3af"),
+                            rx.input(
+                                placeholder="계약기간 종료 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_end,
+                                on_change=AdminState.set_doc_extra_end,
+                                width="200px",
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("폐기물 종류", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    WASTE_TYPE_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_waste_type,
+                                    on_change=AdminState.set_doc_extra_waste_type,
+                                    width="200px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("예상 처리량 (월/톤)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 10.0",
+                                    value=AdminState.doc_extra_quantity,
+                                    on_change=AdminState.set_doc_extra_quantity,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("처리단가 (원/kg)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 120",
+                                    value=AdminState.doc_extra_unit_price,
+                                    on_change=AdminState.set_doc_extra_unit_price,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("수거주기", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    FREQUENCY_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_frequency,
+                                    on_change=AdminState.set_doc_extra_frequency,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            spacing="4",
+                            wrap="wrap",
+                        ),
+                        rx.vstack(
+                            rx.text("특약사항", size="2", weight="bold", color="#374151"),
+                            rx.text_area(
+                                placeholder="특약사항을 입력하세요",
+                                value=AdminState.doc_extra_memo,
+                                on_change=AdminState.set_doc_extra_memo,
+                                height="80px",
+                                width="100%",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                        padding="12px",
+                        border="1px solid #e5e7eb",
+                        border_radius="8px",
+                        background="#f9fafb",
+                    ),
+                ),
+                # ── 3자계약서 필드 (2자 + 중간처리업체 정보) ──
+                rx.cond(
+                    AdminState.doc_selected_category == "3자계약서",
+                    rx.vstack(
+                        rx.text("계약기간", size="2", weight="bold", color="#374151"),
+                        rx.hstack(
+                            rx.input(
+                                placeholder="계약기간 시작 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_start,
+                                on_change=AdminState.set_doc_extra_start,
+                                width="200px",
+                            ),
+                            rx.text("~", color="#9ca3af"),
+                            rx.input(
+                                placeholder="계약기간 종료 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_end,
+                                on_change=AdminState.set_doc_extra_end,
+                                width="200px",
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("폐기물 종류", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    WASTE_TYPE_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_waste_type,
+                                    on_change=AdminState.set_doc_extra_waste_type,
+                                    width="200px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("예상 처리량 (월/톤)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 10.0",
+                                    value=AdminState.doc_extra_quantity,
+                                    on_change=AdminState.set_doc_extra_quantity,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("처리단가 (원/kg)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 120",
+                                    value=AdminState.doc_extra_unit_price,
+                                    on_change=AdminState.set_doc_extra_unit_price,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("수거주기", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    FREQUENCY_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_frequency,
+                                    on_change=AdminState.set_doc_extra_frequency,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            spacing="4",
+                            wrap="wrap",
+                        ),
+                        # 중간처리업체 (3자 전용)
+                        rx.box(
+                            rx.vstack(
+                                rx.text(
+                                    "중간처리업체 정보 (병)",
+                                    size="2", weight="bold", color="#1e40af",
+                                ),
+                                rx.hstack(
+                                    rx.vstack(
+                                        rx.text("업체명", size="2", color="#374151"),
+                                        rx.input(
+                                            placeholder="중간처리업체명",
+                                            value=AdminState.doc_extra_mid_company,
+                                            on_change=AdminState.set_doc_extra_mid_company,
+                                            width="200px",
+                                        ),
+                                        spacing="1",
+                                    ),
+                                    rx.vstack(
+                                        rx.text("사업자번호", size="2", color="#374151"),
+                                        rx.input(
+                                            placeholder="000-00-00000",
+                                            value=AdminState.doc_extra_mid_bizno,
+                                            on_change=AdminState.set_doc_extra_mid_bizno,
+                                            width="180px",
+                                        ),
+                                        spacing="1",
+                                    ),
+                                    rx.vstack(
+                                        rx.text("처리방법", size="2", color="#374151"),
+                                        rx.select(
+                                            TREATMENT_OPTIONS,
+                                            placeholder="선택하세요",
+                                            value=AdminState.doc_extra_mid_method,
+                                            on_change=AdminState.set_doc_extra_mid_method,
+                                            width="180px",
+                                        ),
+                                        spacing="1",
+                                    ),
+                                    spacing="4",
+                                    wrap="wrap",
+                                ),
+                                spacing="2",
+                            ),
+                            padding="12px",
+                            border="1px dashed #93c5fd",
+                            border_radius="6px",
+                            background="#eff6ff",
+                            width="100%",
+                        ),
+                        rx.vstack(
+                            rx.text("특약사항", size="2", weight="bold", color="#374151"),
+                            rx.text_area(
+                                placeholder="특약사항을 입력하세요",
+                                value=AdminState.doc_extra_memo,
+                                on_change=AdminState.set_doc_extra_memo,
+                                height="80px",
+                                width="100%",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                        padding="12px",
+                        border="1px solid #e5e7eb",
+                        border_radius="8px",
+                        background="#f9fafb",
+                    ),
+                ),
+                # ── 견적서 필드 ──
+                rx.cond(
+                    AdminState.doc_selected_category == "견적서",
+                    rx.vstack(
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("견적일자", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="YYYY-MM-DD",
+                                    value=AdminState.doc_extra_quote_date,
+                                    on_change=AdminState.set_doc_extra_quote_date,
+                                    width="180px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("유효기간", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 30일",
+                                    value=AdminState.doc_extra_valid_period,
+                                    on_change=AdminState.set_doc_extra_valid_period,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            spacing="4",
+                        ),
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text("폐기물 종류", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    WASTE_TYPE_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_waste_type,
+                                    on_change=AdminState.set_doc_extra_waste_type,
+                                    width="200px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("예상 수거량 (월/톤)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 10.0",
+                                    value=AdminState.doc_extra_quantity,
+                                    on_change=AdminState.set_doc_extra_quantity,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("단가 (원/kg)", size="2", weight="bold", color="#374151"),
+                                rx.input(
+                                    placeholder="예: 120",
+                                    value=AdminState.doc_extra_unit_price,
+                                    on_change=AdminState.set_doc_extra_unit_price,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.vstack(
+                                rx.text("수거주기", size="2", weight="bold", color="#374151"),
+                                rx.select(
+                                    FREQUENCY_OPTIONS,
+                                    placeholder="선택하세요",
+                                    value=AdminState.doc_extra_frequency,
+                                    on_change=AdminState.set_doc_extra_frequency,
+                                    width="150px",
+                                ),
+                                spacing="1",
+                            ),
+                            spacing="4",
+                            wrap="wrap",
+                        ),
+                        rx.vstack(
+                            rx.text("비고", size="2", weight="bold", color="#374151"),
+                            rx.text_area(
+                                placeholder="비고 사항을 입력하세요",
+                                value=AdminState.doc_extra_memo,
+                                on_change=AdminState.set_doc_extra_memo,
+                                height="80px",
+                                width="100%",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                        padding="12px",
+                        border="1px solid #e5e7eb",
+                        border_radius="8px",
+                        background="#f9fafb",
+                    ),
+                ),
+                # ── 기타 필드 ──
+                rx.cond(
+                    AdminState.doc_selected_category == "기타",
+                    rx.vstack(
+                        rx.text("계약기간", size="2", weight="bold", color="#374151"),
+                        rx.hstack(
+                            rx.input(
+                                placeholder="계약기간 시작 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_start,
+                                on_change=AdminState.set_doc_extra_start,
+                                width="200px",
+                            ),
+                            rx.text("~", color="#9ca3af"),
+                            rx.input(
+                                placeholder="계약기간 종료 (YYYY-MM-DD)",
+                                value=AdminState.doc_extra_end,
+                                on_change=AdminState.set_doc_extra_end,
+                                width="200px",
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.vstack(
+                            rx.text("특약사항 / 비고", size="2", weight="bold", color="#374151"),
+                            rx.text_area(
+                                placeholder="특약사항 / 비고를 입력하세요",
+                                value=AdminState.doc_extra_memo,
+                                on_change=AdminState.set_doc_extra_memo,
+                                height="80px",
+                                width="100%",
+                            ),
+                            spacing="1",
+                            width="100%",
+                        ),
+                        spacing="3",
+                        width="100%",
+                        padding="12px",
+                        border="1px solid #e5e7eb",
+                        border_radius="8px",
+                        background="#f9fafb",
+                    ),
                 ),
                 rx.divider(),
                 # 4단계: 미리보기/발급

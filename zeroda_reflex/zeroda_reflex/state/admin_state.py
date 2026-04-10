@@ -59,6 +59,11 @@ DOC_SERVICE_HQ_TABS = ["문서발급", "양식관리", "발급내역"]
 # 문서 카테고리 (hwpx 양식 업로드 시 분류)
 DOC_CATEGORIES = ["2자계약서", "3자계약서", "견적서", "처리확인서", "기타"]
 
+# ── 양식별 동적 입력 필드용 선택지 (2026-04-10 추가) ──
+WASTE_TYPE_OPTIONS = ["음식물류폐기물", "일반폐기물", "재활용폐기물", "음식물+일반", "음식물+재활용"]
+TREATMENT_OPTIONS = ["소각", "매립", "퇴비화", "사료화", "바이오가스", "기타"]
+FREQUENCY_OPTIONS = ["매일", "주6회", "주5회", "주3회", "주2회", "주1회", "격주", "월1회"]
+
 # ── 현장사진 유형 옵션 (P3) ──
 PHOTO_TYPE_OPTIONS = ["전체", "before", "after", "issue", "etc"]
 PHOTO_TYPE_MAP = {
@@ -200,6 +205,17 @@ class AdminState(AuthState):
     doc_extra_start: str = ""
     doc_extra_end: str = ""
     doc_extra_memo: str = ""
+    # 양식별 동적 입력 필드 (2026-04-10 추가)
+    doc_extra_waste_type: str = ""       # 폐기물 종류
+    doc_extra_treatment: str = ""        # 처리방법
+    doc_extra_quantity: str = ""         # 처리량/예상수거량(톤)
+    doc_extra_unit_price: str = ""       # 처리단가(원/kg)
+    doc_extra_frequency: str = ""        # 수거주기
+    doc_extra_mid_company: str = ""      # 중간처리업체명 (3자계약서)
+    doc_extra_mid_bizno: str = ""        # 중간처리업체 사업자번호 (3자계약서)
+    doc_extra_mid_method: str = ""       # 중간처리방법 (3자계약서)
+    doc_extra_quote_date: str = ""       # 견적일자 (견적서)
+    doc_extra_valid_period: str = ""     # 유효기간 (견적서)
     doc_issue_msg: str = ""
     doc_issue_ok: bool = False
     doc_last_issued_pdf: str = ""
@@ -905,6 +921,20 @@ class AdminState(AuthState):
             if t.get("id") == self.doc_selected_template_id:
                 self.doc_selected_category = t.get("category", "")
                 break
+        # 양식 변경 시 동적 필드 초기화
+        self.doc_extra_start = ""
+        self.doc_extra_end = ""
+        self.doc_extra_memo = ""
+        self.doc_extra_waste_type = ""
+        self.doc_extra_treatment = ""
+        self.doc_extra_quantity = ""
+        self.doc_extra_unit_price = ""
+        self.doc_extra_frequency = ""
+        self.doc_extra_mid_company = ""
+        self.doc_extra_mid_bizno = ""
+        self.doc_extra_mid_method = ""
+        self.doc_extra_quote_date = ""
+        self.doc_extra_valid_period = ""
 
     def set_doc_selected_customer(self, cust_id):
         try:
@@ -923,6 +953,37 @@ class AdminState(AuthState):
 
     def set_doc_extra_memo(self, v: str):
         self.doc_extra_memo = v
+
+    # ── 양식별 동적 필드 setter (2026-04-10 추가) ──
+    def set_doc_extra_waste_type(self, v: str):
+        self.doc_extra_waste_type = v
+
+    def set_doc_extra_treatment(self, v: str):
+        self.doc_extra_treatment = v
+
+    def set_doc_extra_quantity(self, v: str):
+        self.doc_extra_quantity = v
+
+    def set_doc_extra_unit_price(self, v: str):
+        self.doc_extra_unit_price = v
+
+    def set_doc_extra_frequency(self, v: str):
+        self.doc_extra_frequency = v
+
+    def set_doc_extra_mid_company(self, v: str):
+        self.doc_extra_mid_company = v
+
+    def set_doc_extra_mid_bizno(self, v: str):
+        self.doc_extra_mid_bizno = v
+
+    def set_doc_extra_mid_method(self, v: str):
+        self.doc_extra_mid_method = v
+
+    def set_doc_extra_quote_date(self, v: str):
+        self.doc_extra_quote_date = v
+
+    def set_doc_extra_valid_period(self, v: str):
+        self.doc_extra_valid_period = v
 
     def search_doc_customers(self):
         """거래처 후보 조회 (상호/사업자번호 LIKE 검색)."""
@@ -1107,6 +1168,17 @@ class AdminState(AuthState):
             "확인기간_시작": self.doc_extra_start,
             "확인기간_종료": self.doc_extra_end,
             "특약사항": self.doc_extra_memo,
+            # 양식별 동적 필드 (2026-04-10 추가)
+            "폐기물종류": self.doc_extra_waste_type,
+            "처리방법": self.doc_extra_treatment,
+            "처리량": self.doc_extra_quantity,
+            "처리단가": self.doc_extra_unit_price,
+            "수거주기": self.doc_extra_frequency,
+            "중간처리업체명": self.doc_extra_mid_company,
+            "중간처리업체_사업자번호": self.doc_extra_mid_bizno,
+            "중간처리방법": self.doc_extra_mid_method,
+            "견적일자": self.doc_extra_quote_date,
+            "유효기간": self.doc_extra_valid_period,
         }
         return template_row, customer_row, extra, (template_row.get("file_path") or "")
 
