@@ -179,10 +179,6 @@ def _template_mgmt_panel() -> rx.Component:
 #  2) 문서발급 패널
 # ══════════════════════════════════════════
 
-def _template_option_label(t: dict) -> str:
-    """select 옵션 표시용 (Reflex Var 대응)."""
-    return t  # placeholder, 실제 렌더링은 foreach에서 처리
-
 
 def _issue_panel() -> rx.Component:
     return rx.vstack(
@@ -243,17 +239,29 @@ def _issue_panel() -> rx.Component:
                     rx.vstack(
                         rx.foreach(
                             AdminState.doc_customer_candidates,
-                            lambda c: rx.hstack(
-                                rx.radio(
-                                    value=c["id"].to(str),
-                                    on_change=AdminState.set_doc_selected_customer,
+                            lambda c: rx.button(
+                                rx.text(
+                                    c["customer_name"],
+                                    " / ",
+                                    c["business_no"],
                                 ),
-                                rx.text(c["customer_name"], weight="bold"),
-                                rx.text(" / 사업자: ", c["business_no"]),
-                                spacing="2",
+                                on_click=AdminState.set_doc_selected_customer(c["id"]),
+                                variant=rx.cond(
+                                    AdminState.doc_selected_customer_id == c["id"],
+                                    "solid",
+                                    "soft",
+                                ),
+                                color_scheme=rx.cond(
+                                    AdminState.doc_selected_customer_id == c["id"],
+                                    "blue",
+                                    "gray",
+                                ),
+                                size="2",
+                                width="100%",
                             ),
                         ),
                         spacing="1",
+                        width="100%",
                     ),
                 ),
                 rx.divider(),
