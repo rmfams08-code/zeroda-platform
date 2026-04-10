@@ -50,7 +50,8 @@ def _weather_section() -> rx.Component:
                     rx.cond(
                         DriverState.weather_location != "",
                         rx.text(
-                            "📍 " + DriverState.weather_location.to(str),
+                            "📍 ",
+                            DriverState.weather_location,
                             font_size="11px",
                             color="#6b7280",
                             font_weight="500",
