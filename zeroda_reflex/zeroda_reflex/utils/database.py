@@ -1309,7 +1309,7 @@ def get_collection_summary_by_school(vendor: str, year: int, month: int) -> list
     try:
         rows = conn.execute(
             "SELECT school_name, "
-            "ROUND(SUM(weight), 1) AS total_weight, "
+            "ROUND(CAST(SUM(weight) AS NUMERIC), 1) AS total_weight, "
             "COUNT(*) AS collect_count "
             "FROM real_collection "
             "WHERE vendor=? AND collect_date LIKE ? "
