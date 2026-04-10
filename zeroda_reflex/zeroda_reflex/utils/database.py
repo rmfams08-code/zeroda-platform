@@ -246,26 +246,31 @@ def db_delete(table: str, where: dict) -> bool:
 # ── 인증 관련 ──
 
 def verify_password(plain: str, hashed: str) -> bool:
-    """bcrypt 우선 검증, SHA256 폴백 (기존 계정 호환)"""
+    """bcrypt 우선 검증, SHA256/평문 폴백 (기존 계정 호환 — 로그인 시 자동 마이그레이션 대상)"""
     if not plain or not hashed:
         return False
+    # 1순위: bcrypt 검증
     if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
         import bcrypt
         try:
             return bcrypt.checkpw(plain.encode(), hashed.encode())
         except Exception as e:
-            print(f"[DB ERROR] verify_password: {e}")
-            logger.warning(f'Exception in database operation: {str(e)}')
+            logger.error(f"[verify_password] bcrypt 검증 실패: {e}")
             return False
+    # 2순위: SHA256 레거시 (마이그레이션 대상)
     if hashlib.sha256(plain.strip().encode()).hexdigest() == hashed.strip():
+        logger.info(f"[verify_password] SHA256 레거시 비밀번호 감지 — bcrypt 마이그레이션 필요")
         return True
+    # 3순위: 평문 레거시 (마이그레이션 대상)
     if plain.strip() == hashed.strip():
+        logger.warning(f"[verify_password] 평문 비밀번호 감지 — bcrypt 마이그레이션 필요")
         return True
     return False
 
 
 def authenticate_user(user_id: str, password: str) -> Optional[dict]:
-    """사용자 인증. 성공 시 user dict 반환, 실패 시 None"""
+    """사용자 인증. 성공 시 user dict 반환, 실패 시 None.
+    레거시(SHA256/평문) 비밀번호는 로그인 성공 시 bcrypt로 자동 마이그레이션."""
     rows = db_get("users", {"user_id": user_id})
     if not rows:
         return None
@@ -275,8 +280,26 @@ def authenticate_user(user_id: str, password: str) -> Optional[dict]:
         return None
     if user.get("approval_status") == "rejected":
         return None
-    if not verify_password(password, user.get("pw_hash", "")):
+    stored_pw = user.get("pw_hash", "")
+    if not verify_password(password, stored_pw):
         return None
+    # 레거시 비밀번호 → bcrypt 자동 마이그레이션
+    if stored_pw and not (stored_pw.startswith("$2b$") or stored_pw.startswith("$2a$")):
+        try:
+            import bcrypt as _bc
+            new_hash = _bc.hashpw(password.encode(), _bc.gensalt()).decode()
+            conn = get_db()
+            try:
+                conn.execute(
+                    "UPDATE users SET pw_hash = ? WHERE user_id = ?",
+                    (new_hash, user_id),
+                )
+                conn.commit()
+                logger.info(f"[authenticate_user] bcrypt 마이그레이션 완료: {user_id}")
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error(f"[authenticate_user] bcrypt 마이그레이션 실패: {e}")
     return user
 
 
@@ -2676,9 +2699,8 @@ def create_user(user_id, password, role, name, vendor="", schools="",
         conn.commit()
         return True, f"계정 '{user_id}' 가입 신청 완료"
     except Exception as e:
-        print(f"[DB ERROR] create_user: {e}")
-        logger.warning(f"Exception in create_user: {str(e)}")
-        return False, f"가입 처리 중 오류: {e}"
+        logger.error(f"[create_user] {e}", exc_info=True)
+        return False, "가입 처리 중 오류가 발생했습니다."
     finally:
         conn.close()
 
