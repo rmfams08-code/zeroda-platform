@@ -862,8 +862,8 @@ class AdminState(AuthState):
             from ..utils.database import get_db, DB_BACKEND
             conn = get_db()
             try:
-                # PG 호환: is_active = 1 (SQLite) / is_active = TRUE (PG)
-                _active_cond = "is_active = TRUE" if DB_BACKEND == "postgres" else "is_active = 1"
+                # PG + SQLite 모두 INTEGER 컬럼이므로 = 1 통일
+                _active_cond = "is_active = 1"
                 # 활성 양식 목록
                 tpl_rows = conn.execute(
                     "SELECT id, template_name, category, file_path, tag_list, "
