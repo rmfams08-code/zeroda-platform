@@ -76,16 +76,32 @@ def _template_mgmt_panel() -> rx.Component:
                 rx.upload(
                     rx.vstack(
                         rx.button("hwpx 파일 선택", color_scheme="blue", size="2"),
-                        rx.text("또는 파일을 드래그해서 놓으세요", size="1", color="#9ca3af"),
+                        rx.text(
+                            "또는 hwpx 파일을 이 영역으로 드래그해서 놓으세요",
+                            size="1",
+                            color="#9ca3af",
+                        ),
                         spacing="1",
                         align="center",
                     ),
                     id="doc_template_upload",
-                    accept={"application/vnd.hancom.hwpx": [".hwpx"]},
+                    # ⚠️ accept 미지정 — hwpx는 표준 MIME이 없어 브라우저가 거부함
+                    #    확장자 검증은 admin_state.upload_document_template 에서 수행
+                    multiple=False,
                     max_files=1,
                     border="1px dashed #9ca3af",
                     padding="20px",
                     width="100%",
+                ),
+                # 선택된 파일 미리보기 (사용자가 dropzone 안에 파일이 들어갔는지 확인)
+                rx.foreach(
+                    rx.selected_files("doc_template_upload"),
+                    lambda f: rx.hstack(
+                        rx.icon("file", size=14),
+                        rx.text("선택됨: ", f, size="2", color="#059669"),
+                        spacing="2",
+                        align="center",
+                    ),
                 ),
                 rx.button(
                     "업로드 완료",
