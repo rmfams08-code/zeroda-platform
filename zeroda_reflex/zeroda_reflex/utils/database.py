@@ -59,10 +59,24 @@ _ALLOWED_COLUMNS = frozenset({
     # real_collection
     "school_name", "collect_date", "item_type", "weight", "driver",
     "memo", "vehicle_no",
+    "unit_price", "amount", "collect_time", "submitted_at", "lat", "lng",
+    # daily_safety_check
+    "check_date", "category", "check_items", "fail_memo",
+    # driver_checkout
+    "checkout_date", "checkout_time",
     # processing_confirm
     "confirm_date", "total_weight",
+    "confirm_time", "location_name", "first_weigh_time", "second_weigh_time",
+    "gross_weight", "net_weight", "vehicle_number", "processor_company", "weighslip_photo_path",
+    # photo_records
+    "photo_type", "photo_url",
+    # school_zone_violations
+    "violation_date", "violation_type", "location", "fine_amount",
     # schedules
     "month", "day_schedule",
+    "weekdays", "items", "registered_by",
+    # school_master
+    "alias",
     # vendor_info
     "account", "biz_name", "contact",
     # 공통
