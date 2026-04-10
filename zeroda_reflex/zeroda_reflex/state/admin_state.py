@@ -1479,15 +1479,24 @@ class AdminState(AuthState):
             conn.commit()
             conn.close()
 
+            # 서버 절대경로 → 웹 URL로 변환 (nginx /uploads/ alias 기준)
+            _base_prefix = _os.environ.get(
+                "ZERODA_UPLOAD_DIR", "/opt/zeroda-platform/uploads"
+            )
+            def _to_url(path: str) -> str:
+                if path.startswith(_base_prefix):
+                    return "/uploads/" + path[len(_base_prefix):].lstrip("/")
+                return path.replace("/opt/zeroda-platform", "")
+
             if pdf_ok:
-                self.doc_last_issued_pdf = output_pdf
+                self.doc_last_issued_pdf = _to_url(output_pdf)
                 self.doc_issue_msg = f"발급 완료: {issue_no}"
                 self.doc_issue_ok = True
             else:
-                self.doc_last_issued_pdf = stamped_hwpx
+                self.doc_last_issued_pdf = _to_url(stamped_hwpx)
                 self.doc_issue_msg = (
-                    f"PDF 변환 실패 — hwpx로 저장됨: {issue_no}. "
-                    "서버에 libreoffice 설치 여부 확인 필요."
+                    f"PDF 변환 실패 — hwpx 파일로 저장됨: {issue_no}. "
+                    "다운로드 버튼으로 hwpx 파일을 직접 받으실 수 있습니다."
                 )
                 self.doc_issue_ok = False
 
