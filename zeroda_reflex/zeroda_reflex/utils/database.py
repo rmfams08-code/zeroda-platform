@@ -1118,13 +1118,10 @@ def get_customers_with_gps(vendor: str) -> list[dict]:
     """GPS 좌표(latitude/longitude)가 등록된 거래처 목록 반환"""
     conn = get_db()
     try:
-        # idempotent: 컬럼이 없으면 추가
+        # idempotent: 컬럼이 없으면 추가 (IF NOT EXISTS — PG 에러 없이 처리)
         for col in ("latitude", "longitude"):
-            try:
-                conn.execute(f"ALTER TABLE customer_info ADD COLUMN {col} REAL")
-                conn.commit()
-            except Exception:
-                pass  # 이미 존재하면 무시
+            conn.execute(f"ALTER TABLE customer_info ADD COLUMN IF NOT EXISTS {col} REAL")
+        conn.commit()
         rows = conn.execute(
             "SELECT name, latitude, longitude FROM customer_info "
             "WHERE vendor=? AND latitude IS NOT NULL AND longitude IS NOT NULL "
