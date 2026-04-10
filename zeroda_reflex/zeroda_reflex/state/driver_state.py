@@ -487,10 +487,21 @@ class DriverState(AuthState):
         items = self.vehicle_check_items
         return len(items) > 0 and all(item.get("checked", False) for item in items)
 
-    def on_driver_load(self):
-        """기사 페이지 로드 시"""
+    async def on_driver_load(self):
+        """기사 페이지 로드 시.
+        인증 상태이면 데이터 로드.
+        미인증이면 HttpOnly 쿠키 검증 시도 → _on_cookie_check_result 콜백으로 세션 복원.
+        """
         if not self.is_authenticated:
-            return rx.redirect("/")
+            # 쿠키 자동로그인 시도 (window.location.href='/driver' 후 첫 진입 시)
+            # JSON.stringify: Reflex가 dict를 kwargs 언팩하는 버그 회피 → 문자열로 전달
+            yield rx.call_script(
+                "fetch('/api/driver/check-token',{credentials:'same-origin'})"
+                ".then(r=>r.json())"
+                ".then(d=>JSON.stringify(d))",
+                callback=DriverState.on_cookie_check_result,
+            )
+            return
         self._load_weather()
         self._load_safety_status()
         self._load_today_collections()
@@ -502,6 +513,40 @@ class DriverState(AuthState):
         if not self.schedule_date:
             self.schedule_date = self.today_str
         self._load_schedule()
+
+    def on_cookie_check_result(self, data_str: str):
+        """on_driver_load 쿠키 검증 콜백.
+        JS가 JSON.stringify 후 전달한 문자열을 파싱 (dict 직접 전달 시 Reflex kwargs 언팩 버그 회피).
+        유효하면 AuthState 필드 복원 후 redirect('/driver') — is_authenticated=True이므로 루프 없음.
+        무효하면 redirect('/').
+        """
+        import json as _json
+        try:
+            data = _json.loads(data_str or "{}")
+        except Exception:
+            data = {}
+        uid = data.get("user_id", "")
+        if not uid:
+            yield rx.redirect("/")
+            return
+        from zeroda_reflex.utils.database import db_get
+        rows = db_get("users", {"user_id": uid})
+        if not rows:
+            yield rx.redirect("/")
+            return
+        u = rows[0]
+        if u.get("approval_status") != "approved" or not int(u.get("is_active", 0) or 0):
+            yield rx.redirect("/")
+            return
+        self.user_id = u.get("user_id") or ""
+        self.user_name = u.get("name") or ""
+        self.user_role = u.get("role") or ""
+        self.user_vendor = u.get("vendor") or ""
+        self.user_schools = u.get("schools") or ""
+        self.user_edu_office = u.get("edu_office") or ""
+        self.is_authenticated = True
+        self.is_user_active = True
+        yield rx.redirect("/driver")
 
     def _load_weather(self):
         """기상청 API로 오늘 날씨 로드"""
@@ -1892,12 +1937,7 @@ class DriverState(AuthState):
     # ============================================================
     @staticmethod
     def _ensure_wake_tables(conn) -> None:
-        """wake_settings / wake_stats 테이블 없으면 자동 생성 (idempotent).
-        PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
-        """
-        from zeroda_reflex.utils.database import DB_BACKEND
-        _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
-        _now_fn = "NOW()" if DB_BACKEND == "postgres" else "datetime('now','localtime')"
+        """wake_settings / wake_stats 테이블 없으면 자동 생성 (idempotent)."""
         conn.execute(
             "CREATE TABLE IF NOT EXISTS wake_settings ("
             "  username TEXT PRIMARY KEY,"
@@ -1905,17 +1945,17 @@ class DriverState(AuthState):
             "  keywords_stop  TEXT NOT NULL DEFAULT '완료,끝,종료',"
             "  keywords_cancel TEXT NOT NULL DEFAULT '취소',"
             "  enabled_default INTEGER DEFAULT 0,"
-            f"  updated_at TEXT DEFAULT ({_now_fn})"
+            "  updated_at TEXT DEFAULT (datetime('now','localtime'))"
             ")"
         )
         conn.execute(
-            f"CREATE TABLE IF NOT EXISTS wake_stats ("
-            f"  id {_auto},"
+            "CREATE TABLE IF NOT EXISTS wake_stats ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "  username TEXT NOT NULL,"
             "  event_type TEXT NOT NULL,"
             "  heard_text TEXT,"
             "  matched_keyword TEXT,"
-            f"  occurred_at TEXT DEFAULT ({_now_fn})"
+            "  occurred_at TEXT DEFAULT (datetime('now','localtime'))"
             ")"
         )
         conn.execute(

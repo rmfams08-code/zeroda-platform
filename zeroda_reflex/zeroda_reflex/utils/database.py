@@ -1,5 +1,5 @@
 # zeroda_reflex/utils/database.py
-# 기존 zeroda 앱의 DB 어댑터 (SQLite ↔ PostgreSQL 듀얼 백엔드)
+# 기존 zeroda 앱의 DB 어댑터 (PostgreSQL 전용)
 
 import json
 import math
@@ -12,13 +12,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── DB 백엔드 선택 (환경변수) ──
-DB_BACKEND = os.environ.get("ZERODA_DB_BACKEND", "sqlite").lower()
-
-# ── SQLite 경로 (백엔드=sqlite 또는 폴백용) ──
-DB_PATH = os.environ.get("ZERODA_DB_PATH", "zeroda.db")
-
-# ── PostgreSQL 연결 정보 (백엔드=postgres) ──
+# ── PostgreSQL 연결 정보 ──
 PG_HOST = os.environ.get("ZERODA_PG_HOST", "")
 PG_PORT = int(os.environ.get("ZERODA_PG_PORT", "5432"))
 PG_DB = os.environ.get("ZERODA_PG_DB", "zeroda")
@@ -39,158 +33,132 @@ WASTE_REDUCTION_RATE = 0.1       # 잔반감축 목표 비율 (10%)
 
 
 # ══════════════════════════════════════════
-#  PostgreSQL 듀얼 백엔드 어댑터
-#  - sqlite3 호환 인터페이스로 PG psycopg을 감쌈
+#  PostgreSQL 어댑터
+#  - psycopg 커넥션 풀 + 호환 인터페이스
 # ══════════════════════════════════════════
 
-if DB_BACKEND == "postgres":
-    import sqlite3 as _sqlite_fallback  # 폴백 + 일부 타입 변환용
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
-        from psycopg_pool import ConnectionPool
-    except ImportError as e:
-        logger.error("psycopg / psycopg_pool 미설치. pip install 'psycopg[binary]' psycopg_pool")
-        raise
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
+except ImportError as e:
+    logger.error("psycopg / psycopg_pool 미설치. pip install 'psycopg[binary]' psycopg_pool")
+    raise
 
-    # 모듈 전역 커넥션 풀 (앱 전체에서 1개)
-    _PG_POOL: Optional["ConnectionPool"] = None
+# 모듈 전역 커넥션 풀 (앱 전체에서 1개)
+_PG_POOL: Optional["ConnectionPool"] = None
 
-    def _get_pool() -> "ConnectionPool":
-        global _PG_POOL
-        if _PG_POOL is None:
-            conninfo = (
-                f"host={PG_HOST} port={PG_PORT} dbname={PG_DB} "
-                f"user={PG_USER} password={PG_PASSWORD} "
-                f"connect_timeout=5 application_name=zeroda_reflex"
-            )
-            _PG_POOL = ConnectionPool(
-                conninfo=conninfo,
-                min_size=PG_MIN_CONN,
-                max_size=PG_MAX_CONN,
-                kwargs={"row_factory": dict_row},
-                open=True,
-            )
-            logger.info(f"[PG POOL] created min={PG_MIN_CONN} max={PG_MAX_CONN}")
-        return _PG_POOL
+def _get_pool() -> "ConnectionPool":
+    global _PG_POOL
+    if _PG_POOL is None:
+        conninfo = (
+            f"host={PG_HOST} port={PG_PORT} dbname={PG_DB} "
+            f"user={PG_USER} password={PG_PASSWORD} "
+            f"connect_timeout=5 application_name=zeroda_reflex"
+        )
+        _PG_POOL = ConnectionPool(
+            conninfo=conninfo,
+            min_size=PG_MIN_CONN,
+            max_size=PG_MAX_CONN,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+        logger.info(f"[PG POOL] created min={PG_MIN_CONN} max={PG_MAX_CONN}")
+    return _PG_POOL
 
 
-    class _PgCursorResult:
-        """sqlite3 cursor.fetchall() 호환 래퍼.
-        dict_row 결과를 반환하므로 dict(r) 로 변환 가능."""
-        def __init__(self, rows):
-            self._rows = rows
+class _PgCursorResult:
+    """sqlite3 cursor.fetchall() 호환 래퍼.
+    dict_row 결과를 반환하므로 dict(r) 로 변환 가능."""
+    def __init__(self, rows):
+        self._rows = rows
 
-        def fetchall(self):
-            return self._rows
+    def fetchall(self):
+        return self._rows
 
-        def fetchone(self):
-            return self._rows[0] if self._rows else None
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
 
-        def __iter__(self):
-            return iter(self._rows)
-
-
-    class PgWrapper:
-        """sqlite3.Connection 호환 어댑터.
-        - .execute(sql, params) 시 ? → %s 자동 치환
-        - 결과는 dict_row 형태 (sqlite3.Row 와 동일하게 dict() 가능)
-        - .commit() / .close() / context manager 지원
-        - row_factory 속성은 호환용 stub (실제 효과 없음)
-        """
-        def __init__(self):
-            pool = _get_pool()
-            self._conn = pool.getconn()
-            self._closed = False
-            self.row_factory = None  # sqlite3 호환 stub
-
-        @staticmethod
-        def _q(sql: str) -> str:
-            """? placeholder → %s 변환.
-            주의: 문자열 리터럴 안의 ? 는 거의 없지만, 만약 있으면
-                 자료 파일 05_syntax_fixes_diff.md 의 예외 목록 참조."""
-            return sql.replace("?", "%s")
-
-        def execute(self, sql: str, params=None):
-            cur = self._conn.cursor()
-            try:
-                cur.execute(self._q(sql), params or ())
-                # SELECT 면 결과 가져옴, 그 외엔 빈 리스트
-                if cur.description:
-                    rows = cur.fetchall()
-                    return _PgCursorResult(rows)
-                return _PgCursorResult([])
-            finally:
-                cur.close()
-
-        def executemany(self, sql: str, seq_of_params):
-            cur = self._conn.cursor()
-            try:
-                cur.executemany(self._q(sql), seq_of_params)
-                return _PgCursorResult([])
-            finally:
-                cur.close()
-
-        def commit(self):
-            self._conn.commit()
-
-        def rollback(self):
-            self._conn.rollback()
-
-        def close(self):
-            if self._closed:
-                return
-            try:
-                pool = _get_pool()
-                pool.putconn(self._conn)
-            except Exception as e:
-                logger.warning(f"[PG] putconn failed: {e}")
-                try:
-                    self._conn.close()
-                except Exception:
-                    pass
-            finally:
-                self._closed = True
-
-        # context manager (with get_db() as conn:)
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc_val, exc_tb):
-            if exc_type is not None:
-                self.rollback()
-            else:
-                self.commit()
-            self.close()
+    def __iter__(self):
+        return iter(self._rows)
 
 
-    def get_db():
-        """PostgreSQL 연결 반환 (sqlite3 호환 인터페이스)"""
-        return PgWrapper()
+class PgWrapper:
+    """sqlite3.Connection 호환 어댑터.
+    - .execute(sql, params) 시 ? → %s 자동 치환
+    - 결과는 dict_row 형태 (sqlite3.Row 와 동일하게 dict() 가능)
+    - .commit() / .close() / context manager 지원
+    - row_factory 속성은 호환용 stub (실제 효과 없음)
+    """
+    def __init__(self):
+        pool = _get_pool()
+        self._conn = pool.getconn()
+        self._closed = False
+        self.row_factory = None  # 호환용 stub
 
-else:
-    # 백엔드=sqlite (기존 동작 유지)
-    import sqlite3
-
-    def get_db():
-        """SQLite 연결 반환"""
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-
-# ══════════════════════════════════════════
-#  공용 헬퍼 (백엔드 무관)
-#  - SQL 문법 차이는 _q_helper 에서 흡수
-# ══════════════════════════════════════════
-
-def _q_helper(sql: str) -> str:
-    """헬퍼용 placeholder 변환. sqlite는 그대로, postgres만 ?→%s.
-    주의: 헬퍼 안에서는 SQL을 직접 만들기 때문에 PgWrapper.execute 의
-         _q 를 거치지 않으므로 여기서 처리."""
-    if DB_BACKEND == "postgres":
+    @staticmethod
+    def _q(sql: str) -> str:
+        """? placeholder → %s 변환.
+        주의: 문자열 리터럴 안의 ? 는 거의 없지만, 만약 있으면
+             자료 파일 05_syntax_fixes_diff.md 의 예외 목록 참조."""
         return sql.replace("?", "%s")
-    return sql
+
+    def execute(self, sql: str, params=None):
+        cur = self._conn.cursor()
+        try:
+            cur.execute(self._q(sql), params or ())
+            # SELECT 면 결과 가져옴, 그 외엔 빈 리스트
+            if cur.description:
+                rows = cur.fetchall()
+                return _PgCursorResult(rows)
+            return _PgCursorResult([])
+        finally:
+            cur.close()
+
+    def executemany(self, sql: str, seq_of_params):
+        cur = self._conn.cursor()
+        try:
+            cur.executemany(self._q(sql), seq_of_params)
+            return _PgCursorResult([])
+        finally:
+            cur.close()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        if self._closed:
+            return
+        try:
+            pool = _get_pool()
+            pool.putconn(self._conn)
+        except Exception as e:
+            logger.warning(f"[PG] putconn failed: {e}")
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+        finally:
+            self._closed = True
+
+    # context manager (with get_db() as conn:)
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            self.rollback()
+        else:
+            self.commit()
+        self.close()
+
+
+def get_db():
+    """PostgreSQL 연결 반환"""
+    return PgWrapper()
 
 
 def db_get(table: str, where: dict = None) -> list[dict]:
@@ -453,36 +421,23 @@ def get_driver_collections_range(vendor: str, driver: str, date_from: str, date_
 def ensure_real_collection_gps_columns() -> None:
     """real_collection 테이블에 lat/lng 컨럼 추가 (idempotent — 이미 있으면 무시).
 
-    ▶ PG 백엔드: ADD COLUMN IF NOT EXISTS 사용 → 중복 시 에러 없음.
+    ▶ ADD COLUMN IF NOT EXISTS 사용 → 중복 시 에러 없음.
       각 컬럼마다 별도 커넥션 사용 → 첫 번째 실패가 두 번째를 오염시키지 않음.
-    ▶ SQLite 백엔드: IF NOT EXISTS 미지원 → try/except OperationalError 유지.
     """
-    if DB_BACKEND == "postgres":
-        # PG: DOUBLE PRECISION = REAL 호환. IF NOT EXISTS 로 중복 무시.
-        for col_name, col_type in (("lat", "DOUBLE PRECISION"), ("lng", "DOUBLE PRECISION")):
-            conn = get_db()  # 컬럼별 독립 커넥션 (트랜잭션 오염 방지)
-            try:
-                conn.execute(
-                    f"ALTER TABLE real_collection ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
-                )
-                conn.commit()
-                logger.info(f"[GPS] {col_name} 컬럼 확인/추가 완료 (PG)")
-            except Exception as e:
-                conn.rollback()
-                logger.warning(f"[GPS] {col_name} 컬럼 추가 실패 (PG): {e}")
-            finally:
-                conn.close()
-    else:
-        # SQLite: IF NOT EXISTS 미지원 → OperationalError(duplicate column) 무시
-        conn = get_db()
-        for col in ("lat REAL", "lng REAL"):
-            try:
-                conn.execute(f"ALTER TABLE real_collection ADD COLUMN {col}")
-                conn.commit()
-            except Exception as e:
-                # 이미 컬럼이 존재하면 무시
-                logger.debug(f"[GPS] {col} 이미 존재 (SQLite idempotent): {e}")
-        conn.close()
+    # DOUBLE PRECISION = REAL 호환. IF NOT EXISTS 로 중복 무시.
+    for col_name, col_type in (("lat", "DOUBLE PRECISION"), ("lng", "DOUBLE PRECISION")):
+        conn = get_db()  # 컬럼별 독립 커넥션 (트랜잭션 오염 방지)
+        try:
+            conn.execute(
+                f"ALTER TABLE real_collection ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            )
+            conn.commit()
+            logger.info(f"[GPS] {col_name} 컬럼 확인/추가 완료 (PG)")
+        except Exception as e:
+            conn.rollback()
+            logger.warning(f"[GPS] {col_name} 컬럼 추가 실패 (PG): {e}")
+        finally:
+            conn.close()
 
 
 # GPS 컨럼 보장 (모듈 임포트 시 1회 실행)
@@ -500,7 +455,7 @@ def ensure_missing_tables() -> None:
     컬럼 구조는 save_photo_record / save_driver_checkout 의 INSERT payload 기준.
     PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
     """
-    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    _auto = "SERIAL PRIMARY KEY"
     conn = get_db()
     try:
         conn.execute(f"""
@@ -541,103 +496,8 @@ except Exception as _tbl_init_err:
     print(f"[DB ERROR] 누락 테이블 초기화 실패: {_tbl_init_err}")
 
 
-def ensure_document_service_tables() -> None:
-    """문서서비스 엔진용 테이블 생성 (idempotent).
-
-    2026-04-10 신규: 양식 기반 자동채움 + 직인 삽입 + PDF 발급 기능.
-    - document_templates : 본사관리자가 업로드한 hwpx 양식 메타데이터
-    - document_issue_log : 발급 이력 (누가/언제/어떤 양식으로/어느 거래처에)
-    기존 테이블 변경 없음 (CLAUDE.md 섹션 7 준수).
-    """
-    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
-    conn = get_db()
-    try:
-        # 양식 메타데이터 (본사관리자 전용, 전사 공유)
-        conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS document_templates (
-                id              {_auto},
-                template_name   TEXT NOT NULL,
-                category        TEXT,
-                file_path       TEXT NOT NULL,
-                file_type       TEXT DEFAULT 'hwpx',
-                tag_list        TEXT,
-                created_by      TEXT,
-                created_at      TEXT,
-                is_active       INTEGER DEFAULT 1
-            )
-        """)
-        # 발급 이력
-        conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS document_issue_log (
-                id              {_auto},
-                vendor          TEXT,
-                template_id     INTEGER,
-                template_name   TEXT,
-                customer_id     INTEGER,
-                customer_name   TEXT,
-                issued_by       TEXT,
-                issued_at       TEXT,
-                file_path       TEXT,
-                issue_number    TEXT,
-                output_format   TEXT DEFAULT 'pdf'
-            )
-        """)
-        # Phase 5: 중간처리업체(재활용업체) 정보 테이블
-        conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS mid_processor (
-                id              {_auto},
-                name            TEXT NOT NULL,
-                biz_no          TEXT,
-                rep             TEXT,
-                address         TEXT,
-                phone           TEXT,
-                license_no      TEXT,
-                biz_type        TEXT,
-                corp_no         TEXT,
-                fax             TEXT,
-                is_default      INTEGER DEFAULT 0,
-                created_at      TEXT
-            )
-        """)
-        # 조회 성능용 인덱스
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_doc_issue_vendor "
-            "ON document_issue_log(vendor)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_doc_issue_issued_at "
-            "ON document_issue_log(issued_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_doc_tpl_active "
-            "ON document_templates(is_active)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_mid_processor_default "
-            "ON mid_processor(is_default)"
-        )
-        conn.commit()
-    except Exception as e:
-        print(f"[DB ERROR] ensure_document_service_tables: {e}")
-        logger.warning(f"ensure_document_service_tables 실패 (idempotent): {e}")
-    finally:
-        conn.close()
-
-
-# 문서서비스 테이블 자동 생성 (모듈 임포트 시 1회 실행)
-try:
-    ensure_document_service_tables()
-except Exception as _doc_init_err:
-    print(f"[DB ERROR] 문서서비스 테이블 초기화 실패: {_doc_init_err}")
-
-
 def ensure_driver_auth_tokens_table() -> None:
-    """driver_auth_tokens 테이블 + 인덱스 생성 (idempotent).
-    PG 전용 — SQLite 모드에서는 경고 후 no-op.
-    """
-    if DB_BACKEND != "postgres":
-        logger.warning("ensure_driver_auth_tokens_table: PG 전용, SQLite 모드에서는 생략")
-        return
+    """driver_auth_tokens 테이블 + 인덱스 생성 (idempotent)."""
     conn = get_db()
     try:
         conn.execute(
@@ -681,12 +541,8 @@ except Exception as _dat_init_err:
 
 def create_driver_token(user_id: str, device_hint: str = "") -> str:
     """토큰 생성 및 DB 저장. 반환값: 생성된 토큰 문자열.
-    PG 전용 — SQLite 모드에서는 빈 문자열 반환.
     로그에 token 값 절대 기록 금지.
     """
-    if DB_BACKEND != "postgres":
-        logger.warning("create_driver_token: PG 전용, SQLite 모드에서는 no-op")
-        return ""
     import secrets
     token = secrets.token_urlsafe(48)
     conn = get_db()
@@ -711,7 +567,7 @@ def verify_driver_token(token: str) -> "str | None":
     """토큰 검증. 유효하면 user_id 반환 + last_used_at 갱신. 무효면 None.
     토큰 값 로그 금지.
     """
-    if DB_BACKEND != "postgres" or not token:
+    if not token:
         return None
     conn = get_db()
     try:
@@ -741,7 +597,7 @@ def revoke_driver_token(token: str, reason: str = "logout") -> bool:
     """단일 토큰 무효화 (revoked=1). 반환값: 성공 여부.
     토큰 값 로그 금지.
     """
-    if DB_BACKEND != "postgres" or not token:
+    if not token:
         return False
     conn = get_db()
     try:
@@ -767,8 +623,6 @@ def revoke_user_all_tokens(user_id: str, reason: str = "admin_revoke") -> int:
     reason='password_change' → revoked=3
     반환값: 무효화된 토큰 개수.
     """
-    if DB_BACKEND != "postgres":
-        return 0
     revoked_code = 3 if reason == "password_change" else 2
     conn = get_db()
     try:
@@ -798,8 +652,6 @@ def cleanup_expired_tokens() -> int:
     """expires_at < NOW() - INTERVAL '30 days' 인 토큰 DELETE.
     반환값: 삭제 개수.
     """
-    if DB_BACKEND != "postgres":
-        return 0
     conn = get_db()
     try:
         conn.execute(
@@ -825,7 +677,7 @@ def ensure_academic_schedule_table() -> None:
     """school_academic_schedule 테이블 + 인덱스 생성 (idempotent).
     PostgreSQL은 AUTOINCREMENT 미지원 → SERIAL PRIMARY KEY 사용.
     """
-    _auto = "SERIAL PRIMARY KEY" if DB_BACKEND == "postgres" else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    _auto = "SERIAL PRIMARY KEY"
     conn = get_db()
     try:
         conn.execute(f"""
@@ -862,18 +714,9 @@ def ensure_users_neis_columns() -> None:
         "pending_school_name TEXT",
     ]:
         try:
-            if DB_BACKEND == "postgres":
-                conn.execute("SAVEPOINT _add_col")
             conn.execute(f"ALTER TABLE users ADD COLUMN {col_def}")
-            if DB_BACKEND == "postgres":
-                conn.execute("RELEASE SAVEPOINT _add_col")
             conn.commit()
         except Exception:
-            if DB_BACKEND == "postgres":
-                try:
-                    conn.execute("ROLLBACK TO SAVEPOINT _add_col")
-                except Exception:
-                    pass
             pass  # 이미 존재하면 무시
     conn.close()
 
@@ -1172,18 +1015,9 @@ def get_customers_with_gps(vendor: str) -> list[dict]:
         # idempotent: 컬럼이 없으면 추가
         for col in ("latitude", "longitude"):
             try:
-                if DB_BACKEND == "postgres":
-                    conn.execute("SAVEPOINT _add_col")
                 conn.execute(f"ALTER TABLE customer_info ADD COLUMN {col} REAL")
-                if DB_BACKEND == "postgres":
-                    conn.execute("RELEASE SAVEPOINT _add_col")
                 conn.commit()
             except Exception:
-                if DB_BACKEND == "postgres":
-                    try:
-                        conn.execute("ROLLBACK TO SAVEPOINT _add_col")
-                    except Exception:
-                        pass
                 pass  # 이미 존재하면 무시
         rows = conn.execute(
             "SELECT name, latitude, longitude FROM customer_info "
@@ -1330,7 +1164,7 @@ def get_collection_summary_by_school(vendor: str, year: int, month: int) -> list
     try:
         rows = conn.execute(
             "SELECT school_name, "
-            "ROUND(CAST(SUM(weight) AS NUMERIC), 1) AS total_weight, "
+            "ROUND(SUM(weight), 1) AS total_weight, "
             "COUNT(*) AS collect_count "
             "FROM real_collection "
             "WHERE vendor=? AND collect_date LIKE ? "
@@ -2227,84 +2061,56 @@ def delete_expense(expense_id: str) -> bool:
 
 
 def get_vendor_info(vendor: str) -> dict:
-    """업체 정보 + 직인 경로 + 입금계좌 조회.
-
-    2026-04-10 재작성: conn.execute() 사용 (PgWrapper 호환),
-    dict(row) 변환으로 인덱스 접근 제거.
-
-    반환 dict keys: biz_name, rep, biz_no, address, contact, account, email,
+    """업체 정보 + 직인 경로 조회.
+    반환 dict keys: biz_name, rep, biz_no, address, contact,
                     stamp_path, stamp_uploaded_at, stamp_updated_by
     """
     if not vendor:
         return {}
-    _empty = {
-        "biz_name": str(vendor), "rep": "", "biz_no": "",
-        "address": "", "contact": "", "email": "", "account": "",
-        "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
-    }
-    conn = get_db()
     try:
-        # account/email 컬럼 포함 쿼리 시도
-        try:
-            if DB_BACKEND == "postgres":
-                conn.execute("SAVEPOINT _gvi")
-            result = conn.execute(
-                "SELECT biz_name, rep, biz_no, address, contact,"
-                " COALESCE(stamp_path, '') AS stamp_path,"
-                " COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,"
-                " COALESCE(stamp_updated_by, '') AS stamp_updated_by,"
-                " COALESCE(account, '') AS account,"
-                " COALESCE(email, '') AS email"
-                " FROM vendor_info WHERE vendor = ? LIMIT 1",
-                (vendor,),
-            )
-            row = result.fetchone()
-            if DB_BACKEND == "postgres":
-                conn.execute("RELEASE SAVEPOINT _gvi")
-        except Exception as e_col:
-            # account/email 컬럼 없는 환경 폴백
-            logger.warning(f"get_vendor_info 컬럼 폴백 ({vendor}): {e_col}")
-            if DB_BACKEND == "postgres":
-                try:
-                    conn.execute("ROLLBACK TO SAVEPOINT _gvi")
-                except Exception:
-                    pass
-            result = conn.execute(
-                "SELECT biz_name, rep, biz_no, address, contact,"
-                " COALESCE(stamp_path, '') AS stamp_path,"
-                " COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,"
-                " COALESCE(stamp_updated_by, '') AS stamp_updated_by"
-                " FROM vendor_info WHERE vendor = ? LIMIT 1",
-                (vendor,),
-            )
-            row = result.fetchone()
-
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT biz_name, rep, biz_no, address, contact,
+                   COALESCE(stamp_path, '') AS stamp_path,
+                   COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
+                   COALESCE(stamp_updated_by, '') AS stamp_updated_by
+              FROM vendor_info
+             WHERE vendor = ?
+             LIMIT 1
+            """,
+            (vendor,),
+        )
+        row = cur.fetchone()
+        conn.close()
         if not row:
-            return dict(_empty)
-        d = dict(row)
+            return {
+                "biz_name": str(vendor), "rep": "", "biz_no": "",
+                "address": "", "contact": "",
+                "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
+            }
         return {
-            "biz_name":          str(d.get("biz_name", "") or vendor),
-            "rep":               str(d.get("rep", "") or ""),
-            "biz_no":            str(d.get("biz_no", "") or ""),
-            "address":           str(d.get("address", "") or ""),
-            "contact":           str(d.get("contact", "") or ""),
-            "email":             str(d.get("email", "") or ""),
-            "account":           str(d.get("account", "") or ""),
-            "stamp_path":        str(d.get("stamp_path", "") or ""),
-            "stamp_uploaded_at": str(d.get("stamp_uploaded_at", "") or ""),
-            "stamp_updated_by":  str(d.get("stamp_updated_by", "") or ""),
+            "biz_name": row[0] or str(vendor),
+            "rep":      row[1] or "",
+            "biz_no":   row[2] or "",
+            "address":  row[3] or "",
+            "contact":  row[4] or "",
+            "stamp_path":        row[5] or "",
+            "stamp_uploaded_at": row[6] or "",
+            "stamp_updated_by":  row[7] or "",
         }
     except Exception as e:
         logger.error(f"get_vendor_info 실패 ({vendor}): {e}")
-        return dict(_empty)
-    finally:
-        conn.close()
+        return {
+            "biz_name": str(vendor), "rep": "", "biz_no": "",
+            "address": "", "contact": "",
+            "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
+        }
 
 
 def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
     """업체 직인 경로 저장.
-
-    2026-04-10 수정: 테이블/컬럼 보장 + 행이 없으면 INSERT 수행.
     stamp_path: /opt/zeroda-platform/storage/stamps/ 하위 절대경로
     updated_by: 로그인 사용자명
     """
@@ -2312,86 +2118,25 @@ def set_vendor_stamp(vendor: str, stamp_path: str, updated_by: str) -> bool:
         return False
     try:
         conn = get_db()
-
-        # ── 테이블 존재 보장 ──
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS vendor_info (
-                vendor   TEXT PRIMARY KEY,
-                biz_name TEXT DEFAULT '',
-                rep      TEXT DEFAULT '',
-                biz_no   TEXT DEFAULT '',
-                address  TEXT DEFAULT '',
-                contact  TEXT DEFAULT ''
-            )
-        """)
-        try:
-            if DB_BACKEND == "postgres":
-                conn.execute("SAVEPOINT _idx")
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_info_vendor "
-                "ON vendor_info(vendor)"
-            )
-            if DB_BACKEND == "postgres":
-                conn.execute("RELEASE SAVEPOINT _idx")
-        except Exception:
-            if DB_BACKEND == "postgres":
-                try:
-                    conn.execute("ROLLBACK TO SAVEPOINT _idx")
-                except Exception:
-                    pass
-
-        # ── stamp 관련 컬럼 보장 ──
-        # PostgreSQL: ALTER 실패 시 트랜잭션 abort → SAVEPOINT 필수
-        for col in ("stamp_path", "stamp_uploaded_at", "stamp_updated_by",
-                     "email", "account"):
-            try:
-                if DB_BACKEND == "postgres":
-                    conn.execute("SAVEPOINT _add_col")
-                conn.execute(
-                    f"ALTER TABLE vendor_info ADD COLUMN {col} TEXT DEFAULT ''"
-                )
-                if DB_BACKEND == "postgres":
-                    conn.execute("RELEASE SAVEPOINT _add_col")
-            except Exception:
-                if DB_BACKEND == "postgres":
-                    conn.execute("ROLLBACK TO SAVEPOINT _add_col")
-                pass  # 이미 존재
-
-        # ── 현재시각 ──
-        if DB_BACKEND == "postgres":
-            _now_expr = "NOW() AT TIME ZONE 'Asia/Seoul'"
-        else:
-            _now_expr = "datetime('now', 'localtime')"
-
-        # ── 기존 행 확인 ──
-        existing = conn.execute(
-            "SELECT 1 FROM vendor_info WHERE vendor = ? LIMIT 1",
-            (vendor,),
-        ).fetchone()
-
-        if existing:
-            conn.execute(
-                f"UPDATE vendor_info "
-                f"SET stamp_path = ?, stamp_uploaded_at = {_now_expr}, "
-                f"    stamp_updated_by = ? "
-                f"WHERE vendor = ?",
-                (stamp_path, updated_by, vendor),
-            )
-        else:
-            # 행이 없으면 INSERT (업체정보 미저장 상태에서 직인만 먼저 등록)
-            conn.execute(
-                f"INSERT INTO vendor_info "
-                f"(vendor, biz_name, stamp_path, stamp_uploaded_at, stamp_updated_by) "
-                f"VALUES (?, ?, ?, {_now_expr}, ?)",
-                (vendor, vendor, stamp_path, updated_by),
-            )
-
+        # PostgreSQL 현재시각 표현
+        _now_expr = "compat.datetime_now_localtime()"
+        result = conn.execute(
+            f"""
+            UPDATE vendor_info
+               SET stamp_path = ?,
+                   stamp_uploaded_at = {_now_expr},
+                   stamp_updated_by = ?
+             WHERE vendor = ?
+            """,
+            (stamp_path, updated_by, vendor),
+        )
         conn.commit()
+        # PgWrapper.execute() 는 rowcount 없으므로 True로 간주
+        ok = True
         conn.close()
-        logger.info("set_vendor_stamp OK: vendor=%s, path=%s", vendor, stamp_path)
-        return True
+        return ok
     except Exception as e:
-        logger.error("set_vendor_stamp 실패 (%s): %s", vendor, e)
+        logger.error(f"set_vendor_stamp 실패 ({vendor}): {e}")
         return False
 
 
@@ -2429,101 +2174,41 @@ def delete_biz_customer(vendor: str, biz_name: str) -> bool:
 
 
 def save_vendor_info(data: dict) -> bool:
-    """업체 기본 정보 저장 (vendor_info upsert).
-
-    2026-04-10 수정: vendor_info 테이블/UNIQUE 보장 + ON CONFLICT 실패 시
-    UPDATE 폴백으로 안전하게 저장.
-    """
-    vendor = str(data.get("vendor", "")).strip()
-    if not vendor:
-        logger.warning("save_vendor_info: vendor가 비어 있음 — 저장 중단")
+    """업체 기본 정보 저장 (vendor_info upsert)"""
+    ok = db_upsert(
+        "vendor_info",
+        {
+            "vendor":   str(data.get("vendor", "")),
+            "biz_name": str(data.get("biz_name", "")),
+            "rep":      str(data.get("rep", "")),
+            "biz_no":   str(data.get("biz_no", "")),
+            "address":  str(data.get("address", "")),
+            "contact":  str(data.get("contact", "")),
+        },
+        key_col="vendor",
+    )
+    if not ok:
         return False
-
-    biz_name = str(data.get("biz_name", ""))
-    rep      = str(data.get("rep", ""))
-    biz_no   = str(data.get("biz_no", ""))
-    address  = str(data.get("address", ""))
-    contact  = str(data.get("contact", ""))
-    email    = str(data.get("email", "") or "")
-    account  = str(data.get("account", "") or "")
-
+    # 추가 필드 (컬럼 없으면 무시 — 빈 값도 저장하여 지우기 가능)
     conn = get_db()
     try:
-        # ── 1) 테이블 존재 보장 ──
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS vendor_info (
-                vendor   TEXT PRIMARY KEY,
-                biz_name TEXT DEFAULT '',
-                rep      TEXT DEFAULT '',
-                biz_no   TEXT DEFAULT '',
-                address  TEXT DEFAULT '',
-                contact  TEXT DEFAULT ''
-            )
-        """)
-        # UNIQUE INDEX 보장 (구버전 DB: vendor가 PK가 아닐 수 있음)
-        try:
-            if DB_BACKEND == "postgres":
-                conn.execute("SAVEPOINT _idx")
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendor_info_vendor "
-                "ON vendor_info(vendor)"
-            )
-            if DB_BACKEND == "postgres":
-                conn.execute("RELEASE SAVEPOINT _idx")
-        except Exception:
-            if DB_BACKEND == "postgres":
-                try:
-                    conn.execute("ROLLBACK TO SAVEPOINT _idx")
-                except Exception:
-                    pass
-
-        # ── 2) email/account 컬럼 보장 ──
-        # PostgreSQL: ALTER 실패 시 트랜잭션 abort → SAVEPOINT 필수
         for col in ("email", "account"):
+            val = str(data.get(col, "") or "")
             try:
-                if DB_BACKEND == "postgres":
-                    conn.execute("SAVEPOINT _add_col")
-                conn.execute(f"ALTER TABLE vendor_info ADD COLUMN {col} TEXT DEFAULT ''")
-                if DB_BACKEND == "postgres":
-                    conn.execute("RELEASE SAVEPOINT _add_col")
-            except Exception:
-                if DB_BACKEND == "postgres":
-                    conn.execute("ROLLBACK TO SAVEPOINT _add_col")
-                pass  # 이미 존재하면 무시
-
-        # ── 3) 기존 행 존재 여부 확인 ──
-        existing = conn.execute(
-            "SELECT 1 FROM vendor_info WHERE vendor = ? LIMIT 1",
-            (vendor,),
-        ).fetchone()
-
-        if existing:
-            # UPDATE
-            conn.execute(
-                "UPDATE vendor_info SET biz_name=?, rep=?, biz_no=?, "
-                "address=?, contact=?, email=?, account=? WHERE vendor=?",
-                (biz_name, rep, biz_no, address, contact, email, account, vendor),
-            )
-        else:
-            # INSERT
-            conn.execute(
-                "INSERT INTO vendor_info "
-                "(vendor, biz_name, rep, biz_no, address, contact, email, account) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (vendor, biz_name, rep, biz_no, address, contact, email, account),
-            )
+                conn.execute(
+                    f"UPDATE vendor_info SET {col}=? WHERE vendor=?",
+                    (val, str(data.get("vendor", ""))),
+                )
+            except Exception as col_e:
+                # 컬럼이 없는 구버전 DB는 조용히 무시
+                logger.debug(f"save_vendor_info: 컬럼 {col} 미존재 — 무시: {col_e}")
         conn.commit()
-        logger.info("save_vendor_info OK: vendor=%s", vendor)
-        return True
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        print(f"[DB ERROR] save_vendor_info: {e}\n{tb}")
-        logger.warning("save_vendor_info 실패 (%s): %s\n%s", vendor, e, tb)
-        # 에러를 raise하여 호출측에서 구체적 원인 표시
-        raise RuntimeError(f"DB 저장 오류: {e}") from e
+        print(f"[DB ERROR] save_vendor_info: {e}")
+        logger.warning(f'Exception caught: {str(e)}')
     finally:
         conn.close()
+    return True
 
 
 def save_safety_education(data: dict) -> bool:
@@ -3250,7 +2935,6 @@ def get_all_vendor_info() -> list[dict]:
                 "contact":    str(d.get("contact", "") or ""),
                 "email":      str(d.get("email", "") or ""),
                 "vehicle_no": str(d.get("vehicle_no", "") or ""),
-                "account":    str(d.get("account", "") or ""),
             })
         return result
     except Exception as e:
@@ -3262,60 +2946,8 @@ def get_all_vendor_info() -> list[dict]:
 
 
 def save_hq_vendor_info(data: dict) -> bool:
-    """업체 정보 등록/수정 (본사관리자용).
-
-    2026-04-10 수정: db_upsert 대신 save_vendor_info 통일 사용.
-    - PG SAVEPOINT 트랜잭션 안전성 보장
-    - 테이블/컬럼 존재 자동 보장
-    - vehicle_no 등 추가 컬럼은 별도 UPDATE로 처리
-    """
-    vendor = str(data.get("vendor", "")).strip()
-    if not vendor:
-        return False
-
-    # vehicle_no는 save_vendor_info에서 처리하지 않으므로 별도 처리
-    vehicle_no = str(data.get("vehicle_no", "") or "")
-
-    # 공통 save_vendor_info로 핵심 정보 저장
-    try:
-        ok = save_vendor_info(data)
-    except Exception as e:
-        logger.warning(f"save_hq_vendor_info → save_vendor_info 실패: {e}")
-        return False
-
-    if not ok:
-        return False
-
-    # vehicle_no 별도 UPDATE (컬럼 보장 포함)
-    if vehicle_no:
-        conn = get_db()
-        try:
-            try:
-                if DB_BACKEND == "postgres":
-                    conn.execute("SAVEPOINT _vno")
-                conn.execute(
-                    "ALTER TABLE vendor_info ADD COLUMN vehicle_no TEXT DEFAULT ''"
-                )
-                if DB_BACKEND == "postgres":
-                    conn.execute("RELEASE SAVEPOINT _vno")
-            except Exception:
-                if DB_BACKEND == "postgres":
-                    try:
-                        conn.execute("ROLLBACK TO SAVEPOINT _vno")
-                    except Exception:
-                        pass
-
-            conn.execute(
-                "UPDATE vendor_info SET vehicle_no = ? WHERE vendor = ?",
-                (vehicle_no, vendor),
-            )
-            conn.commit()
-        except Exception as e:
-            logger.warning(f"save_hq_vendor_info vehicle_no 업데이트 실패: {e}")
-        finally:
-            conn.close()
-
-    return True
+    """업체 정보 등록/수정 (본사관리자용)"""
+    return db_upsert("vendor_info", data, key_col="vendor")
 
 
 def get_school_master_all() -> list[dict]:
@@ -5506,20 +5138,11 @@ def save_meal_schedule_drafts(site_name: str, dates: list) -> int:
 def _ensure_voice_aliases_col(conn) -> None:
     """customer_info 테이블에 voice_aliases 컬럼이 없으면 추가 (idempotent)"""
     try:
-        if DB_BACKEND == "postgres":
-            conn.execute("SAVEPOINT _add_col")
         conn.execute(
             "ALTER TABLE customer_info ADD COLUMN voice_aliases TEXT DEFAULT ''"
         )
-        if DB_BACKEND == "postgres":
-            conn.execute("RELEASE SAVEPOINT _add_col")
         conn.commit()
     except Exception:
-        if DB_BACKEND == "postgres":
-            try:
-                conn.execute("ROLLBACK TO SAVEPOINT _add_col")
-            except Exception:
-                pass
         pass  # 이미 존재하면 무시
 
 
@@ -5716,4 +5339,4 @@ def get_nearby_customers(
             candidates.append({"name": c["name"], "distance_m": round(dist, 1)})
 
     candidates.sort(key=lambda x: x["distance_m"])
-    return can
+    return candidates[:limit]
