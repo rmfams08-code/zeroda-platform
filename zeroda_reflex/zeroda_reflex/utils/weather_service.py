@@ -50,12 +50,39 @@ GRID_MAP = {
 DEFAULT_GRID = (57, 119)  # 화성시 기본
 
 
-def grid_to_region(nx: int, ny: int) -> str:
-    """격자 좌표 (nx, ny) → 가장 가까운 지역명 반환 (유클리드 거리)"""
+# ── 지역 대표 위경도 (위치명 매칭용) ──
+REGION_CENTERS = {
+    "화성": (37.1994, 126.8313),
+    "오산": (37.1498, 127.0773),
+    "수원": (37.2636, 127.0286),
+    "서울": (37.5665, 126.9780),
+    "인천": (37.4563, 126.7052),
+    "평택": (36.9921, 127.1129),
+    "안양": (37.3943, 126.9568),
+    "안산": (37.3219, 126.8309),
+    "시흥": (37.3800, 126.8030),
+    "광명": (37.4786, 126.8664),
+    "군포": (37.3614, 126.9352),
+    "의왕": (37.3449, 126.9685),
+    "용인": (37.2411, 127.1776),
+    "성남": (37.4200, 127.1267),
+    "과천": (37.4292, 126.9876),
+    "서초": (37.4837, 127.0324),
+    "강남": (37.5173, 127.0473),
+    "동작": (37.5124, 126.9393),
+    "관악": (37.4784, 126.9516),
+    "금천": (37.4568, 126.8955),
+    "영등포": (37.5264, 126.8963),
+    "구로": (37.4954, 126.8874),
+}
+
+
+def coords_to_region(lat: float, lon: float) -> str:
+    """위경도 → 가장 가까운 지역명 반환 (위경도 유클리드 거리)"""
     best_name = "화성"
     best_dist = float("inf")
-    for name, (gx, gy) in GRID_MAP.items():
-        dist = (nx - gx) ** 2 + (ny - gy) ** 2
+    for name, (clat, clon) in REGION_CENTERS.items():
+        dist = (lat - clat) ** 2 + (lon - clon) ** 2
         if dist < best_dist:
             best_dist = dist
             best_name = name
@@ -348,10 +375,11 @@ def fetch_today_weather_alert(
         except Exception as e:
             logger.warning(f"위경도→격자 변환 실패: {e}")
 
-    # 격자 좌표 → 지역명 결정
-    _used_nx = nx if nx is not None else DEFAULT_GRID[0]
-    _used_ny = ny if ny is not None else DEFAULT_GRID[1]
-    location = grid_to_region(_used_nx, _used_ny)
+    # 위경도 → 지역명 결정 (lat/lon 없으면 기본값 "화성")
+    if lat is not None and lon is not None:
+        location = coords_to_region(lat, lon)
+    else:
+        location = "화성"
 
     # ── 1차: 초단기실황 (실시간) ──
     rt = fetch_ultra_srt_ncst(nx, ny)
