@@ -300,6 +300,160 @@ def convert_to_pdf(hwpx_path: str, output_pdf_path: str, timeout: int = 120) -> 
 
 
 # ══════════════════════════════════════════
+#  5) 셀 좌표 기반 자동채움 (Phase 2 — 2026-04-10)
+# ══════════════════════════════════════════
+
+HP_TBL = f"{{{NS['hp']}}}tbl"
+HP_TR = f"{{{NS['hp']}}}tr"
+HP_TC = f"{{{NS['hp']}}}tc"
+HP_T = f"{{{NS['hp']}}}t"
+
+
+def fill_by_cell_map(
+    hwpx_path: str,
+    cell_map: dict[tuple[int, int, int], str],
+    data: dict[str, str],
+    output_path: str,
+) -> dict[str, str]:
+    """테이블 셀 좌표 기반으로 값을 채워 넣음.
+
+    Args:
+        hwpx_path  : 원본 hwpx 경로
+        cell_map   : {(테이블idx, 행idx, 열idx): 데이터키, ...}
+                     form_field_config.py의 CELL_MAP_* 사용
+        data       : {데이터키: 채울값, ...}
+        output_path: 결과 hwpx 저장 경로
+
+    Returns:
+        실제로 채워진 {데이터키: 이전값} — 디버깅/로그용
+
+    동작 원리:
+        1. section0.xml 파싱 → <hp:tbl> 목록 추출
+        2. (테이블idx, 행idx, 열idx)로 <hp:tc> 셀 특정
+        3. 셀 내 첫 번째 <hp:t> 텍스트를 기존값 삭제 후 새 값으로 교체
+        4. <hp:t>가 없으면 새로 생성
+        5. 수정된 XML을 새 hwpx로 저장 (나머지 파일은 그대로 복사)
+    """
+    sections = _read_all_sections(hwpx_path)
+    replaced_log: dict[str, str] = {}  # key → 이전값
+
+    for sec_name, xml_str in sections.items():
+        try:
+            root = ET.fromstring(xml_str)
+        except ET.ParseError as e:
+            logger.error("fill_by_cell_map: XML 파싱 실패 %s: %s", sec_name, e)
+            continue
+
+        tables = root.findall(".//" + HP_TBL)
+
+        for (tbl_i, row_i, col_i), data_key in cell_map.items():
+            if data_key not in data:
+                continue  # 데이터 없으면 스킵
+            if tbl_i >= len(tables):
+                logger.warning(
+                    "fill_by_cell_map: 테이블%d 없음 (총 %d개)", tbl_i, len(tables)
+                )
+                continue
+
+            tbl = tables[tbl_i]
+            rows = tbl.findall(HP_TR)
+            if row_i >= len(rows):
+                logger.warning(
+                    "fill_by_cell_map: 테이블%d 행%d 없음 (총 %d행)",
+                    tbl_i, row_i, len(rows),
+                )
+                continue
+
+            cells = rows[row_i].findall(HP_TC)
+            if col_i >= len(cells):
+                logger.warning(
+                    "fill_by_cell_map: 테이블%d 행%d 열%d 없음 (총 %d열)",
+                    tbl_i, row_i, col_i, len(cells),
+                )
+                continue
+
+            cell = cells[col_i]
+            new_val = str(data[data_key])
+            # XML 특수문자 이스케이프
+            safe_val = (
+                new_val.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+
+            # 셀 내 첫 번째 <hp:t> 찾기
+            hp_t_list = list(cell.iter(HP_T))
+            if hp_t_list:
+                old_val = hp_t_list[0].text or ""
+                replaced_log[data_key] = old_val
+                hp_t_list[0].text = new_val
+                # 나머지 <hp:t>는 비우기 (기존 데이터 잔존 방지)
+                for extra_t in hp_t_list[1:]:
+                    extra_t.text = ""
+            else:
+                # <hp:t>가 없는 경우 — 셀 내 첫 <hp:p> 아래에 생성
+                replaced_log[data_key] = ""
+                hp_p_list = list(cell.iter(f"{{{NS['hp']}}}p"))
+                if hp_p_list:
+                    # <hp:run> 아래에 <hp:t> 추가
+                    hp_run_list = list(hp_p_list[0].iter(f"{{{NS['hp']}}}run"))
+                    if hp_run_list:
+                        new_t = ET.SubElement(hp_run_list[0], HP_T)
+                        new_t.text = new_val
+                    else:
+                        # <hp:run>도 없으면 간단히 텍스트 추가 시도
+                        logger.warning(
+                            "fill_by_cell_map: 테이블%d 행%d 열%d — hp:run 없음, 건너뜀",
+                            tbl_i, row_i, col_i,
+                        )
+
+        # 수정된 XML 직렬화
+        sections[sec_name] = ET.tostring(root, encoding="unicode", xml_declaration=False)
+
+    _write_hwpx(hwpx_path, output_path, sections)
+    logger.info(
+        "fill_by_cell_map: %s → %s, %d셀 채움",
+        hwpx_path, output_path, len(replaced_log),
+    )
+    return replaced_log
+
+
+def fill_body_text(
+    hwpx_path: str,
+    replacements: dict[str, str],
+    output_path: str,
+) -> int:
+    """본문 <hp:t> 텍스트 내 키워드를 치환.
+
+    Args:
+        replacements: {찾을문자열: 바꿀문자열}
+        (테이블이 아닌 본문 영역 — 예: 배출장소, 계약기간 등)
+
+    Returns:
+        치환 횟수
+    """
+    sections = _read_all_sections(hwpx_path)
+    total = 0
+
+    for sec_name, xml_str in sections.items():
+        for old, new in replacements.items():
+            safe_new = (
+                new.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            count = xml_str.count(old)
+            if count > 0:
+                xml_str = xml_str.replace(old, safe_new)
+                total += count
+        sections[sec_name] = xml_str
+
+    _write_hwpx(hwpx_path, output_path, sections)
+    logger.info("fill_body_text: %d건 치환", total)
+    return total
+
+
+# ══════════════════════════════════════════
 #  디버그 헬퍼 — 양식 내부 텍스트 덤프
 # ══════════════════════════════════════════
 

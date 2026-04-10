@@ -3,8 +3,9 @@
 import reflex as rx
 from zeroda_reflex.state.vendor_state import VendorState
 from zeroda_reflex.state.auth_state import AuthState, get_year_options, MONTH_OPTIONS
-# ── 문서서비스 패널 (2026-04-10 사이드바 메뉴 추가) ──
-from zeroda_reflex.pages.vendor_documents import _vendor_doc_center_panel
+# ── 문서서비스 패널 — 시스템A 통합 (2026-04-10 Phase6) ──
+# System C (vendor_documents) 비활성화 → System A (document_service_hq) 공유
+from zeroda_reflex.pages.document_service_hq import doc_service_vendor_panel
 # ── 공통 컴포넌트 import (Phase 0-A 모듈화) ──
 from zeroda_reflex.components.shared import (
     kpi_card_icon_box as _kpi_card,           # 업체관리자는 아이콘박스형 KPI
@@ -4419,7 +4420,7 @@ def _tab_content() -> rx.Component:
                                     _photo_tab(),
                                     rx.cond(
                                         VendorState.active_tab == "문서서비스",
-                                        _vendor_doc_center_panel(),
+                                        doc_service_vendor_panel(),
                                         _settings_tab(),
                                     ),
                                 ),

@@ -582,6 +582,23 @@ def ensure_document_service_tables() -> None:
                 output_format   TEXT DEFAULT 'pdf'
             )
         """)
+        # Phase 5: 중간처리업체(재활용업체) 정보 테이블
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS mid_processor (
+                id              {_auto},
+                name            TEXT NOT NULL,
+                biz_no          TEXT,
+                rep             TEXT,
+                address         TEXT,
+                phone           TEXT,
+                license_no      TEXT,
+                biz_type        TEXT,
+                corp_no         TEXT,
+                fax             TEXT,
+                is_default      INTEGER DEFAULT 0,
+                created_at      TEXT
+            )
+        """)
         # 조회 성능용 인덱스
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_doc_issue_vendor "
@@ -594,6 +611,10 @@ def ensure_document_service_tables() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_doc_tpl_active "
             "ON document_templates(is_active)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mid_processor_default "
+            "ON mid_processor(is_default)"
         )
         conn.commit()
     except Exception as e:
@@ -5695,4 +5716,4 @@ def get_nearby_customers(
             candidates.append({"name": c["name"], "distance_m": round(dist, 1)})
 
     candidates.sort(key=lambda x: x["distance_m"])
-    return candidates[:limit]
+    return can

@@ -187,7 +187,7 @@ class AdminState(AuthState):
     selected_month: str = str(datetime.now().month)
 
     # ══════════════════════════════
-    #  문서서비스 (2026-04-10 신규)
+    #  문서서비스 (2026-04-10 Phase 3 리팩토링)
     # ══════════════════════════════
     doc_sub_tab: str = "문서발급"
     # 양식관리
@@ -196,37 +196,27 @@ class AdminState(AuthState):
     doc_upload_category: str = "2자계약서"
     doc_upload_msg: str = ""
     doc_upload_ok: bool = False
-    # 문서발급
+    # 문서발급 — 양식/거래처 선택
     doc_selected_template_id: int = 0
     doc_selected_customer_id: int = 0
     doc_selected_category: str = ""
     doc_customer_query: str = ""
     doc_customer_candidates: list[dict] = []
-    # 선택된 거래처 상세 + 외주업체(수집운반) 정보 (2026-04-10 추가)
     doc_selected_customer_info: dict = {}
     doc_vendor_info: dict = {}
-    # 신규거래처 직접입력 모드 (2026-04-10 추가)
-    doc_new_customer_mode: bool = False  # True=신규직접입력, False=기존검색
-    doc_new_cust_name: str = ""          # 상호명
-    doc_new_cust_bizno: str = ""         # 사업자번호
-    doc_new_cust_rep: str = ""           # 대표자
-    doc_new_cust_address: str = ""       # 주소
-    doc_new_cust_phone: str = ""         # 연락처
-    doc_new_cust_type: str = ""          # 업종
-    doc_extra_start: str = ""
-    doc_extra_end: str = ""
-    doc_extra_memo: str = ""
-    # 양식별 동적 입력 필드 (2026-04-10 추가)
-    doc_extra_waste_type: str = ""       # 폐기물 종류
-    doc_extra_treatment: str = ""        # 처리방법
-    doc_extra_quantity: str = ""         # 처리량/예상수거량(톤)
-    doc_extra_unit_price: str = ""       # 처리단가(원/kg)
-    doc_extra_frequency: str = ""        # 수거주기
-    doc_extra_mid_company: str = ""      # 중간처리업체명 (3자계약서)
-    doc_extra_mid_bizno: str = ""        # 중간처리업체 사업자번호 (3자계약서)
-    doc_extra_mid_method: str = ""       # 중간처리방법 (3자계약서)
-    doc_extra_quote_date: str = ""       # 견적일자 (견적서)
-    doc_extra_valid_period: str = ""     # 유효기간 (견적서)
+    # 중간처리업체 정보 (Phase 5 — mid_processor 테이블)
+    doc_processor_info: dict = {}
+    # 신규거래처 직접입력 모드
+    doc_new_customer_mode: bool = False
+    doc_new_cust_name: str = ""
+    doc_new_cust_bizno: str = ""
+    doc_new_cust_rep: str = ""
+    doc_new_cust_address: str = ""
+    doc_new_cust_phone: str = ""
+    doc_new_cust_type: str = ""
+    # ── 통합 폼 데이터 (Phase 3: 개별 변수 50개 → dict 1개) ──
+    doc_form_data: dict = {}
+    # 발급 상태
     doc_issue_msg: str = ""
     doc_issue_ok: bool = False
     doc_last_issued_pdf: str = ""
@@ -869,46 +859,50 @@ class AdminState(AuthState):
         self.doc_upload_msg = ""
         self.doc_issue_msg = ""
         try:
-            from ..utils.database import get_db
+            from ..utils.database import get_db, DB_BACKEND
             conn = get_db()
-            # 활성 양식 목록
-            tpl_rows = conn.execute(
-                "SELECT id, template_name, category, file_path, tag_list, "
-                "created_by, created_at FROM document_templates "
-                "WHERE is_active = 1 ORDER BY id DESC"
-            ).fetchall()
-            self.doc_templates = []
-            for r in tpl_rows:
-                d = dict(r)
-                self.doc_templates.append({
-                    "id": d.get("id"),
-                    "template_name": d.get("template_name") or "",
-                    "category": d.get("category") or "",
-                    "file_path": d.get("file_path") or "",
-                    "tag_list": d.get("tag_list") or "",
-                    "created_by": d.get("created_by") or "",
-                    "created_at": d.get("created_at") or "",
-                })
-            # 최근 발급이력 (최근 100건)
-            log_rows = conn.execute(
-                "SELECT id, vendor, template_name, customer_name, issued_by, "
-                "issued_at, file_path, issue_number FROM document_issue_log "
-                "ORDER BY id DESC LIMIT 100"
-            ).fetchall()
-            self.doc_issue_log = []
-            for r in log_rows:
-                d = dict(r)
-                self.doc_issue_log.append({
-                    "id": d.get("id"),
-                    "vendor": d.get("vendor") or "",
-                    "template_name": d.get("template_name") or "",
-                    "customer_name": d.get("customer_name") or "",
-                    "issued_by": d.get("issued_by") or "",
-                    "issued_at": d.get("issued_at") or "",
-                    "file_path": d.get("file_path") or "",
-                    "issue_number": d.get("issue_number") or "",
-                })
-            conn.close()
+            try:
+                # PG 호환: is_active = 1 (SQLite) / is_active = TRUE (PG)
+                _active_cond = "is_active = TRUE" if DB_BACKEND == "postgres" else "is_active = 1"
+                # 활성 양식 목록
+                tpl_rows = conn.execute(
+                    "SELECT id, template_name, category, file_path, tag_list, "
+                    "created_by, created_at FROM document_templates "
+                    f"WHERE {_active_cond} ORDER BY id DESC"
+                ).fetchall()
+                self.doc_templates = []
+                for r in tpl_rows:
+                    d = dict(r)
+                    self.doc_templates.append({
+                        "id": d.get("id"),
+                        "template_name": d.get("template_name") or "",
+                        "category": d.get("category") or "",
+                        "file_path": d.get("file_path") or "",
+                        "tag_list": d.get("tag_list") or "",
+                        "created_by": d.get("created_by") or "",
+                        "created_at": d.get("created_at") or "",
+                    })
+                # 최근 발급이력 (최근 100건)
+                log_rows = conn.execute(
+                    "SELECT id, vendor, template_name, customer_name, issued_by, "
+                    "issued_at, file_path, issue_number FROM document_issue_log "
+                    "ORDER BY id DESC LIMIT 100"
+                ).fetchall()
+                self.doc_issue_log = []
+                for r in log_rows:
+                    d = dict(r)
+                    self.doc_issue_log.append({
+                        "id": d.get("id"),
+                        "vendor": d.get("vendor") or "",
+                        "template_name": d.get("template_name") or "",
+                        "customer_name": d.get("customer_name") or "",
+                        "issued_by": d.get("issued_by") or "",
+                        "issued_at": d.get("issued_at") or "",
+                        "file_path": d.get("file_path") or "",
+                        "issue_number": d.get("issue_number") or "",
+                    })
+            finally:
+                conn.close()
         except Exception as e:
             self.doc_upload_msg = f"문서서비스 로드 실패: {e}"
             self.doc_upload_ok = False
@@ -932,20 +926,19 @@ class AdminState(AuthState):
             if t.get("id") == self.doc_selected_template_id:
                 self.doc_selected_category = t.get("category", "")
                 break
-        # 양식 변경 시 동적 필드 초기화
-        self.doc_extra_start = ""
-        self.doc_extra_end = ""
-        self.doc_extra_memo = ""
-        self.doc_extra_waste_type = ""
-        self.doc_extra_treatment = ""
-        self.doc_extra_quantity = ""
-        self.doc_extra_unit_price = ""
-        self.doc_extra_frequency = ""
-        self.doc_extra_mid_company = ""
-        self.doc_extra_mid_bizno = ""
-        self.doc_extra_mid_method = ""
-        self.doc_extra_quote_date = ""
-        self.doc_extra_valid_period = ""
+        # 양식 변경 시 폼 데이터 초기화 (Phase 3: dict 통합)
+        # Phase 4: 카테고리별 필드 키를 기본값으로 미리 채움
+        #   → UI에서 doc_form_data[key].to(str) 접근 시 undefined 방지
+        from ..utils.form_field_config import FORM_FIELDS as _FF
+        cat = self.doc_selected_category
+        init_data: dict = {}
+        if cat in _FF:
+            for sec in _FF[cat].get("sections", []):
+                for fld in sec.get("fields", []):
+                    init_data[fld["key"]] = fld.get("default", "")
+        self.doc_form_data = init_data
+        # 중간처리업체 정보 자동 로드
+        self._load_processor_info()
 
     def set_doc_selected_customer(self, cust_id):
         try:
@@ -1007,6 +1000,8 @@ class AdminState(AuthState):
                 "rep": "", "biz_no": "", "address": "",
                 "contact": "", "account": "", "license_no": "",
             }
+        # 중간처리업체 로드 (Phase 5)
+        self._load_processor_info()
 
     def set_doc_customer_query(self, q: str):
         self.doc_customer_query = q
@@ -1051,45 +1046,184 @@ class AdminState(AuthState):
     def set_doc_new_cust_type(self, v: str):
         self.doc_new_cust_type = v
 
-    def set_doc_extra_start(self, v: str):
-        self.doc_extra_start = v
+    # ── Phase 3: 통합 폼 필드 setter ──
+    def set_doc_form_field(self, key_value: str):
+        """범용 setter — 'key::value' 형식으로 전달받아 doc_form_data에 저장.
 
-    def set_doc_extra_end(self, v: str):
-        self.doc_extra_end = v
+        Reflex on_change는 단일 str만 전달 가능하므로
+        UI에서 lambda v: AdminState.set_doc_form_field(key + '::' + v) 형태로 호출.
+        """
+        if "::" in key_value:
+            key, val = key_value.split("::", 1)
+            new_data = dict(self.doc_form_data)
+            new_data[key] = val
+            self.doc_form_data = new_data
 
-    def set_doc_extra_memo(self, v: str):
-        self.doc_extra_memo = v
+    def _load_processor_info(self):
+        """중간처리업체(재활용업체) 정보를 mid_processor 테이블에서 로드."""
+        self.doc_processor_info = {}
+        try:
+            from ..utils.database import get_db
+            conn = get_db()
+            try:
+                row = conn.execute(
+                    "SELECT name, biz_no, rep, address, phone, "
+                    "license_no, biz_type, corp_no, fax "
+                    "FROM mid_processor WHERE is_default = 1 LIMIT 1"
+                ).fetchone()
+                if row:
+                    d = dict(row)
+                    self.doc_processor_info = {
+                        "name": str(d.get("name") or ""),
+                        "biz_no": str(d.get("biz_no") or ""),
+                        "rep": str(d.get("rep") or ""),
+                        "address": str(d.get("address") or ""),
+                        "phone": str(d.get("phone") or ""),
+                        "license_no": str(d.get("license_no") or ""),
+                        "biz_type": str(d.get("biz_type") or ""),
+                        "corp_no": str(d.get("corp_no") or ""),
+                        "fax": str(d.get("fax") or ""),
+                    }
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning("_load_processor_info 실패: %s", e)
 
-    # ── 양식별 동적 필드 setter (2026-04-10 추가) ──
-    def set_doc_extra_waste_type(self, v: str):
-        self.doc_extra_waste_type = v
+    def build_fill_data(self) -> dict:
+        """doc_form_data + DB 자동채움 데이터를 합쳐서 hwpx 채움용 dict 생성."""
+        from ..utils.form_field_config import (
+            CUSTOMER_TO_EMITTER, VENDOR_TO_TRANSPORTER, PROCESSOR_TO_FIELDS,
+        )
+        result = dict(self.doc_form_data)
 
-    def set_doc_extra_treatment(self, v: str):
-        self.doc_extra_treatment = v
+        # 배출자 ← customer_info
+        ci = self.doc_selected_customer_info
+        if ci:
+            for fill_key, db_col in CUSTOMER_TO_EMITTER.items():
+                if fill_key not in result or not result[fill_key]:
+                    result[fill_key] = str(ci.get(db_col) or ci.get("customer_name", "") if db_col == "name" else ci.get(db_col, ""))
 
-    def set_doc_extra_quantity(self, v: str):
-        self.doc_extra_quantity = v
+        # 수집운반자 ← vendor_info
+        vi = self.doc_vendor_info
+        if vi:
+            for fill_key, db_col in VENDOR_TO_TRANSPORTER.items():
+                if fill_key not in result or not result[fill_key]:
+                    if db_col == "음식물류폐기물":
+                        result[fill_key] = "음식물류폐기물"
+                    else:
+                        result[fill_key] = str(vi.get(db_col, ""))
 
-    def set_doc_extra_unit_price(self, v: str):
-        self.doc_extra_unit_price = v
+        # 중간처리업체 ← mid_processor
+        pi = self.doc_processor_info
+        if pi:
+            for fill_key, db_col in PROCESSOR_TO_FIELDS.items():
+                if fill_key not in result or not result[fill_key]:
+                    result[fill_key] = str(pi.get(db_col, ""))
 
-    def set_doc_extra_frequency(self, v: str):
-        self.doc_extra_frequency = v
+        # 대표자 뒤에 (인) 붙이기
+        for rep_key in ("emitter_rep", "transporter_rep", "processor_rep"):
+            v = result.get(rep_key, "")
+            if v and "(인)" not in v:
+                result[rep_key] = v + "(인)"
 
-    def set_doc_extra_mid_company(self, v: str):
-        self.doc_extra_mid_company = v
+        return result
 
-    def set_doc_extra_mid_bizno(self, v: str):
-        self.doc_extra_mid_bizno = v
+    async def issue_hwpx_document(self):
+        """양식 선택 + 폼 데이터 → hwpx 셀 채움 → PDF 변환 → DB 기록."""
+        import os as _os
+        from datetime import datetime as _dt
+        from ..utils.form_field_config import CATEGORY_CELL_MAP
+        from ..utils.hwpx_engine import fill_by_cell_map, convert_to_pdf
+        from ..utils.database import get_db
 
-    def set_doc_extra_mid_method(self, v: str):
-        self.doc_extra_mid_method = v
+        if not self.doc_selected_template_id:
+            self.doc_issue_msg = "양식을 먼저 선택하세요."
+            self.doc_issue_ok = False
+            return
+        if not self.doc_selected_customer_id and not self.doc_new_customer_mode:
+            self.doc_issue_msg = "거래처를 선택하세요."
+            self.doc_issue_ok = False
+            return
 
-    def set_doc_extra_quote_date(self, v: str):
-        self.doc_extra_quote_date = v
+        # 양식 file_path 조회
+        tpl_row = None
+        for t in self.doc_templates:
+            if t.get("id") == self.doc_selected_template_id:
+                tpl_row = t
+                break
+        if not tpl_row or not tpl_row.get("file_path"):
+            self.doc_issue_msg = "양식 파일 경로를 찾을 수 없습니다."
+            self.doc_issue_ok = False
+            return
 
-    def set_doc_extra_valid_period(self, v: str):
-        self.doc_extra_valid_period = v
+        hwpx_src = tpl_row["file_path"]
+        category = tpl_row.get("category", "")
+        cell_map = CATEGORY_CELL_MAP.get(category, {})
+
+        if not cell_map:
+            self.doc_issue_msg = f"카테고리 '{category}'에 대한 셀 매핑이 없습니다."
+            self.doc_issue_ok = False
+            return
+
+        # 자동채움 데이터 빌드
+        fill_data = self.build_fill_data()
+
+        # 출력 경로
+        base_dir = _os.environ.get("ZERODA_UPLOAD_DIR", "/opt/zeroda-platform/uploads")
+        out_dir = _os.path.join(base_dir, "issued")
+        _os.makedirs(out_dir, exist_ok=True)
+
+        stamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+        cust_name = fill_data.get("emitter_name", "unknown")
+        safe_cust = cust_name.replace("/", "_").replace(" ", "_")[:20]
+        issue_number = f"{category}_{stamp}_{safe_cust}"
+
+        hwpx_out = _os.path.join(out_dir, f"{issue_number}.hwpx")
+        pdf_out = _os.path.join(out_dir, f"{issue_number}.pdf")
+
+        try:
+            # hwpx 셀 채움
+            fill_by_cell_map(hwpx_src, cell_map, fill_data, hwpx_out)
+
+            # PDF 변환
+            pdf_ok = convert_to_pdf(hwpx_out, pdf_out)
+
+            # DB 기록
+            conn = get_db()
+            try:
+                conn.execute(
+                    "INSERT INTO document_issue_log "
+                    "(vendor, template_id, template_name, customer_id, customer_name, "
+                    "issued_by, issued_at, file_path, issue_number) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        self.user_vendor or "하영자원",
+                        self.doc_selected_template_id,
+                        tpl_row.get("template_name", ""),
+                        self.doc_selected_customer_id,
+                        cust_name,
+                        self.user_id or "admin",
+                        _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        pdf_out if pdf_ok else hwpx_out,
+                        issue_number,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            if pdf_ok:
+                self.doc_issue_msg = f"발급 완료: {issue_number}"
+                self.doc_last_issued_pdf = pdf_out
+            else:
+                self.doc_issue_msg = f"hwpx 저장 완료 (PDF 변환 실패 — libreoffice 확인 필요): {issue_number}"
+                self.doc_last_issued_pdf = hwpx_out
+            self.doc_issue_ok = True
+            self.load_doc_service()
+
+        except Exception as e:
+            self.doc_issue_msg = f"발급 실패: {e}"
+            self.doc_issue_ok = False
 
     def search_doc_customers(self):
         """거래처 후보 조회 (상호/사업자번호 LIKE 검색).
@@ -1288,24 +1422,9 @@ class AdminState(AuthState):
                     }
                     break
         conn.close()
-        extra = {
-            "계약기간_시작": self.doc_extra_start,
-            "계약기간_종료": self.doc_extra_end,
-            "확인기간_시작": self.doc_extra_start,
-            "확인기간_종료": self.doc_extra_end,
-            "특약사항": self.doc_extra_memo,
-            # 양식별 동적 필드 (2026-04-10 추가)
-            "폐기물종류": self.doc_extra_waste_type,
-            "처리방법": self.doc_extra_treatment,
-            "처리량": self.doc_extra_quantity,
-            "처리단가": self.doc_extra_unit_price,
-            "수거주기": self.doc_extra_frequency,
-            "중간처리업체명": self.doc_extra_mid_company,
-            "중간처리업체_사업자번호": self.doc_extra_mid_bizno,
-            "중간처리방법": self.doc_extra_mid_method,
-            "견적일자": self.doc_extra_quote_date,
-            "유효기간": self.doc_extra_valid_period,
-        }
+        # Phase 4: doc_form_data 통합 dict에서 extra 구성
+        fd = self.doc_form_data or {}
+        extra = dict(fd)  # 전체 폼 데이터 복사
         return template_row, customer_row, extra, (template_row.get("file_path") or "")
 
     def _get_vendor_info(self) -> dict:
@@ -1342,7 +1461,7 @@ class AdminState(AuthState):
             }
 
     def preview_document(self):
-        """미리보기 — 현재는 태그 치환 결과 요약 메시지만."""
+        """미리보기 — build_fill_data로 채움 데이터를 구성하고 요약 메시지 출력."""
         if not self.doc_selected_template_id:
             self.doc_issue_msg = "양식을 먼저 선택하세요."
             self.doc_issue_ok = False
@@ -1357,24 +1476,19 @@ class AdminState(AuthState):
             self.doc_issue_ok = False
             return
         try:
-            from ..utils.document_mapper import build_template_data
-            tpl, cust, extra, _ = self._build_issue_data()
-            vendor = self._get_vendor_info()
-            data = build_template_data(
-                category=tpl.get("category", ""),
-                customer_row=cust,
-                vendor_row=vendor,
-                issuer=self.user_id or "admin",
-                extra=extra,
-            )
+            data = self.build_fill_data()
             filled = sum(1 for v in data.values() if v)
+            total = len(data)
+            cat = self.doc_selected_category or "양식"
+            cust_name = data.get("emitter_name", "")
             self.doc_issue_msg = (
-                f"미리보기 OK — 양식: {tpl.get('template_name')} / "
-                f"거래처: {cust.get('customer_name')} / 채워진 태그: {filled}개"
+                "미리보기 OK — 양식: " + cat + " / "
+                "거래처: " + cust_name + " / "
+                "채워진 필드: " + str(filled) + "/" + str(total) + "개"
             )
             self.doc_issue_ok = True
         except Exception as e:
-            self.doc_issue_msg = f"미리보기 실패: {e}"
+            self.doc_issue_msg = "미리보기 실패: " + str(e)
             self.doc_issue_ok = False
 
     def issue_document(self):
@@ -4401,15 +4515,10 @@ class AdminState(AuthState):
                 "GROUP BY username ORDER BY fired DESC",
                 (f"-{days} days",),
             )
-            rows = []
-            for r in cur.fetchall():
-                d = dict(r)
-                fired = int(d.get("fired") or 0)
-                succ = int(d.get("success") or 0)
-                d["accuracy"] = f"{(succ * 100 / fired):.1f}%" if fired else "-"
-                rows.append(d)
-            self.wake_stats_rows = rows
-        except Exception:
+            rows = cur.fetchall()
+            self.wake_stats_rows = [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning("load_wake_stats 실패: %s", e)
             self.wake_stats_rows = []
         finally:
             conn.close()
