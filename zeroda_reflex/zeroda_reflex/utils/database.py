@@ -33,6 +33,65 @@ WASTE_REDUCTION_RATE = 0.1       # 잔반감축 목표 비율 (10%)
 
 
 # ══════════════════════════════════════════
+#  SQL 인젝션 방어 — 테이블/컬럼명 화이트리스트
+# ══════════════════════════════════════════
+
+_ALLOWED_TABLES = frozenset({
+    "users", "customer_info", "biz_customers", "real_collection",
+    "processing_confirm", "daily_safety_check", "safety_checklist",
+    "safety_education", "driver_checkout", "photo_records",
+    "schedules", "vendor_info", "school_master", "school_zone_violations",
+    "safety_scores", "accident_report", "driver_auth_tokens",
+    "meal_schedules", "doc_templates", "doc_issue_log",
+})
+
+_ALLOWED_COLUMNS = frozenset({
+    # users
+    "user_id", "pw_hash", "role", "name", "vendor", "schools",
+    "edu_office", "is_active", "approval_status", "status",
+    "pending_vendor", "pending_school_name",
+    "neis_edu_pending", "neis_school_pending",
+    # customer_info
+    "cust_type", "price_food", "price_recycle", "price_general",
+    "address", "phone", "biz_no", "ceo", "fixed_fee", "email",
+    "neis_edu_code", "neis_school_code", "rep", "addr",
+    "cust_phone", "cust_email", "tax_type",
+    # real_collection
+    "school_name", "collect_date", "item_type", "weight", "driver",
+    "memo", "vehicle_no",
+    # processing_confirm
+    "confirm_date", "total_weight",
+    # schedules
+    "month", "day_schedule",
+    # vendor_info
+    "account", "biz_name", "contact",
+    # 공통
+    "id", "vendor", "created_at", "updated_at",
+})
+
+
+def _check_table(table: str) -> str:
+    """테이블명 화이트리스트 검증. 실패 시 ValueError."""
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"허용되지 않은 테이블명: {table}")
+    return table
+
+
+def _check_column(col: str) -> str:
+    """컬럼명 화이트리스트 검증. 실패 시 ValueError."""
+    if col not in _ALLOWED_COLUMNS:
+        raise ValueError(f"허용되지 않은 컬럼명: {col}")
+    return col
+
+
+def _check_columns(cols: dict | list) -> None:
+    """딕셔너리 키 또는 리스트의 모든 컬럼명 검증."""
+    keys = cols.keys() if isinstance(cols, dict) else cols
+    for k in keys:
+        _check_column(k)
+
+
+# ══════════════════════════════════════════
 #  PostgreSQL 어댑터
 #  - psycopg 커넥션 풀 + 호환 인터페이스
 # ══════════════════════════════════════════
@@ -163,6 +222,9 @@ def get_db():
 
 def db_get(table: str, where: dict = None) -> list[dict]:
     """테이블에서 조건에 맞는 행 조회"""
+    _check_table(table)
+    if where:
+        _check_columns(where)
     conn = get_db()
     try:
         if where:
@@ -183,6 +245,8 @@ def db_get(table: str, where: dict = None) -> list[dict]:
 
 def db_insert(table: str, data: dict) -> bool:
     """행 삽입"""
+    _check_table(table)
+    _check_columns(data)
     conn = get_db()
     try:
         cols = ", ".join(data.keys())
@@ -205,6 +269,9 @@ def db_upsert(table: str, data: dict, key_col: str = "id") -> bool:
     """행 삽입 또는 업데이트.
     SQLite 와 PostgreSQL 모두 ON CONFLICT(...) DO UPDATE 지원하므로
     문법 동일하게 사용."""
+    _check_table(table)
+    _check_column(key_col)
+    _check_columns(data)
     conn = get_db()
     try:
         cols = ", ".join(data.keys())
@@ -229,6 +296,8 @@ def db_upsert(table: str, data: dict, key_col: str = "id") -> bool:
 def db_delete(table: str, where: dict) -> bool:
     if not where:
         return False
+    _check_table(table)
+    _check_columns(where)
     conn = get_db()
     try:
         cols = " AND ".join([f"{k}=?" for k in where.keys()])
@@ -2216,6 +2285,7 @@ def save_vendor_info(data: dict) -> bool:
     conn = get_db()
     try:
         for col in ("email", "account"):
+            _check_column(col)  # SQL 인젝션 방어
             val = str(data.get(col, "") or "")
             try:
                 conn.execute(
@@ -2768,6 +2838,7 @@ def get_filtered_collections(
     school: str = "",
 ) -> list[dict]:
     """필터링된 수거 데이터 (업체·월·학교)"""
+    _check_table(table)
     conn = get_db()
     try:
         clauses = []
