@@ -2143,7 +2143,7 @@ def update_schedule(schedule_id: str, weekdays: str, schools: str, driver: str, 
                 (weekdays, schools, driver, schedule_id),
             )
         conn.commit()
-        return conn.total_changes > 0
+        return True  # PgWrapper는 total_changes 미지원 — commit 성공 = 수정 완료
     except Exception as e:
         print(f"[DB ERROR] update_schedule: {e}")
         logger.warning(f'Exception in database operation: {str(e)}')
@@ -2163,6 +2163,15 @@ def upsert_schedule(data: dict) -> dict:
     """
     import json as _json2
 
+    def _to_json_str(val) -> str:
+        """Python list/dict 또는 JSON 문자열을 정규화 가능한 JSON 문자열로 변환.
+        PostgreSQL JSONB 컬럼은 Python list/dict로 반환되므로 별도 처리 필요."""
+        if val is None:
+            return "[]"
+        if isinstance(val, (list, dict)):
+            return _json2.dumps(val, ensure_ascii=False)
+        return str(val)
+
     def _norm_json(s: str) -> str:
         """JSON 문자열 정규화 — ensure_ascii=False + sort_keys=True."""
         try:
@@ -2177,8 +2186,8 @@ def upsert_schedule(data: dict) -> dict:
         if not vendor or not month:
             return {"ok": False, "mode": "", "msg": "업체와 월은 필수입니다."}
 
-        weekdays_norm = _norm_json(str(data.get("weekdays", "[]")))
-        schools_norm = _norm_json(str(data.get("schools", "[]")))
+        weekdays_norm = _norm_json(_to_json_str(data.get("weekdays", "[]")))
+        schools_norm = _norm_json(_to_json_str(data.get("schools", "[]")))
         items = data.get("items", "[]")
         driver = str(data.get("driver", "") or "")
         registered_by = str(data.get("registered_by", "admin"))
@@ -2192,8 +2201,9 @@ def upsert_schedule(data: dict) -> dict:
         existing_id = None
         for cand in candidates:
             cd = dict(cand)
-            if (_norm_json(str(cd.get("weekdays", "[]"))) == weekdays_norm and
-                    _norm_json(str(cd.get("schools", "[]"))) == schools_norm):
+            # JSONB 컬럼은 Python list로 반환될 수 있으므로 _to_json_str 먼저 적용
+            if (_norm_json(_to_json_str(cd.get("weekdays"))) == weekdays_norm and
+                    _norm_json(_to_json_str(cd.get("schools"))) == schools_norm):
                 existing_id = str(cd.get("id", ""))
                 break
 
@@ -3632,6 +3642,11 @@ def get_hq_schedules(vendor: str = "", year_month: str = "") -> list[dict]:
         ).fetchall()
 
         def _parse(raw) -> str:
+            # JSONB 컬럼에서 Python list/dict로 직접 반환될 수 있음
+            if isinstance(raw, list):
+                return ", ".join(str(x) for x in raw)
+            if isinstance(raw, dict):
+                return str(raw)
             if not raw:
                 return ""
             s = str(raw)
