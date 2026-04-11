@@ -204,7 +204,10 @@ class AdminState(AuthState):
     doc_selected_customer_id: int = 0
     doc_selected_category: str = ""
     doc_customer_query: str = ""
-    doc_customer_candidates: list[dict] = []
+    doc_customer_candidates: list[dict] = []          # 필터된 결과 (UI 표시용)
+    doc_customer_all: list[dict] = []                 # 전체 거래처 (원본, 필터 소스)
+    doc_customer_vendor_filter: str = ""              # 업체 필터 ("" = 전체)
+    doc_customer_vendor_options: list[str] = []       # 드롭다운 선택지
     doc_selected_customer_info: dict = {}
     doc_vendor_info: dict = {}
     # 중간처리업체 정보 (Phase 5 — mid_processor 테이블)
@@ -830,6 +833,11 @@ class AdminState(AuthState):
     def has_by_school(self) -> bool:
         return len(self.analytics_by_school) > 0
 
+    @rx.var
+    def doc_vendor_filter_options(self) -> list[str]:
+        """업체 필터 드롭다운 선택지 (전체 포함)."""
+        return ["전체"] + self.doc_customer_vendor_options
+
     # ══════════════════════════════
     #  이벤트 — 공통
     # ══════════════════════════════
@@ -920,6 +928,38 @@ class AdminState(AuthState):
                         "file_path": d.get("file_path") or "",
                         "issue_number": d.get("issue_number") or "",
                     })
+                # ── 전체 거래처 로드 (U1: 거래처 필터용) ──
+                cust_rows = conn.execute(
+                    "SELECT name, biz_no, rep, addr, phone, "
+                    "price_food, price_recycle, price_general, vendor "
+                    "FROM customer_info ORDER BY name"
+                ).fetchall()
+                all_custs = []
+                vendors_set = set()
+                idx = 1
+                for r in cust_rows:
+                    d = dict(r)
+                    v = str(d.get("vendor", "") or "")
+                    all_custs.append({
+                        "id": idx,
+                        "customer_name": str(d.get("name", "") or ""),
+                        "business_no": str(d.get("biz_no", "") or ""),
+                        "representative": str(d.get("rep", "") or ""),
+                        "address": str(d.get("addr", "") or ""),
+                        "phone": str(d.get("phone", "") or ""),
+                        "price_food": d.get("price_food") or 0,
+                        "price_recycle": d.get("price_recycle") or 0,
+                        "price_general": d.get("price_general") or 0,
+                        "vendor": v,
+                    })
+                    if v:
+                        vendors_set.add(v)
+                    idx += 1
+                self.doc_customer_all = all_custs
+                self.doc_customer_candidates = all_custs
+                self.doc_customer_vendor_options = sorted(vendors_set)
+                self.doc_customer_vendor_filter = ""
+                self.doc_customer_query = ""
             finally:
                 conn.close()
         except Exception as e:
@@ -1038,7 +1078,7 @@ class AdminState(AuthState):
             # 신규 모드로 전환 → 기존 선택 초기화
             self.doc_selected_customer_id = 0
             self.doc_selected_customer_info = {}
-            self.doc_customer_candidates = []
+            self.search_doc_customers()    # 현재 필터 상태로 재적용
         else:
             # 기존 모드로 복귀 → 신규 입력 초기화
             self.doc_new_cust_name = ""
@@ -1258,52 +1298,32 @@ class AdminState(AuthState):
             self.doc_issue_ok = False
 
     def search_doc_customers(self):
-        """거래처 후보 조회 (상호/사업자번호 LIKE 검색).
+        """거래처 필터링 (로컬 — doc_customer_all에서 텍스트+업체 필터)."""
+        q = (self.doc_customer_query or "").strip().lower()
+        vf = self.doc_customer_vendor_filter or ""
 
-        2026-04-10 수정: customer_info 실제 컬럼명 사용
-        - name (not customer_name), biz_no (not business_no),
-          rep (not representative), addr (not address)
-        - PG는 id 컬럼이 없을 수 있으므로 rowid 대신 name을 키로 사용
-        """
-        q = (self.doc_customer_query or "").strip()
-        if not q:
-            self.doc_customer_candidates = []
-            return
-        try:
-            from ..utils.database import get_db
-            conn = get_db()
-            like = f"%{q}%"
-            rows = conn.execute(
-                "SELECT name, biz_no, rep, addr, phone, "
-                "price_food, price_recycle, price_general, vendor "
-                "FROM customer_info "
-                "WHERE name LIKE ? OR biz_no LIKE ? "
-                "LIMIT 20",
-                (like, like),
-            ).fetchall()
-            self.doc_customer_candidates = []
-            idx = 1
-            for r in rows:
-                d = dict(r)
-                self.doc_customer_candidates.append({
-                    "id": idx,
-                    "customer_name": str(d.get("name", "") or ""),
-                    "business_no": str(d.get("biz_no", "") or ""),
-                    "representative": str(d.get("rep", "") or ""),
-                    "address": str(d.get("addr", "") or ""),
-                    "phone": str(d.get("phone", "") or ""),
-                    "price_food": d.get("price_food") or 0,
-                    "price_recycle": d.get("price_recycle") or 0,
-                    "price_general": d.get("price_general") or 0,
-                    "vendor": str(d.get("vendor", "") or ""),
-                })
-                idx += 1
-            conn.close()
-        except Exception as e:
-            logger.error(f"[search_doc_customers] {e}", exc_info=True)
-            self.doc_issue_msg = "거래처 조회에 실패했습니다."
-            self.doc_issue_ok = False
-            self.doc_customer_candidates = []
+        result = []
+        for c in self.doc_customer_all:
+            if vf and c.get("vendor", "") != vf:
+                continue
+            if q:
+                name_match = q in (c.get("customer_name", "") or "").lower()
+                biz_match = q in (c.get("business_no", "") or "").lower()
+                if not name_match and not biz_match:
+                    continue
+            result.append(c)
+
+        self.doc_customer_candidates = result
+
+    def set_doc_customer_vendor_filter(self, vendor: str):
+        """업체 필터 드롭다운 변경 시 호출."""
+        self.doc_customer_vendor_filter = vendor
+        self.search_doc_customers()
+
+    def set_doc_customer_query_and_filter(self, query: str):
+        """거래처 검색어 변경 시 즉시 필터링."""
+        self.doc_customer_query = query
+        self.search_doc_customers()
 
     async def upload_document_template(self, files: list[rx.UploadFile]):
         """hwpx 양식 업로드 → 서버 저장 → 태그 추출 → DB 기록."""

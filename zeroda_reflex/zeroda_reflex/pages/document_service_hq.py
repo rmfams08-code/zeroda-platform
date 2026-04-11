@@ -447,44 +447,72 @@ def _issue_panel() -> rx.Component:
                     ~AdminState.doc_new_customer_mode,
                     rx.vstack(
                         rx.hstack(
-                            rx.input(
-                                placeholder="거래처 검색 (상호명/사업자번호)",
-                                on_change=AdminState.set_doc_customer_query,
-                                width="280px",
-                            ),
-                            rx.button(
-                                "거래처 조회",
-                                on_click=AdminState.search_doc_customers,
-                                color_scheme="blue",
+                            rx.select(
+                                AdminState.doc_vendor_filter_options,
+                                value=rx.cond(
+                                    AdminState.doc_customer_vendor_filter == "",
+                                    "전체",
+                                    AdminState.doc_customer_vendor_filter,
+                                ),
+                                on_change=lambda v: AdminState.set_doc_customer_vendor_filter(
+                                    rx.cond(v == "전체", "", v)
+                                ),
+                                placeholder="업체 필터",
                                 size="2",
+                                width="160px",
+                            ),
+                            rx.input(
+                                placeholder="상호명/사업자번호 검색",
+                                value=AdminState.doc_customer_query,
+                                on_change=AdminState.set_doc_customer_query_and_filter,
+                                width="220px",
                             ),
                             spacing="2",
                         ),
                         rx.cond(
                             AdminState.doc_customer_candidates.length() > 0,
                             rx.vstack(
-                                rx.foreach(
-                                    AdminState.doc_customer_candidates,
-                                    lambda c: rx.button(
-                                        rx.text(
-                                            c["customer_name"],
-                                            " / ",
-                                            c["business_no"],
+                                rx.text(
+                                    AdminState.doc_customer_candidates.length().to(str) + "건",
+                                    size="1",
+                                    color="#6b7280",
+                                ),
+                                rx.box(
+                                    rx.vstack(
+                                        rx.foreach(
+                                            AdminState.doc_customer_candidates,
+                                            lambda c: rx.button(
+                                                rx.hstack(
+                                                    rx.text(c["customer_name"], weight="bold", size="2"),
+                                                    rx.text(" / ", size="2", color="#9ca3af"),
+                                                    rx.text(c["business_no"], size="2", color="#6b7280"),
+                                                    spacing="1",
+                                                    align="center",
+                                                ),
+                                                on_click=AdminState.set_doc_selected_customer(c["id"]),
+                                                variant=rx.cond(
+                                                    AdminState.doc_selected_customer_id == c["id"],
+                                                    "solid",
+                                                    "soft",
+                                                ),
+                                                color_scheme=rx.cond(
+                                                    AdminState.doc_selected_customer_id == c["id"],
+                                                    "blue",
+                                                    "gray",
+                                                ),
+                                                size="2",
+                                                width="100%",
+                                            ),
                                         ),
-                                        on_click=AdminState.set_doc_selected_customer(c["id"]),
-                                        variant=rx.cond(
-                                            AdminState.doc_selected_customer_id == c["id"],
-                                            "solid",
-                                            "soft",
-                                        ),
-                                        color_scheme=rx.cond(
-                                            AdminState.doc_selected_customer_id == c["id"],
-                                            "blue",
-                                            "gray",
-                                        ),
-                                        size="2",
+                                        spacing="1",
                                         width="100%",
                                     ),
+                                    max_height="240px",
+                                    overflow_y="auto",
+                                    width="100%",
+                                    border="1px solid #e5e7eb",
+                                    border_radius="6px",
+                                    padding="4px",
                                 ),
                                 spacing="1",
                                 width="100%",
