@@ -2814,7 +2814,17 @@ class AdminState(AuthState):
     def load_schedules(self):
         vendor = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
         ym = self.sched_month_filter if self.sched_month_filter != "전체" else ""
-        self.sched_rows = get_hq_schedules(vendor=vendor, year_month=ym)
+        rows = get_hq_schedules(vendor=vendor, year_month=ym)
+        # 업체 코드 → 상호명 매핑 (P1)
+        vmap = {}
+        for v in self.vendor_list:
+            code = v.get("vendor", "")
+            name = v.get("biz_name", "")
+            if code:
+                vmap[code] = name if name else code
+        for r in rows:
+            r["vendor_name"] = vmap.get(r.get("vendor", ""), r.get("vendor", ""))
+        self.sched_rows = rows
 
     # 일정 등록 폼 세터
     def set_sf_vendor(self, v: str):

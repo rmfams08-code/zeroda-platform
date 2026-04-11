@@ -1852,13 +1852,24 @@ def _sched_view_sub() -> rx.Component:
             ),
             spacing="2", flex_wrap="wrap",
         ),
+        rx.hstack(
+            rx.text(
+                AdminState.sched_rows.length().to(str) + "건",
+                size="2",
+                color="#64748b",
+                weight="bold",
+            ),
+            rx.spacer(),
+            spacing="2",
+            width="100%",
+            padding_x="4px",
+        ),
         _card_box(
             rx.cond(
                 AdminState.has_sched_rows,
                 rx.table.root(
                     rx.table.header(
                         rx.table.row(
-                            rx.table.column_header_cell(rx.text("ID", font_size="12px", font_weight="700", color="#64748b")),
                             rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color="#64748b")),
                             rx.table.column_header_cell(rx.text("월/날짜", font_size="12px", font_weight="700", color="#64748b")),
                             rx.table.column_header_cell(rx.text("요일", font_size="12px", font_weight="700", color="#64748b")),
@@ -1872,16 +1883,20 @@ def _sched_view_sub() -> rx.Component:
                         rx.foreach(
                             AdminState.sched_rows,
                             lambda r: rx.table.row(
-                                rx.table.cell(rx.text(r["id"], font_size="11px", color="#94a3b8")),
-                                rx.table.cell(rx.text(r["vendor"], font_size="12px")),
+                                rx.table.cell(rx.text(r["vendor_name"], font_size="12px")),
                                 rx.table.cell(rx.text(r["month_key"], font_size="12px")),
                                 rx.table.cell(rx.text(r["weekdays"], font_size="12px")),
-                                rx.table.cell(rx.text(r["schools"], font_size="12px", max_width="200px", overflow="hidden")),
+                                rx.table.cell(rx.text(r["schools"], font_size="12px", max_width="240px", overflow="hidden")),
                                 rx.table.cell(rx.text(r["items"], font_size="12px")),
                                 rx.table.cell(rx.text(r["driver"], font_size="12px")),
                                 rx.table.cell(
-                                    rx.button("삭제", size="1", variant="outline", color_scheme="red",
-                                               on_click=AdminState.delete_sched(r["id"])),
+                                    rx.button(
+                                        rx.icon("trash_2", size=12),
+                                        size="1",
+                                        variant="ghost",
+                                        color_scheme="gray",
+                                        on_click=AdminState.delete_sched(r["id"]),
+                                    ),
                                 ),
                             ),
                         ),
