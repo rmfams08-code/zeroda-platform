@@ -85,6 +85,8 @@ _ALLOWED_TABLES = frozenset({
     "schedules", "vendor_info", "school_master", "school_zone_violations",
     "safety_scores", "accident_report", "driver_auth_tokens",
     "meal_schedules", "doc_templates", "doc_issue_log",
+    "document_templates", "document_issue_log", "issued_documents",
+    "contract_templates", "mid_processor",
 })
 
 _ALLOWED_COLUMNS = frozenset({
@@ -125,6 +127,16 @@ _ALLOWED_COLUMNS = frozenset({
     "id", "vendor", "created_at", "updated_at",
     # users — 업체 신규 등록 pending 필드
     "pending_biz_no", "pending_rep", "pending_address", "pending_contact",
+    # document_templates
+    "template_name", "category", "file_path", "file_type", "tag_list", "is_active",
+    # document_issue_log
+    "template_id", "customer_id", "customer_name", "issued_by", "issued_at", "issue_number",
+    # issued_documents
+    "doc_type", "doc_no", "issued_date", "valid_until", "total_amount", "pdf_path", "payload_json",
+    # contract_templates
+    "body_html",
+    # mid_processor
+    "license_no", "biz_type", "corp_no", "fax", "is_default",
 })
 
 
@@ -644,6 +656,95 @@ try:
     ensure_missing_tables()
 except Exception as _tbl_init_err:
     print(f"[DB ERROR] 누락 테이블 초기화 실패: {_tbl_init_err}")
+
+
+def ensure_doc_service_tables() -> None:
+    """문서서비스 테이블 5개가 없으면 생성 (idempotent)."""
+    _auto = "SERIAL PRIMARY KEY"
+    conn = get_db()
+    try:
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS document_templates (
+                id              {_auto},
+                template_name   TEXT NOT NULL,
+                category        TEXT DEFAULT '',
+                file_path       TEXT DEFAULT '',
+                file_type       TEXT DEFAULT 'hwpx',
+                tag_list        TEXT DEFAULT '[]',
+                created_by      TEXT DEFAULT '',
+                created_at      TEXT DEFAULT '',
+                is_active       INTEGER DEFAULT 1
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS document_issue_log (
+                id              {_auto},
+                vendor          TEXT DEFAULT '',
+                template_id     INTEGER DEFAULT 0,
+                template_name   TEXT DEFAULT '',
+                customer_id     INTEGER DEFAULT 0,
+                customer_name   TEXT DEFAULT '',
+                issued_by       TEXT DEFAULT '',
+                issued_at       TEXT DEFAULT '',
+                file_path       TEXT DEFAULT '',
+                issue_number    TEXT DEFAULT ''
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS issued_documents (
+                id              {_auto},
+                vendor          TEXT DEFAULT '',
+                doc_type        TEXT DEFAULT '',
+                customer_name   TEXT DEFAULT '',
+                template_id     INTEGER,
+                doc_no          TEXT DEFAULT '',
+                issued_date     TEXT DEFAULT '',
+                valid_until     TEXT,
+                total_amount    INTEGER DEFAULT 0,
+                pdf_path        TEXT DEFAULT '',
+                payload_json    TEXT DEFAULT '{{}}',
+                created_by      TEXT DEFAULT ''
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS contract_templates (
+                id              {_auto},
+                vendor          TEXT DEFAULT '',
+                template_name   TEXT DEFAULT '',
+                body_html       TEXT DEFAULT '',
+                created_by      TEXT DEFAULT '',
+                created_at      TEXT DEFAULT '',
+                is_active       INTEGER DEFAULT 1
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS mid_processor (
+                id              {_auto},
+                name            TEXT DEFAULT '',
+                biz_no          TEXT DEFAULT '',
+                rep             TEXT DEFAULT '',
+                address         TEXT DEFAULT '',
+                phone           TEXT DEFAULT '',
+                license_no      TEXT DEFAULT '',
+                biz_type        TEXT DEFAULT '',
+                corp_no         TEXT DEFAULT '',
+                fax             TEXT DEFAULT '',
+                is_default      INTEGER DEFAULT 0
+            )
+        """)
+        conn.commit()
+        logger.info("[ensure_doc_service_tables] 문서서비스 테이블 5개 확인/생성 완료")
+    except Exception as e:
+        print(f"[DB ERROR] ensure_doc_service_tables: {e}")
+        logger.warning(f"ensure_doc_service_tables 실패: {e}")
+    finally:
+        conn.close()
+
+
+try:
+    ensure_doc_service_tables()
+except Exception as _doc_tbl_err:
+    print(f"[DB ERROR] 문서서비스 테이블 초기화 실패: {_doc_tbl_err}")
 
 
 def ensure_driver_auth_tokens_table() -> None:
