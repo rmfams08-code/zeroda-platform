@@ -461,13 +461,7 @@ def _account_tab() -> rx.Component:
                                     rx.table.cell(rx.text(row["vendor"], font_size="13px")),
                                     rx.table.cell(rx.text(row["total"].to(str), font_size="13px")),
                                     rx.table.cell(rx.text(row["active"].to(str), font_size="13px")),
-                                    rx.table.cell(
-                                        rx.cond(
-                                            row["pending"] > 0,
-                                            rx.badge(row["pending"].to(str), color_scheme="orange", size="1"),
-                                            rx.text("0", font_size="13px", color="#94a3b8"),
-                                        ),
-                                    ),
+                                    rx.table.cell(rx.text(row["pending"].to(str), font_size="13px")),
                                 ),
                             ),
                         ),
