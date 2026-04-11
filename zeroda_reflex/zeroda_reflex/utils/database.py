@@ -2144,6 +2144,55 @@ def update_schedule(schedule_id: str, weekdays: str, schools: str, driver: str, 
         conn.close()
 
 
+def upsert_schedule(data: dict) -> dict:
+    """일정 UPSERT — vendor+month+weekdays+schools 4키 중복 시 UPDATE, 없으면 INSERT.
+
+    Returns:
+        {"ok": True/False, "mode": "insert"/"update", "msg": "..."}
+    """
+    conn = get_db()
+    try:
+        vendor = str(data.get("vendor", ""))
+        month = str(data.get("month", ""))
+        if not vendor or not month:
+            return {"ok": False, "mode": "", "msg": "업체와 월은 필수입니다."}
+
+        weekdays = data.get("weekdays", "[]")
+        schools = data.get("schools", "[]")
+        items = data.get("items", "[]")
+        driver = str(data.get("driver", "") or "")
+        registered_by = str(data.get("registered_by", "admin"))
+
+        existing = conn.execute(
+            "SELECT id FROM schedules "
+            "WHERE vendor=? AND month=? AND weekdays=? AND schools=? LIMIT 1",
+            (vendor, month, weekdays, schools),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                "UPDATE schedules SET items=?, driver=? "
+                "WHERE vendor=? AND month=? AND weekdays=? AND schools=?",
+                (items, driver, vendor, month, weekdays, schools),
+            )
+            conn.commit()
+            return {"ok": True, "mode": "update", "msg": "중복된 일정입니다. 갱신합니다."}
+        else:
+            conn.execute(
+                "INSERT INTO schedules "
+                "(vendor, month, weekdays, schools, items, driver, registered_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (vendor, month, weekdays, schools, items, driver, registered_by),
+            )
+            conn.commit()
+            return {"ok": True, "mode": "insert", "msg": f"신규 일정 등록 완료 ({month})"}
+    except Exception as e:
+        print(f"[DB ERROR] upsert_schedule: {e}")
+        return {"ok": False, "mode": "", "msg": f"저장 실패: {e}"}
+    finally:
+        conn.close()
+
+
 def delete_schedule(schedule_id: str, vendor: str) -> bool:
     """일정 삭제 — id 기준. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()

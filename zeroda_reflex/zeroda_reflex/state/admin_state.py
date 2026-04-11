@@ -30,6 +30,7 @@ from zeroda_reflex.utils.database import (
     get_neis_schools_by_vendor, save_neis_meal_schedule,
     get_meal_schedules, approve_meal_schedules, cancel_meal_schedules,
     check_schedule_duplicate,
+    upsert_schedule,
     # 섹션E: 정산+탄소
     get_settlement_data, get_hq_settlement_summary,
     get_customers_by_vendor, save_customer, delete_customer,
@@ -2974,7 +2975,7 @@ class AdminState(AuthState):
         self.sf_driver = v
 
     def save_sched(self):
-        """일정 저장 (중복 방지 포함)"""
+        """일정 저장 — 업체+월+요일+거래처 중복 시 자동 갱신, 아니면 신규 등록 (P7)"""
         import json as _json
         if not self.sf_vendor or not self.sf_month_key:
             self.sched_msg = "업체와 월(또는 날짜)은 필수입니다."
@@ -2983,31 +2984,29 @@ class AdminState(AuthState):
         weekdays = [w.strip() for w in self.sf_weekdays.split(",") if w.strip()]
         schools = [s.strip() for s in self.sf_schools.split(",") if s.strip()]
         items = [i.strip() for i in self.sf_items.split(",") if i.strip()]
-        # 중복 체크 (P1)
-        schools_json = _json.dumps(schools)
-        if check_schedule_duplicate(self.sf_vendor, self.sf_month_key, schools_json):
-            self.sched_msg = (
-                f"이미 등록된 일정입니다 — {self.sf_vendor} / "
-                f"{self.sf_month_key} / {', '.join(schools)}"
-            )
-            self.sched_ok = False
-            return
-        ok = hq_save_schedule({
+
+        result = upsert_schedule({
             "vendor": self.sf_vendor,
             "month": self.sf_month_key,
-            "weekdays": _json.dumps(weekdays),
-            "schools": _json.dumps(schools),
-            "items": _json.dumps(items),
+            "weekdays": _json.dumps(weekdays, ensure_ascii=False),
+            "schools": _json.dumps(schools, ensure_ascii=False),
+            "items": _json.dumps(items, ensure_ascii=False),
             "driver": self.sf_driver,
             "registered_by": "admin",
         })
-        if ok:
-            self.sched_msg = f"일정 저장 완료 ({self.sf_month_key})"
+
+        if result["ok"]:
+            self.sched_msg = result["msg"]
             self.sched_ok = True
+            if result["mode"] == "update":
+                yield rx.toast.info(result["msg"])
+            else:
+                yield rx.toast.info(result["msg"])
             self.load_schedules()
         else:
-            self.sched_msg = "저장 실패"
+            self.sched_msg = result["msg"]
             self.sched_ok = False
+            yield rx.toast.error(result["msg"])
 
     def delete_sched(self, sched_id: str):
         """삭제 확인 다이얼로그 열기 (P6)."""
