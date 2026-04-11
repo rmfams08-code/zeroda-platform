@@ -494,6 +494,9 @@ class DriverState(AuthState):
         if not self.is_authenticated:
             yield rx.redirect("/")
             return
+        if self.user_role != "driver":
+            yield rx.redirect("/")
+            return
         self._load_weather()  # 기본 격자(DEFAULT_GRID)로 즉시 로드
         self._load_safety_status()
         self._load_today_collections()
