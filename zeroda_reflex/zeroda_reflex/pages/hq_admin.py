@@ -1847,6 +1847,13 @@ def _sched_view_sub() -> rx.Component:
                     size="2", width="130px",
                 ),
                 rx.select(
+                    [str(i).zfill(2) for i in range(1, 32)],
+                    value=AdminState.sched_day_filter,
+                    on_change=AdminState.set_sched_day_filter,
+                    placeholder="일",
+                    size="2", width="80px",
+                ),
+                rx.select(
                     AdminState.sched_driver_options,
                     value=AdminState.sched_driver_filter,
                     on_change=AdminState.set_sched_driver_filter,
@@ -1921,14 +1928,14 @@ def _sched_view_sub() -> rx.Component:
                 rx.table.root(
                     rx.table.header(
                         rx.table.row(
-                            rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("구분", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("날짜", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("요일", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("거래처", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("품목", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("기사", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("업체", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("구분", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("날짜", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("요일", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("거래처", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("품목", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("기사", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
+                            rx.table.column_header_cell(rx.text("관리", font_size="11px", font_weight="700", color="#64748b"), style={"padding": "4px 6px"}),
                         ),
                     ),
                     rx.table.body(
@@ -2025,6 +2032,7 @@ def _sched_view_sub() -> rx.Component:
                         ),
                     ),
                     width="100%",
+                    size="1",
                 ),
                 rx.text("등록된 일정이 없습니다.", font_size="13px", color="#94a3b8",
                          padding="20px", text_align="center"),

@@ -420,6 +420,7 @@ class AdminState(AuthState):
     sched_sub_tab: str = "일정조회"
     sched_vendor_filter: str = "전체"
     sched_month_filter: str = ""
+    sched_day_filter: str = ""             # 일 필터 (선택사항, "01"~"31")
     sched_school_filter: str = ""          # 거래처 텍스트 필터 (P2)
     sched_driver_filter: str = "전체"      # 기사 드롭다운 필터 (P2)
     sched_driver_options: list[str] = []   # 기사 선택지 (P2)
@@ -2911,6 +2912,13 @@ class AdminState(AuthState):
                 r for r in result
                 if r.get("driver", "") == df
             ]
+        # 일 필터 (일별 일정만, 해당 일 매칭)
+        dd = (self.sched_day_filter or "").strip()
+        if dd:
+            result = [
+                r for r in result
+                if r.get("sched_type") == "일별" and (r.get("month_key", "") or "")[8:10] == dd
+            ]
         # 페이징 (P4)
         self.sched_total_filtered = len(result)
         # 페이지 범위 보정
@@ -2933,10 +2941,17 @@ class AdminState(AuthState):
         self.sched_page = 0    # 필터 변경 시 첫 페이지로 (P4)
         self._apply_sched_client_filter()
 
+    def set_sched_day_filter(self, d: str):
+        """일 필터 변경 시 즉시 필터링."""
+        self.sched_day_filter = d
+        self.sched_page = 0
+        self._apply_sched_client_filter()
+
     def reset_sched_filters(self):
         """필터 전체 초기화."""
         self.sched_vendor_filter = "전체"
         self.sched_month_filter = ""
+        self.sched_day_filter = ""
         self.sched_school_filter = ""
         self.sched_driver_filter = "전체"
         self.sched_page = 0    # 초기화 시 첫 페이지로 (P4)
