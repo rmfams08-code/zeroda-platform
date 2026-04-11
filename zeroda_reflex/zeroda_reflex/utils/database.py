@@ -12,6 +12,48 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+
+# ── PII 암호화 헬퍼 (Fernet 대칭키) ──────────────────────────────
+def _get_fernet():
+    """ZERODA_PII_KEY 환경변수에서 Fernet 인스턴스 반환. 키 미설정 시 None."""
+    key = os.environ.get("ZERODA_PII_KEY", "")
+    if not key:
+        return None
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception:
+        return None
+
+
+def encrypt_pii(value: str) -> str:
+    """평문 → 암호문. ZERODA_PII_KEY 미설정 시 평문 그대로 반환."""
+    if not value:
+        return value
+    f = _get_fernet()
+    if f is None:
+        return value
+    try:
+        return f.encrypt(value.encode()).decode()
+    except Exception:
+        return value
+
+
+def decrypt_pii(value: str) -> str:
+    """암호문 → 평문. ZERODA_PII_KEY 미설정 또는 평문(기존 데이터) 시 그대로 반환."""
+    if not value:
+        return value
+    f = _get_fernet()
+    if f is None:
+        return value
+    try:
+        from cryptography.fernet import InvalidToken
+        return f.decrypt(value.encode()).decode()
+    except Exception:
+        return value  # 마이그레이션 전 기존 평문 데이터 호환
+# ─────────────────────────────────────────────────────────────────
+
+
 # ── PostgreSQL 연결 정보 ──
 PG_HOST = os.environ.get("ZERODA_PG_HOST", "")
 PG_PORT = int(os.environ.get("ZERODA_PG_PORT", "5432"))
@@ -1341,13 +1383,13 @@ def get_customers_by_vendor(vendor: str, cust_type: str = None) -> list[dict]:
             result.append({
                 "name":          str(d.get("name", "")),
                 "cust_type":     str(d.get("cust_type", "학교") or "학교"),
-                "biz_no":        str(d.get("biz_no", "") or ""),
+                "biz_no":        decrypt_pii(str(d.get("biz_no", "") or "")),
                 "ceo":           str(d.get("rep", "") or ""),       # UI: ceo ← DB: rep
-                "address":       str(d.get("addr", "") or ""),      # UI: address ← DB: addr
+                "address":       decrypt_pii(str(d.get("addr", "") or "")),      # UI: address ← DB: addr
                 "biz_type":      str(d.get("biz_type", "") or ""),
                 "biz_item":      str(d.get("biz_item", "") or ""),
-                "email":         str(d.get("email", "") or ""),
-                "phone":         str(d.get("phone", "") or ""),
+                "email":         decrypt_pii(str(d.get("email", "") or "")),
+                "phone":         decrypt_pii(str(d.get("phone", "") or "")),
                 "recycler":      str(d.get("recycler", "") or ""),
                 "price_food":    str(int(float(pf))),
                 "price_recycle": str(int(float(pr))),
@@ -1380,13 +1422,13 @@ def save_customer(data: dict) -> bool:
             "name":              name,
             "vendor":            vendor,
             "cust_type":         str(data.get("cust_type", "학교")),
-            "biz_no":            str(data.get("biz_no", "") or ""),
+            "biz_no":            encrypt_pii(str(data.get("biz_no", "") or "")),
             "rep":               str(data.get("ceo", "") or ""),       # UI: ceo → DB: rep
-            "addr":              str(data.get("address", "") or ""),   # UI: address → DB: addr
+            "addr":              encrypt_pii(str(data.get("address", "") or "")),   # UI: address → DB: addr
             "biz_type":          str(data.get("biz_type", "") or ""),
             "biz_item":          str(data.get("biz_item", "") or ""),
-            "email":             str(data.get("email", "") or ""),
-            "phone":             str(data.get("phone", "") or ""),
+            "email":             encrypt_pii(str(data.get("email", "") or "")),
+            "phone":             encrypt_pii(str(data.get("phone", "") or "")),
             "recycler":          str(data.get("recycler", "") or ""),
             "price_food":        float(data.get("price_food", 0) or 0),
             "price_recycle":     float(data.get("price_recycle", 0) or 0),
@@ -1464,14 +1506,14 @@ def get_customer_details(vendor: str) -> list[dict]:
         result.append({
             "name":           str(r.get("name", "")),
             "cust_type":      str(r.get("cust_type", "학교") or "학교"),
-            "biz_no":         str(r.get("biz_no", "") or ""),
+            "biz_no":         decrypt_pii(str(r.get("biz_no", "") or "")),
             "representative": str(r.get("rep", "") or ""),    # 거래명세서 PDF용
             "ceo":            str(r.get("rep", "") or ""),    # 일반 호출용 별칭
-            "address":        str(r.get("addr", "") or ""),   # DB: addr → 키: address
+            "address":        decrypt_pii(str(r.get("addr", "") or "")),   # DB: addr → 키: address
             "biz_type":       str(r.get("biz_type", "") or ""),
             "biz_item":       str(r.get("biz_item", "") or ""),
-            "phone":          str(r.get("phone", "") or ""),
-            "email":          str(r.get("email", "") or ""),
+            "phone":          decrypt_pii(str(r.get("phone", "") or "")),
+            "email":          decrypt_pii(str(r.get("email", "") or "")),
             "recycler":       str(r.get("recycler", "") or ""),
             "price_food":     str(int(float(pf))),
             "price_recycle":  str(int(float(pr))),
@@ -2218,7 +2260,7 @@ def get_vendor_info(vendor: str) -> dict:
             "rep":      row[1] or "",
             "biz_no":   row[2] or "",
             "address":  row[3] or "",
-            "contact":  row[4] or "",
+            "contact":  decrypt_pii(row[4] or ""),
             "stamp_path":        row[5] or "",
             "stamp_uploaded_at": row[6] or "",
             "stamp_updated_by":  row[7] or "",
@@ -2306,7 +2348,7 @@ def save_vendor_info(data: dict) -> bool:
             "rep":      str(data.get("rep", "")),
             "biz_no":   str(data.get("biz_no", "")),
             "address":  str(data.get("address", "")),
-            "contact":  str(data.get("contact", "")),
+            "contact":  encrypt_pii(str(data.get("contact", ""))),
         },
         key_col="vendor",
     )
@@ -2317,7 +2359,8 @@ def save_vendor_info(data: dict) -> bool:
     try:
         for col in ("email", "account"):
             _check_column(col)  # SQL 인젝션 방어
-            val = str(data.get(col, "") or "")
+            raw_val = str(data.get(col, "") or "")
+            val = encrypt_pii(raw_val) if col == "email" else raw_val
             try:
                 conn.execute(
                     f"UPDATE vendor_info SET {col}=? WHERE vendor=?",
@@ -3056,8 +3099,8 @@ def get_all_vendor_info() -> list[dict]:
                 "rep":        str(d.get("rep", "") or ""),
                 "biz_no":     str(d.get("biz_no", "") or ""),
                 "address":    str(d.get("address", "") or ""),
-                "contact":    str(d.get("contact", "") or ""),
-                "email":      str(d.get("email", "") or ""),
+                "contact":    decrypt_pii(str(d.get("contact", "") or "")),
+                "email":      decrypt_pii(str(d.get("email", "") or "")),
                 "vehicle_no": str(d.get("vehicle_no", "") or ""),
             })
         return result
