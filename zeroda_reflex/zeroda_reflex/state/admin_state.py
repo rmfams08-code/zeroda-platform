@@ -2835,7 +2835,7 @@ class AdminState(AuthState):
             d = r.get("driver", "")
             if d:
                 drivers.add(d)
-        self.sched_driver_options = sorted(drivers)
+        self.sched_driver_options = ["전체"] + sorted(drivers)
         # 클라이언트 필터 적용
         self._apply_sched_client_filter()
 

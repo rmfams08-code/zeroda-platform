@@ -1847,7 +1847,7 @@ def _sched_view_sub() -> rx.Component:
                     size="2", width="130px",
                 ),
                 rx.select(
-                    ["전체"] + AdminState.sched_driver_options,
+                    AdminState.sched_driver_options,
                     value=AdminState.sched_driver_filter,
                     on_change=AdminState.set_sched_driver_filter,
                     placeholder="기사",
