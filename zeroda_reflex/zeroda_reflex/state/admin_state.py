@@ -26,7 +26,7 @@ from zeroda_reflex.utils.database import (
     hq_add_violation, hq_get_violations,
     hq_get_safety_scores, hq_calculate_safety_score,
     # 섹션D: 수거일정 + NEIS
-    get_hq_schedules, hq_save_schedule, hq_delete_schedule,
+    get_hq_schedules, hq_save_schedule, hq_delete_schedule, update_schedule,
     get_neis_schools_by_vendor, save_neis_meal_schedule,
     get_meal_schedules, approve_meal_schedules, cancel_meal_schedules,
     check_schedule_duplicate,
@@ -427,6 +427,15 @@ class AdminState(AuthState):
     sched_page: int = 0                    # 현재 페이지 (0-based, P4)
     sched_page_size: int = 30              # 페이지당 건수 (P4)
     sched_total_filtered: int = 0          # 필터 후 전체 건수 (P4)
+    # P5 인라인 수정
+    sched_edit_id: str = ""
+    sched_edit_weekdays: str = ""
+    sched_edit_schools: str = ""
+    sched_edit_driver: str = ""
+    # P6 삭제 확인 다이얼로그
+    sched_delete_open: bool = False
+    sched_delete_target: str = ""
+    sched_delete_info: str = ""
     sched_msg: str = ""
     sched_ok: bool = False
 
@@ -2944,6 +2953,52 @@ class AdminState(AuthState):
             self.sched_page += 1
             self._apply_sched_client_filter()
 
+    # ── P5 인라인 수정 ──
+    def start_sched_edit(self, row: dict):
+        """편집 모드 시작 — 해당 행 데이터 로드."""
+        self.sched_edit_id = str(row.get("id", ""))
+        self.sched_edit_weekdays = str(row.get("weekdays", ""))
+        self.sched_edit_schools = str(row.get("schools", ""))
+        self.sched_edit_driver = str(row.get("driver", ""))
+
+    def cancel_sched_edit(self):
+        """편집 취소."""
+        self.sched_edit_id = ""
+        self.sched_edit_weekdays = ""
+        self.sched_edit_schools = ""
+        self.sched_edit_driver = ""
+
+    def set_sched_edit_weekdays(self, v: str):
+        self.sched_edit_weekdays = v
+
+    def set_sched_edit_schools(self, v: str):
+        self.sched_edit_schools = v
+
+    def set_sched_edit_driver(self, v: str):
+        self.sched_edit_driver = v
+
+    def save_sched_edit(self):
+        """편집 저장 — DB UPDATE 후 목록 새로고침."""
+        if not self.sched_edit_id:
+            return
+        vendor = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
+        ok = update_schedule(
+            schedule_id=self.sched_edit_id,
+            weekdays=self.sched_edit_weekdays,
+            schools=self.sched_edit_schools,
+            driver=self.sched_edit_driver,
+            vendor=vendor,
+        )
+        if ok:
+            yield rx.toast.info("일정 수정 완료")
+        else:
+            yield rx.toast.error("수정 실패")
+        self.sched_edit_id = ""
+        self.sched_edit_weekdays = ""
+        self.sched_edit_schools = ""
+        self.sched_edit_driver = ""
+        self.load_schedules()
+
     # 일정 등록 폼 세터
     def set_sf_vendor(self, v: str):
         self.sf_vendor = v
@@ -3000,16 +3055,37 @@ class AdminState(AuthState):
             self.sched_ok = False
 
     def delete_sched(self, sched_id: str):
-        """일정 삭제"""
+        """삭제 확인 다이얼로그 열기 (즉시 삭제 X)."""
+        info = ""
+        for r in self.sched_rows_all:
+            if str(r.get("id", "")) == str(sched_id):
+                info = str(r.get("schools", "")) + " / " + str(r.get("month_key", ""))
+                break
+        self.sched_delete_target = str(sched_id)
+        self.sched_delete_info = info if info else str(sched_id)
+        self.sched_delete_open = True
+
+    def confirm_delete_sched(self):
+        """확인 후 실제 삭제 실행."""
+        if not self.sched_delete_target:
+            self.sched_delete_open = False
+            return
         v = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
-        ok = hq_delete_schedule(sched_id, vendor=v)
+        ok = hq_delete_schedule(self.sched_delete_target, vendor=v)
+        self.sched_delete_open = False
+        self.sched_delete_target = ""
+        self.sched_delete_info = ""
         if ok:
-            self.sched_msg = f"일정 ID {sched_id} 삭제 완료"
-            self.sched_ok = True
+            yield rx.toast.info("일정이 삭제되었습니다.")
         else:
-            self.sched_msg = "삭제 실패"
-            self.sched_ok = False
+            yield rx.toast.error("삭제에 실패했습니다.")
         self.load_schedules()
+
+    def close_sched_delete_dialog(self):
+        """삭제 다이얼로그 닫기."""
+        self.sched_delete_open = False
+        self.sched_delete_target = ""
+        self.sched_delete_info = ""
 
     # ══════════════════════════════
     #  오늘현황 (P1 복원)

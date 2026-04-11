@@ -3569,6 +3569,22 @@ def hq_save_schedule(data: dict) -> bool:
     return save_schedule(data)
 
 
+def update_schedule(schedule_id: str, weekdays: str, schools: str, driver: str, vendor: str) -> bool:
+    """일정 수정 (요일, 거래처, 기사만 변경 가능). vendor 소유권 검증 포함."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE schedules SET weekdays=?, schools=?, driver=? "
+            "WHERE id=? AND vendor=?",
+            (weekdays, schools, driver, schedule_id, vendor),
+        )
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"[update_schedule] error: {e}")
+        return False
+
+
 def hq_delete_schedule(schedule_id: str, vendor: str) -> bool:
     """본사관리자 일정 삭제"""
     return delete_schedule(schedule_id, vendor=vendor)

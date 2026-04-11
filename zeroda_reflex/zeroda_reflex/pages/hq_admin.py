@@ -1948,17 +1948,75 @@ def _sched_view_sub() -> rx.Component:
                                     ),
                                 ),
                                 rx.table.cell(rx.text(r["date_display"].to(str), font_size="12px")),
-                                rx.table.cell(rx.text(r["weekdays"], font_size="12px")),
-                                rx.table.cell(rx.text(r["schools"], font_size="12px", max_width="240px", overflow="hidden")),
-                                rx.table.cell(rx.text(r["items"], font_size="12px")),
-                                rx.table.cell(rx.text(r["driver"], font_size="12px")),
+                                # 요일 — 편집/읽기 분기
                                 rx.table.cell(
-                                    rx.button(
-                                        rx.icon("trash_2", size=12),
-                                        size="1",
-                                        variant="ghost",
-                                        color_scheme="gray",
-                                        on_click=AdminState.delete_sched(r["id"]),
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.input(
+                                            value=AdminState.sched_edit_weekdays,
+                                            on_change=AdminState.set_sched_edit_weekdays,
+                                            size="1", width="100px",
+                                        ),
+                                        rx.text(r["weekdays"], font_size="12px"),
+                                    ),
+                                ),
+                                # 거래처 — 편집/읽기 분기
+                                rx.table.cell(
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.input(
+                                            value=AdminState.sched_edit_schools,
+                                            on_change=AdminState.set_sched_edit_schools,
+                                            size="1", width="200px",
+                                        ),
+                                        rx.text(r["schools"], font_size="12px", max_width="240px", overflow="hidden"),
+                                    ),
+                                ),
+                                # 품목 — 읽기 전용
+                                rx.table.cell(rx.text(r["items"], font_size="12px")),
+                                # 기사 — 편집/읽기 분기
+                                rx.table.cell(
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.input(
+                                            value=AdminState.sched_edit_driver,
+                                            on_change=AdminState.set_sched_edit_driver,
+                                            size="1", width="80px",
+                                        ),
+                                        rx.text(r["driver"], font_size="12px"),
+                                    ),
+                                ),
+                                rx.table.cell(
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        # 편집 중: 저장 + 취소
+                                        rx.hstack(
+                                            rx.button(
+                                                rx.icon("check", size=12),
+                                                size="1", variant="ghost", color_scheme="green",
+                                                on_click=AdminState.save_sched_edit,
+                                            ),
+                                            rx.button(
+                                                rx.icon("x", size=12),
+                                                size="1", variant="ghost", color_scheme="gray",
+                                                on_click=AdminState.cancel_sched_edit,
+                                            ),
+                                            spacing="1",
+                                        ),
+                                        # 평시: 수정 + 삭제
+                                        rx.hstack(
+                                            rx.button(
+                                                rx.icon("pencil", size=12),
+                                                size="1", variant="ghost", color_scheme="blue",
+                                                on_click=AdminState.start_sched_edit(r),
+                                            ),
+                                            rx.button(
+                                                rx.icon("trash_2", size=12),
+                                                size="1", variant="ghost", color_scheme="gray",
+                                                on_click=AdminState.delete_sched(r["id"]),
+                                            ),
+                                            spacing="1",
+                                        ),
                                     ),
                                 ),
                             ),
@@ -1969,6 +2027,26 @@ def _sched_view_sub() -> rx.Component:
                 rx.text("등록된 일정이 없습니다.", font_size="13px", color="#94a3b8",
                          padding="20px", text_align="center"),
             ),
+        ),
+        # P6 삭제 확인 다이얼로그
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.dialog.title("일정 삭제 확인"),
+                rx.dialog.description(
+                    rx.text("다음 일정을 삭제하시겠습니까?", size="2"),
+                ),
+                rx.text(AdminState.sched_delete_info, size="2", color="#64748b", padding_y="8px"),
+                rx.flex(
+                    rx.dialog.close(
+                        rx.button("취소", variant="soft", color_scheme="gray",
+                                  on_click=AdminState.close_sched_delete_dialog),
+                    ),
+                    rx.button("삭제", color_scheme="red",
+                              on_click=AdminState.confirm_delete_sched),
+                    spacing="3", justify="end",
+                ),
+            ),
+            open=AdminState.sched_delete_open,
         ),
         spacing="3", width="100%",
     )
