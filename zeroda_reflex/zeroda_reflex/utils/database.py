@@ -2032,14 +2032,22 @@ def get_driver_schedule_schools(
             rd_driver = str(rd.get("driver", "")).strip()
             if rd_driver and rd_driver != driver:
                 continue
-            # 요일 매칭
-            try:
-                wds = _json.loads(rd["weekdays"]) if isinstance(rd.get("weekdays"), str) else (rd.get("weekdays") or [])
-            except Exception as e:
-                print(f"[DB ERROR] get_driver_schedule_schools: {e}")
-                wds = []
-            if sel_wd not in wds:
-                continue
+            # 요일 매칭 (일별 스케줄은 날짜 직접 비교)
+            rd_month = str(rd.get("month", ""))
+            if len(rd_month) == 10:
+                # 일별 스케줄: month 가 "YYYY-MM-DD" 특정 날짜인 경우
+                if rd_month != sel_date:
+                    continue
+                # 날짜가 일치하면 요일 체크 생략
+            else:
+                # 월별 스케줄: 요일 매칭
+                try:
+                    wds = _json.loads(rd["weekdays"]) if isinstance(rd.get("weekdays"), str) else (rd.get("weekdays") or [])
+                except Exception as e:
+                    print(f"[DB ERROR] get_driver_schedule_schools: {e}")
+                    wds = []
+                if sel_wd not in wds:
+                    continue
             # 학교 파싱
             try:
                 schools = _json.loads(rd["schools"]) if isinstance(rd.get("schools"), str) else (rd.get("schools") or [])
@@ -2147,9 +2155,21 @@ def update_schedule(schedule_id: str, weekdays: str, schools: str, driver: str, 
 def upsert_schedule(data: dict) -> dict:
     """일정 UPSERT — vendor+month+weekdays+schools 4키 중복 시 UPDATE, 없으면 INSERT.
 
+    JSON 인코딩 불일치(ensure_ascii=True vs False) 대응: Python 레벨에서
+    JSON 정규화 후 비교하므로 ["\uc654"] == ["화"] 로 인식됨.
+
     Returns:
         {"ok": True/False, "mode": "insert"/"update", "msg": "..."}
     """
+    import json as _json2
+
+    def _norm_json(s: str) -> str:
+        """JSON 문자열 정규화 — ensure_ascii=False + sort_keys=True."""
+        try:
+            return _json2.dumps(_json2.loads(s), ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return s
+
     conn = get_db()
     try:
         vendor = str(data.get("vendor", ""))
@@ -2157,23 +2177,30 @@ def upsert_schedule(data: dict) -> dict:
         if not vendor or not month:
             return {"ok": False, "mode": "", "msg": "업체와 월은 필수입니다."}
 
-        weekdays = data.get("weekdays", "[]")
-        schools = data.get("schools", "[]")
+        weekdays_norm = _norm_json(str(data.get("weekdays", "[]")))
+        schools_norm = _norm_json(str(data.get("schools", "[]")))
         items = data.get("items", "[]")
         driver = str(data.get("driver", "") or "")
         registered_by = str(data.get("registered_by", "admin"))
 
-        existing = conn.execute(
-            "SELECT id FROM schedules "
-            "WHERE vendor=? AND month=? AND weekdays=? AND schools=? LIMIT 1",
-            (vendor, month, weekdays, schools),
-        ).fetchone()
+        # vendor+month로 후보 행 조회 후 Python 레벨 JSON 정규화 비교
+        candidates = conn.execute(
+            "SELECT id, weekdays, schools FROM schedules WHERE vendor=? AND month=?",
+            (vendor, month),
+        ).fetchall()
 
-        if existing:
+        existing_id = None
+        for cand in candidates:
+            cd = dict(cand)
+            if (_norm_json(str(cd.get("weekdays", "[]"))) == weekdays_norm and
+                    _norm_json(str(cd.get("schools", "[]"))) == schools_norm):
+                existing_id = str(cd.get("id", ""))
+                break
+
+        if existing_id:
             conn.execute(
-                "UPDATE schedules SET items=?, driver=? "
-                "WHERE vendor=? AND month=? AND weekdays=? AND schools=?",
-                (items, driver, vendor, month, weekdays, schools),
+                "UPDATE schedules SET items=?, driver=? WHERE id=?",
+                (items, driver, existing_id),
             )
             conn.commit()
             return {"ok": True, "mode": "update", "msg": "중복된 일정입니다. 갱신합니다."}
@@ -2182,7 +2209,7 @@ def upsert_schedule(data: dict) -> dict:
                 "INSERT INTO schedules "
                 "(vendor, month, weekdays, schools, items, driver, registered_by) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (vendor, month, weekdays, schools, items, driver, registered_by),
+                (vendor, month, weekdays_norm, schools_norm, items, driver, registered_by),
             )
             conn.commit()
             return {"ok": True, "mode": "insert", "msg": f"신규 일정 등록 완료 ({month})"}
