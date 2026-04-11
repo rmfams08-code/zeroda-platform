@@ -1418,7 +1418,7 @@ class DriverState(AuthState):
 
     def delete_collection_entry(self, rowid: int):
         """수거 기록 삭제"""
-        ok = delete_collection(rowid)
+        ok = delete_collection(rowid, vendor=self.user_vendor)
         if ok:
             self._load_today_collections()
             self._load_recent_collections()

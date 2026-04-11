@@ -2686,6 +2686,7 @@ class VendorState(AuthState):
                 weight=float(self.edit_col_weight or 0),
                 unit_price=0,
                 memo=self.edit_col_memo,
+                vendor=self.user_vendor,
             )
             self.edit_col_msg = "✅ 수정 완료" if ok else "❌ 수정 실패"
             if ok:
@@ -2701,7 +2702,7 @@ class VendorState(AuthState):
         """수거 데이터 삭제"""
         try:
             from zeroda_reflex.utils.database import delete_collection
-            ok = delete_collection(int(row_id))
+            ok = delete_collection(int(row_id), vendor=self.user_vendor)
             self.edit_col_msg = "✅ 삭제 완료" if ok else "❌ 삭제 실패"
             if ok:
                 self.load_dashboard_data()

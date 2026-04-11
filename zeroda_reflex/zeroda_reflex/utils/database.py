@@ -867,11 +867,17 @@ def save_collection(
     return db_insert("real_collection", data)
 
 
-def delete_collection(rowid: int) -> bool:
-    """수거 기록 삭제 (id 기반, 인자명은 호환성 위해 유지)"""
+def delete_collection(rowid: int, vendor: str = "") -> bool:
+    """수거 기록 삭제 (id 기반). vendor 지정 시 소유권 검증."""
     conn = get_db()
     try:
-        conn.execute("DELETE FROM real_collection WHERE id = ?", (rowid,))
+        if vendor:
+            conn.execute(
+                "DELETE FROM real_collection WHERE id = ? AND vendor = ?",
+                (rowid, vendor),
+            )
+        else:
+            conn.execute("DELETE FROM real_collection WHERE id = ?", (rowid,))
         conn.commit()
         return True
     except Exception as e:
@@ -884,7 +890,7 @@ def delete_collection(rowid: int) -> bool:
 
 def update_collection_row(
     row_id: int, weight: float, unit_price: float,
-    item_type: str = "", memo: str = "",
+    item_type: str = "", memo: str = "", vendor: str = "",
 ) -> bool:
     """수거 기록 수정 (P1 복원 — HQ 편집용).
 
@@ -893,21 +899,35 @@ def update_collection_row(
     """
     conn = get_db()
     try:
-        cur_row = conn.execute(
-            "SELECT item_type, memo FROM real_collection WHERE id=?", (row_id,),
-        ).fetchone()
+        if vendor:
+            cur_row = conn.execute(
+                "SELECT item_type, memo FROM real_collection WHERE id=? AND vendor=?",
+                (row_id, vendor),
+            ).fetchone()
+        else:
+            cur_row = conn.execute(
+                "SELECT item_type, memo FROM real_collection WHERE id=?", (row_id,),
+            ).fetchone()
         if not cur_row:
             return False
         cur_d = dict(cur_row)
         new_item = item_type if item_type else cur_d.get("item_type", "")
         new_memo = memo if memo else cur_d.get("memo", "")
         new_amount = round(float(weight or 0) * float(unit_price or 0), 0)
-        conn.execute(
-            "UPDATE real_collection SET weight=?, unit_price=?, amount=?, "
-            "item_type=?, memo=? WHERE id=?",
-            (float(weight or 0), float(unit_price or 0), new_amount,
-             new_item, new_memo, row_id),
-        )
+        if vendor:
+            conn.execute(
+                "UPDATE real_collection SET weight=?, unit_price=?, amount=?, "
+                "item_type=?, memo=? WHERE id=? AND vendor=?",
+                (float(weight or 0), float(unit_price or 0), new_amount,
+                 new_item, new_memo, row_id, vendor),
+            )
+        else:
+            conn.execute(
+                "UPDATE real_collection SET weight=?, unit_price=?, amount=?, "
+                "item_type=?, memo=? WHERE id=?",
+                (float(weight or 0), float(unit_price or 0), new_amount,
+                 new_item, new_memo, row_id),
+            )
         conn.commit()
         return True
     except Exception as e:
