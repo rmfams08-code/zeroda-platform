@@ -429,6 +429,10 @@ class AdminState(AuthState):
     sched_total_filtered: int = 0          # 필터 후 전체 건수 (P4)
     sched_msg: str = ""
     sched_ok: bool = False
+    # 삭제 확인 (P6)
+    sched_delete_open: bool = False
+    sched_delete_target: str = ""       # 삭제 대상 일정 ID
+    sched_delete_info: str = ""         # 다이얼로그에 표시할 정보 (거래처/날짜)
 
     # 일정 등록 폼
     sf_vendor: str = ""
@@ -3000,16 +3004,39 @@ class AdminState(AuthState):
             self.sched_ok = False
 
     def delete_sched(self, sched_id: str):
-        """일정 삭제"""
-        v = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
-        ok = hq_delete_schedule(sched_id, vendor=v)
-        if ok:
-            self.sched_msg = f"일정 ID {sched_id} 삭제 완료"
-            self.sched_ok = True
+        """삭제 확인 다이얼로그 열기 (P6)."""
+        self.sched_delete_target = sched_id
+        # 삭제 대상 정보 표시용
+        for r in self.sched_rows_all:
+            if r.get("id", "") == sched_id:
+                info = r.get("schools", "") + " / " + r.get("month_key", "")
+                self.sched_delete_info = info
+                break
         else:
-            self.sched_msg = "삭제 실패"
-            self.sched_ok = False
+            self.sched_delete_info = "ID: " + sched_id
+        self.sched_delete_open = True
+
+    def confirm_delete_sched(self):
+        """삭제 확인 후 실제 삭제 실행."""
+        if not self.sched_delete_target:
+            self.sched_delete_open = False
+            return
+        v = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
+        ok = hq_delete_schedule(self.sched_delete_target, vendor=v)
+        self.sched_delete_open = False
+        self.sched_delete_target = ""
+        self.sched_delete_info = ""
+        if ok:
+            yield rx.toast.info("일정이 삭제되었습니다.")
+        else:
+            yield rx.toast.error("삭제에 실패했습니다.")
         self.load_schedules()
+
+    def close_sched_delete_dialog(self):
+        """삭제 다이얼로그 닫기."""
+        self.sched_delete_open = False
+        self.sched_delete_target = ""
+        self.sched_delete_info = ""
 
     # ══════════════════════════════
     #  오늘현황 (P1 복원)

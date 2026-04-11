@@ -1970,6 +1970,45 @@ def _sched_view_sub() -> rx.Component:
                          padding="20px", text_align="center"),
             ),
         ),
+        # ── P6: 삭제 확인 다이얼로그 ──
+        rx.dialog.root(
+            rx.dialog.content(
+                rx.vstack(
+                    rx.text("일정 삭제", weight="bold", size="4"),
+                    rx.text(
+                        "삭제된 일정은 복구할 수 없습니다.",
+                        color="red",
+                        size="2",
+                    ),
+                    rx.text(
+                        "삭제 대상: ",
+                        AdminState.sched_delete_info,
+                        size="2", weight="bold",
+                    ),
+                    rx.hstack(
+                        rx.dialog.close(
+                            rx.button(
+                                "취소",
+                                variant="outline",
+                                on_click=AdminState.close_sched_delete_dialog,
+                            ),
+                        ),
+                        rx.button(
+                            "삭제",
+                            color_scheme="red",
+                            on_click=AdminState.confirm_delete_sched,
+                        ),
+                        spacing="2",
+                        justify="end",
+                        width="100%",
+                    ),
+                    spacing="3",
+                    width="100%",
+                ),
+                max_width="380px",
+            ),
+            open=AdminState.sched_delete_open,
+        ),
         spacing="3", width="100%",
     )
 
