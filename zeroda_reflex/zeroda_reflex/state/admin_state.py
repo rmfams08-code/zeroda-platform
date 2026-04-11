@@ -1070,6 +1070,20 @@ class AdminState(AuthState):
         self._load_processor_info()
         self.doc_preview_visible = False
 
+    def clear_doc_customer_selection(self):
+        """거래처 선택 초기화 (U2: '변경' 버튼용)."""
+        self.doc_selected_customer_id = 0
+        self.doc_selected_customer_info = {}
+        self.doc_new_cust_name = ""
+        self.doc_new_cust_bizno = ""
+        self.doc_new_cust_rep = ""
+        self.doc_new_cust_address = ""
+        self.doc_new_cust_phone = ""
+        self.doc_new_cust_type = ""
+        self.doc_new_customer_mode = False
+        self.doc_preview_visible = False
+        self.doc_preview_data = {}
+
     def set_doc_customer_query(self, q: str):
         self.doc_customer_query = q
 
