@@ -1603,14 +1603,20 @@ def get_safety_checklist(vendor: str) -> list[dict]:
         conn.close()
 
 
-def update_safety_checklist_status(chk_id: str, status: str, approved_by: str) -> bool:
-    """차량점검 승인/반려 상태 업데이트"""
+def update_safety_checklist_status(chk_id: str, status: str, approved_by: str, vendor: str = "") -> bool:
+    """차량점검 승인/반려 상태 업데이트 (vendor 지정 시 소유권 검증)"""
     conn = get_db()
     try:
-        conn.execute(
-            "UPDATE safety_checklist SET status=?, approved_by=?, approved_at=? WHERE id=?",
-            (status, approved_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), int(chk_id)),
-        )
+        if vendor:
+            conn.execute(
+                "UPDATE safety_checklist SET status=?, approved_by=?, approved_at=? WHERE id=? AND vendor=?",
+                (status, approved_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), int(chk_id), vendor),
+            )
+        else:
+            conn.execute(
+                "UPDATE safety_checklist SET status=?, approved_by=?, approved_at=? WHERE id=?",
+                (status, approved_by, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), int(chk_id)),
+            )
         conn.commit()
         return True
     except Exception as e:
@@ -2378,8 +2384,9 @@ def save_vendor_info(data: dict) -> bool:
     return True
 
 
-def save_safety_education(data: dict) -> bool:
-    """안전교육 이력 저장"""
+def save_safety_education(data: dict, vendor: str = "") -> bool:
+    """안전교육 이력 저장 (vendor 지정 시 소유권 고정)"""
+    vendor_val = vendor if vendor else str(data.get("vendor", ""))
     conn = get_db()
     try:
         conn.execute(
@@ -2387,7 +2394,7 @@ def save_safety_education(data: dict) -> bool:
             "(vendor, driver, edu_date, edu_type, edu_hours, instructor, result, memo, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                str(data.get("vendor", "")),
+                vendor_val,
                 str(data.get("driver", "")),
                 str(data.get("edu_date", "")),
                 str(data.get("edu_type", "정기교육")),
@@ -2408,9 +2415,10 @@ def save_safety_education(data: dict) -> bool:
         conn.close()
 
 
-def save_safety_checklist(data: dict) -> bool:
-    """차량 안전점검 결과 저장"""
+def save_safety_checklist(data: dict, vendor: str = "") -> bool:
+    """차량 안전점검 결과 저장 (vendor 지정 시 소유권 고정)"""
     import json as _json
+    vendor_val = vendor if vendor else str(data.get("vendor", ""))
     conn = get_db()
     try:
         check_items = data.get("check_items", {})
@@ -2422,7 +2430,7 @@ def save_safety_checklist(data: dict) -> bool:
             "total_ok, total_fail, inspector, memo, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                str(data.get("vendor", "")),
+                vendor_val,
                 str(data.get("driver", "")),
                 str(data.get("check_date", "")),
                 str(data.get("vehicle_no", "")),
@@ -2462,8 +2470,9 @@ def get_accident_reports(vendor: str) -> list[dict]:
     return sorted(result, key=lambda x: x["occur_date"], reverse=True)
 
 
-def save_accident_report(data: dict) -> bool:
-    """사고 신고 저장"""
+def save_accident_report(data: dict, vendor: str = "") -> bool:
+    """사고 신고 저장 (vendor 지정 시 소유권 고정)"""
+    vendor_val = vendor if vendor else str(data.get("vendor", ""))
     conn = get_db()
     try:
         conn.execute(
@@ -2472,7 +2481,7 @@ def save_accident_report(data: dict) -> bool:
             "severity, description, action_taken, status, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                str(data.get("vendor", "")),
+                vendor_val,
                 str(data.get("driver", "")),
                 str(data.get("occur_date", "")),
                 str(data.get("occur_location", "")),

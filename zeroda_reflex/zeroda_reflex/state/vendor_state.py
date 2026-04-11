@@ -2177,7 +2177,7 @@ class VendorState(AuthState):
             "instructor": self.edu_instructor.strip(),
             "result":     self.edu_result,
             "memo":       self.edu_memo.strip(),
-        })
+        }, vendor=self.user_vendor)
         if ok:
             self.edu_save_msg = f"{driver} 안전교육 이력이 저장되었습니다."
             self.edu_save_ok = True
@@ -2224,7 +2224,7 @@ class VendorState(AuthState):
             "total_fail":  total_fail,
             "inspector":   self.chk_inspector.strip(),
             "memo":        self.chk_memo.strip(),
-        })
+        }, vendor=self.user_vendor)
         if ok:
             msg = f"{driver} 차량점검 결과 저장 완료 (양호 {total_ok}/8)"
             if total_fail > 0:
@@ -2265,7 +2265,7 @@ class VendorState(AuthState):
             "severity":       self.acc_severity,
             "description":    self.acc_desc.strip(),
             "action_taken":   self.acc_action.strip(),
-        })
+        }, vendor=self.user_vendor)
         if ok:
             self.acc_save_msg = "사고 신고가 완료되었습니다."
             self.acc_driver = ""
@@ -2280,7 +2280,7 @@ class VendorState(AuthState):
     def approve_safety_checklist(self, chk_id: str):
         """P1-3: 차량점검 승인"""
         from zeroda_reflex.utils.database import update_safety_checklist_status
-        ok = update_safety_checklist_status(chk_id, "approved", self.user_vendor)
+        ok = update_safety_checklist_status(chk_id, "approved", self.user_vendor, vendor=self.user_vendor)
         if ok:
             self.safety_chk_approve_msg = f"✅ 점검 {chk_id} 승인 완료"
             self.load_safety_data()
@@ -2290,7 +2290,7 @@ class VendorState(AuthState):
     def reject_safety_checklist(self, chk_id: str):
         """P1-3: 차량점검 반려"""
         from zeroda_reflex.utils.database import update_safety_checklist_status
-        ok = update_safety_checklist_status(chk_id, "rejected", self.user_vendor)
+        ok = update_safety_checklist_status(chk_id, "rejected", self.user_vendor, vendor=self.user_vendor)
         if ok:
             self.safety_chk_approve_msg = f"반려 처리 완료 (ID {chk_id})"
             self.load_safety_data()
