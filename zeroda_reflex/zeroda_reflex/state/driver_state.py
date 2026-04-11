@@ -629,14 +629,37 @@ class DriverState(AuthState):
         return [s["school_name"] for s in self.schedule_schools if s["school_name"] not in done]
 
     def _load_today_collections(self):
-        """오늘 수거 기록 로드 — 토요일은 금요일로 변환 (학교 수거 토→금 저장과 동일)"""
+        """오늘 수거 기록 로드 — 토요일은 금요일로 변환 (학교 수거 토→금 저장과 동일)
+        일반 거래처는 토요일 그대로 저장되므로 토요일에는 금+토 양일 조회 후 합산"""
         _d = date.today()
-        query_date = (_d - timedelta(days=1)).strftime("%Y-%m-%d") if _d.weekday() == 5 else self.today_str
-        self.today_collections = get_today_collections(
-            vendor=self.user_vendor,
-            driver=self.user_name,
-            collect_date=query_date,
-        )
+        if _d.weekday() == 5:  # 토요일
+            friday_str = (_d - timedelta(days=1)).strftime("%Y-%m-%d")
+            saturday_str = _d.strftime("%Y-%m-%d")
+            friday_rows = get_today_collections(
+                vendor=self.user_vendor,
+                driver=self.user_name,
+                collect_date=friday_str,
+            )
+            saturday_rows = get_today_collections(
+                vendor=self.user_vendor,
+                driver=self.user_name,
+                collect_date=saturday_str,
+            )
+            # 중복 제거: id 기준
+            seen_ids = set()
+            merged = []
+            for row in friday_rows + saturday_rows:
+                rid = row.get("id")
+                if rid not in seen_ids:
+                    seen_ids.add(rid)
+                    merged.append(row)
+            self.today_collections = merged
+        else:
+            self.today_collections = get_today_collections(
+                vendor=self.user_vendor,
+                driver=self.user_name,
+                collect_date=self.today_str,
+            )
 
     def _load_recent_collections(self):
         """최근 수거 기록 로드 (record_filter 기준)"""
