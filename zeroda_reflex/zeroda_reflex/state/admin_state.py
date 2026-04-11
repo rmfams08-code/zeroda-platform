@@ -1242,11 +1242,13 @@ class AdminState(AuthState):
                 conn.close()
 
             if pdf_ok:
-                self.doc_issue_msg = f"발급 완료: {issue_number}"
+                self.doc_issue_msg = ""
                 self.doc_last_issued_pdf = _to_url(pdf_out)
+                yield rx.toast.info(f"발급 완료: {issue_number}")
             else:
-                self.doc_issue_msg = f"hwpx 저장 완료 (PDF 변환 실패 — libreoffice 확인 필요): {issue_number}"
+                self.doc_issue_msg = ""
                 self.doc_last_issued_pdf = _to_url(hwpx_out)
+                yield rx.toast.warning(f"hwpx 저장 완료 (PDF 변환 실패): {issue_number}")
             self.doc_issue_ok = True
             self.load_doc_service()
 
@@ -1392,10 +1394,11 @@ class AdminState(AuthState):
             self.doc_upload_ok = False
             return
 
-        self.doc_upload_msg = f"업로드 완료. 추출된 태그 {len(tags)}개"
+        self.doc_upload_msg = ""
         self.doc_upload_ok = True
         self.doc_upload_name = ""
         self.load_doc_service()
+        yield rx.toast.info(f"업로드 완료. 추출된 태그 {len(tags)}개")
 
     def deactivate_doc_template(self, tpl_id: int):
         """양식 비활성화 (삭제 아닌 숨김)."""
@@ -1409,8 +1412,9 @@ class AdminState(AuthState):
             conn.commit()
             conn.close()
             self.load_doc_service()
-            self.doc_upload_msg = "양식을 비활성화했습니다."
+            self.doc_upload_msg = ""
             self.doc_upload_ok = True
+            yield rx.toast.info("양식을 비활성화했습니다.")
         except Exception as e:
             logger.error(f"[deactivate_template] {e}", exc_info=True)
             self.doc_upload_msg = "비활성화에 실패했습니다."
@@ -1527,12 +1531,12 @@ class AdminState(AuthState):
             total = len(data)
             cat = self.doc_selected_category or "양식"
             cust_name = data.get("emitter_name", "")
-            self.doc_issue_msg = (
-                "미리보기 OK — 양식: " + cat + " / "
-                "거래처: " + cust_name + " / "
-                "채워진 필드: " + str(filled) + "/" + str(total) + "개"
-            )
+            self.doc_issue_msg = ""
             self.doc_issue_ok = True
+            yield rx.toast.info(
+                "미리보기 OK — " + cat + " / " + cust_name
+                + " / 필드 " + str(filled) + "/" + str(total) + "개"
+            )
         except Exception as e:
             logger.error(f"[preview_document] {e}", exc_info=True)
             self.doc_issue_msg = "미리보기에 실패했습니다."

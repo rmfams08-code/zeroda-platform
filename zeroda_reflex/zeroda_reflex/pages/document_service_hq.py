@@ -119,7 +119,7 @@ def _template_mgmt_panel() -> rx.Component:
                     AdminState.doc_upload_msg != "",
                     rx.text(
                         AdminState.doc_upload_msg,
-                        color=rx.cond(AdminState.doc_upload_ok, "green", "red"),
+                        color="red",
                         weight="bold",
                     ),
                 ),
@@ -820,7 +820,7 @@ def _issue_panel() -> rx.Component:
                     AdminState.doc_issue_msg != "",
                     rx.text(
                         AdminState.doc_issue_msg,
-                        color=rx.cond(AdminState.doc_issue_ok, "green", "red"),
+                        color="red",
                         weight="bold",
                     ),
                 ),
