@@ -40,6 +40,9 @@ from zeroda_reflex.utils.database import (
     get_waste_analytics,
     # 섹션G: 현장사진 (P3)
     get_photo_records_all,
+    # 계정관리: 업체 드롭다운
+    get_active_vendor_names,
+    get_vendor_info,
 )
 
 # ── 안전관리 서브탭 (P1 복원) ──
@@ -262,6 +265,7 @@ class AdminState(AuthState):
     acct_new_vendor: str = ""
     acct_new_schools: str = ""
     acct_new_edu: str = ""
+    acct_vendor_options: list[str] = []
     # 수정 다이얼로그
     acct_edit_open: bool = False
     acct_edit_target: str = ""
@@ -1730,6 +1734,15 @@ class AdminState(AuthState):
     def load_users(self):
         users = get_all_users() or []
         for u in users:
+            # pending_biz_no / pending_rep 기본값 보장 (컬럼 없는 구버전 DB 호환)
+            if "pending_biz_no" not in u:
+                u["pending_biz_no"] = ""
+            if "pending_rep" not in u:
+                u["pending_rep"] = ""
+            if u["pending_biz_no"] is None:
+                u["pending_biz_no"] = ""
+            if u["pending_rep"] is None:
+                u["pending_rep"] = ""
             u["_school_in_db"] = True  # 기본값 (school/meal_manager 외 역할)
             if u.get("role") in ("school", "meal_manager"):
                 v = u.get("pending_vendor") or ""
@@ -1758,6 +1771,21 @@ class AdminState(AuthState):
                 self.acct_msg = f"거래처 미등록: '{s}'({v})을 먼저 거래처 관리에 등록하세요."
                 self.acct_ok = False
                 return
+        # vendor_admin 승인 시 vendor_info 자동 생성
+        if target and target.get("role") == "vendor_admin":
+            vendor_name = target.get("vendor") or ""
+            if vendor_name:
+                existing = get_vendor_info(vendor_name)
+                if not existing.get("biz_no"):
+                    auto_data = {
+                        "vendor": vendor_name,
+                        "biz_name": target.get("pending_biz_no") and vendor_name or vendor_name,
+                        "rep": target.get("pending_rep") or "",
+                        "biz_no": target.get("pending_biz_no") or "",
+                        "address": target.get("pending_address") or "",
+                        "contact": target.get("pending_contact") or "",
+                    }
+                    save_hq_vendor_info(auto_data)
         ok = update_user_approval(user_id, "approved")
         self.all_users = get_all_users()
         if not ok:
@@ -1845,6 +1873,7 @@ class AdminState(AuthState):
         self.acct_new_schools = ""
         self.acct_new_edu = ""
         self.acct_msg = ""
+        self.acct_vendor_options = get_active_vendor_names()
         self.acct_create_open = True
 
     def close_create_dialog(self):
