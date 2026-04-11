@@ -439,6 +439,47 @@ def _account_tab() -> rx.Component:
             ),
         ),
 
+        # ── 업체별 현황 ──
+        _card_box(
+            rx.vstack(
+                rx.text("업체별 현황", font_size="13px", font_weight="700", color="#374151", padding_bottom="8px"),
+                rx.cond(
+                    AdminState.vendor_user_counts.length() > 0,
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.table.column_header_cell(rx.text("업체명", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("전체", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("활성", font_size="12px", font_weight="700", color="#64748b")),
+                                rx.table.column_header_cell(rx.text("승인대기", font_size="12px", font_weight="700", color="#64748b")),
+                            ),
+                        ),
+                        rx.table.body(
+                            rx.foreach(
+                                AdminState.vendor_user_counts,
+                                lambda row: rx.table.row(
+                                    rx.table.cell(rx.text(row["vendor"], font_size="13px")),
+                                    rx.table.cell(rx.text(row["total"].to(str), font_size="13px")),
+                                    rx.table.cell(rx.text(row["active"].to(str), font_size="13px")),
+                                    rx.table.cell(
+                                        rx.cond(
+                                            row["pending"] > 0,
+                                            rx.badge(row["pending"].to(str), color_scheme="orange", size="1"),
+                                            rx.text("0", font_size="13px", color="#94a3b8"),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        width="100%",
+                    ),
+                    rx.text("사용자 데이터가 없습니다.", font_size="13px", color="#94a3b8",
+                             padding="12px", text_align="center"),
+                ),
+                spacing="2", width="100%",
+            ),
+        ),
+
         # ── 계정 생성 다이얼로그 ──
         rx.dialog.root(
             rx.dialog.content(

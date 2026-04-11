@@ -626,6 +626,21 @@ class AdminState(AuthState):
     def acct_has_msg(self) -> bool:
         return self.acct_msg != ""
 
+    @rx.var
+    def vendor_user_counts(self) -> list[dict]:
+        """업체별 사용자 수 집계"""
+        counts: dict[str, dict] = {}
+        for u in self.all_users:
+            v = u.get("vendor") or "(업체없음)"
+            if v not in counts:
+                counts[v] = {"vendor": v, "total": 0, "active": 0, "pending": 0}
+            counts[v]["total"] += 1
+            if u.get("approval_status") == "pending":
+                counts[v]["pending"] += 1
+            elif u.get("is_active") == 1:
+                counts[v]["active"] += 1
+        return sorted(counts.values(), key=lambda x: x["vendor"])
+
     # ══════════════════════════════
     #  Computed Vars — 수거데이터
     # ══════════════════════════════
