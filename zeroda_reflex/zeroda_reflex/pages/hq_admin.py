@@ -321,6 +321,25 @@ def _user_row(user: dict) -> rx.Component:
                             rx.badge("거래처 미등록", color_scheme="red", size="1"),
                             rx.fragment(),
                         ),
+                        rx.cond(
+                            (user["role"] == "vendor_admin") & (user["pending_biz_no"] != ""),
+                            rx.hstack(
+                                rx.badge(
+                                    "사업자: " + user["pending_biz_no"].to(str),
+                                    color_scheme="blue", size="1",
+                                ),
+                                rx.cond(
+                                    user["pending_rep"] != "",
+                                    rx.badge(
+                                        "대표: " + user["pending_rep"].to(str),
+                                        color_scheme="indigo", size="1",
+                                    ),
+                                    rx.fragment(),
+                                ),
+                                spacing="1",
+                            ),
+                            rx.fragment(),
+                        ),
                         rx.button("승인", size="1", color_scheme="green",
                                    disabled=user["_school_in_db"] == False,
                                    on_click=AdminState.approve_user(uid)),
@@ -472,9 +491,13 @@ def _account_tab() -> rx.Component:
                         (AdminState.acct_new_role == "vendor_admin"),
                         rx.vstack(
                             rx.text("업체명", size="2", weight="bold"),
-                            rx.input(value=AdminState.acct_new_vendor,
-                                     on_change=AdminState.set_acct_new_vendor,
-                                     placeholder="소속 업체명", width="100%"),
+                            rx.select(
+                                AdminState.acct_vendor_options,
+                                value=AdminState.acct_new_vendor,
+                                on_change=AdminState.set_acct_new_vendor,
+                                placeholder="업체 선택",
+                                width="100%",
+                            ),
                             spacing="1", width="100%",
                         ),
                     ),
