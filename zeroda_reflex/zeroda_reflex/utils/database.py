@@ -2179,6 +2179,17 @@ def upsert_schedule(data: dict) -> dict:
         except Exception:
             return s
 
+    def _norm_sorted_json(s: str) -> str:
+        """비교용 JSON 정규화 — 리스트 원소를 정렬하여 순서 무관 중복 검출.
+        ["A","B"] == ["B","A"] 로 처리됨."""
+        try:
+            parsed = _json2.loads(s)
+            if isinstance(parsed, list):
+                parsed = sorted(str(x) for x in parsed)
+            return _json2.dumps(parsed, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return s
+
     conn = get_db()
     try:
         vendor = str(data.get("vendor", ""))
@@ -2186,13 +2197,13 @@ def upsert_schedule(data: dict) -> dict:
         if not vendor or not month:
             return {"ok": False, "mode": "", "msg": "업체와 월은 필수입니다."}
 
-        weekdays_norm = _norm_json(_to_json_str(data.get("weekdays", "[]")))
-        schools_norm = _norm_json(_to_json_str(data.get("schools", "[]")))
+        weekdays_norm = _norm_sorted_json(_to_json_str(data.get("weekdays", "[]")))
+        schools_norm = _norm_sorted_json(_to_json_str(data.get("schools", "[]")))
         items = data.get("items", "[]")
         driver = str(data.get("driver", "") or "")
         registered_by = str(data.get("registered_by", "admin"))
 
-        # vendor+month로 후보 행 조회 후 Python 레벨 JSON 정규화 비교
+        # vendor+month로 후보 행 조회 후 Python 레벨 JSON 정규화 비교 (순서 무관)
         candidates = conn.execute(
             "SELECT id, weekdays, schools FROM schedules WHERE vendor=? AND month=?",
             (vendor, month),
@@ -2202,8 +2213,9 @@ def upsert_schedule(data: dict) -> dict:
         for cand in candidates:
             cd = dict(cand)
             # JSONB 컬럼은 Python list로 반환될 수 있으므로 _to_json_str 먼저 적용
-            if (_norm_json(_to_json_str(cd.get("weekdays"))) == weekdays_norm and
-                    _norm_json(_to_json_str(cd.get("schools"))) == schools_norm):
+            # _norm_sorted_json으로 비교 → 리스트 순서 무관 중복 검출
+            if (_norm_sorted_json(_to_json_str(cd.get("weekdays"))) == weekdays_norm and
+                    _norm_sorted_json(_to_json_str(cd.get("schools"))) == schools_norm):
                 existing_id = str(cd.get("id", ""))
                 break
 
