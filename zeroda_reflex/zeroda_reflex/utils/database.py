@@ -2118,6 +2118,32 @@ def save_schedule(data: dict) -> bool:
         conn.close()
 
 
+def update_schedule(schedule_id: str, weekdays: str, schools: str, driver: str, vendor: str) -> bool:
+    """일정 수정 — 요일/거래처/기사만 변경 가능. vendor 소유권 검증."""
+    conn = get_db()
+    try:
+        if vendor:
+            conn.execute(
+                "UPDATE schedules SET weekdays=?, schools=?, driver=? "
+                "WHERE id=? AND vendor=?",
+                (weekdays, schools, driver, schedule_id, vendor),
+            )
+        else:
+            conn.execute(
+                "UPDATE schedules SET weekdays=?, schools=?, driver=? "
+                "WHERE id=?",
+                (weekdays, schools, driver, schedule_id),
+            )
+        conn.commit()
+        return conn.total_changes > 0
+    except Exception as e:
+        print(f"[DB ERROR] update_schedule: {e}")
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return False
+    finally:
+        conn.close()
+
+
 def delete_schedule(schedule_id: str, vendor: str) -> bool:
     """일정 삭제 — id 기준. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()

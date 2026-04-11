@@ -26,7 +26,7 @@ from zeroda_reflex.utils.database import (
     hq_add_violation, hq_get_violations,
     hq_get_safety_scores, hq_calculate_safety_score,
     # 섹션D: 수거일정 + NEIS
-    get_hq_schedules, hq_save_schedule, hq_delete_schedule,
+    get_hq_schedules, hq_save_schedule, hq_delete_schedule, update_schedule,
     get_neis_schools_by_vendor, save_neis_meal_schedule,
     get_meal_schedules, approve_meal_schedules, cancel_meal_schedules,
     check_schedule_duplicate,
@@ -429,6 +429,12 @@ class AdminState(AuthState):
     sched_total_filtered: int = 0          # 필터 후 전체 건수 (P4)
     sched_msg: str = ""
     sched_ok: bool = False
+
+    # 인라인 수정 (P5)
+    sched_edit_id: str = ""            # 편집 중인 행 ID ("" = 편집 모드 아님)
+    sched_edit_weekdays: str = ""      # 편집 중인 요일
+    sched_edit_schools: str = ""       # 편집 중인 거래처
+    sched_edit_driver: str = ""        # 편집 중인 기사
 
     # 일정 등록 폼
     sf_vendor: str = ""
@@ -3010,6 +3016,60 @@ class AdminState(AuthState):
             self.sched_msg = "삭제 실패"
             self.sched_ok = False
         self.load_schedules()
+
+    def start_sched_edit(self, sched_id: str):
+        """인라인 수정 시작 — 해당 행 데이터를 편집 변수에 로드."""
+        self.sched_edit_id = sched_id
+        for r in self.sched_rows_all:
+            if r.get("id", "") == sched_id:
+                self.sched_edit_weekdays = r.get("weekdays", "")
+                self.sched_edit_schools = r.get("schools", "")
+                self.sched_edit_driver = r.get("driver", "")
+                break
+
+    def cancel_sched_edit(self):
+        """인라인 수정 취소."""
+        self.sched_edit_id = ""
+        self.sched_edit_weekdays = ""
+        self.sched_edit_schools = ""
+        self.sched_edit_driver = ""
+
+    def save_sched_edit(self):
+        """인라인 수정 저장."""
+        import json as _json
+        if not self.sched_edit_id:
+            return
+        weekdays_list = [w.strip() for w in self.sched_edit_weekdays.split(",") if w.strip()]
+        schools_list = [s.strip() for s in self.sched_edit_schools.split(",") if s.strip()]
+        weekdays_json = _json.dumps(weekdays_list, ensure_ascii=False)
+        schools_json = _json.dumps(schools_list, ensure_ascii=False)
+        v = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
+        ok = update_schedule(
+            self.sched_edit_id,
+            weekdays=weekdays_json,
+            schools=schools_json,
+            driver=self.sched_edit_driver.strip(),
+            vendor=v,
+        )
+        if ok:
+            self.sched_msg = "수정 완료"
+            self.sched_ok = True
+            yield rx.toast.info("일정이 수정되었습니다.")
+        else:
+            self.sched_msg = "수정 실패"
+            self.sched_ok = False
+            yield rx.toast.error("일정 수정에 실패했습니다.")
+        self.sched_edit_id = ""
+        self.load_schedules()
+
+    def set_sched_edit_weekdays(self, v: str):
+        self.sched_edit_weekdays = v
+
+    def set_sched_edit_schools(self, v: str):
+        self.sched_edit_schools = v
+
+    def set_sched_edit_driver(self, v: str):
+        self.sched_edit_driver = v
 
     # ══════════════════════════════
     #  오늘현황 (P1 복원)

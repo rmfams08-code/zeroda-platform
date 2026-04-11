@@ -1935,7 +1935,9 @@ def _sched_view_sub() -> rx.Component:
                         rx.foreach(
                             AdminState.sched_rows,
                             lambda r: rx.table.row(
+                                # 업체명 (읽기 전용)
                                 rx.table.cell(rx.text(r["vendor_name"], font_size="12px")),
+                                # 구분 뱃지 (읽기 전용)
                                 rx.table.cell(
                                     rx.cond(
                                         r["sched_type"].to(str) == "월별",
@@ -1947,18 +1949,76 @@ def _sched_view_sub() -> rx.Component:
                                         ),
                                     ),
                                 ),
+                                # 날짜 (읽기 전용)
                                 rx.table.cell(rx.text(r["date_display"].to(str), font_size="12px")),
-                                rx.table.cell(rx.text(r["weekdays"], font_size="12px")),
-                                rx.table.cell(rx.text(r["schools"], font_size="12px", max_width="240px", overflow="hidden")),
-                                rx.table.cell(rx.text(r["items"], font_size="12px")),
-                                rx.table.cell(rx.text(r["driver"], font_size="12px")),
+                                # 요일 — 편집 가능
                                 rx.table.cell(
-                                    rx.button(
-                                        rx.icon("trash_2", size=12),
-                                        size="1",
-                                        variant="ghost",
-                                        color_scheme="gray",
-                                        on_click=AdminState.delete_sched(r["id"]),
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.input(
+                                            value=AdminState.sched_edit_weekdays,
+                                            on_change=AdminState.set_sched_edit_weekdays,
+                                            size="1", width="80px", font_size="12px",
+                                        ),
+                                        rx.text(r["weekdays"], font_size="12px"),
+                                    ),
+                                ),
+                                # 거래처 — 편집 가능
+                                rx.table.cell(
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.input(
+                                            value=AdminState.sched_edit_schools,
+                                            on_change=AdminState.set_sched_edit_schools,
+                                            size="1", width="140px", font_size="12px",
+                                        ),
+                                        rx.text(r["schools"], font_size="12px", max_width="240px", overflow="hidden"),
+                                    ),
+                                ),
+                                # 품목 (읽기 전용)
+                                rx.table.cell(rx.text(r["items"], font_size="12px")),
+                                # 기사 — 편집 가능
+                                rx.table.cell(
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.input(
+                                            value=AdminState.sched_edit_driver,
+                                            on_change=AdminState.set_sched_edit_driver,
+                                            size="1", width="80px", font_size="12px",
+                                        ),
+                                        rx.text(r["driver"], font_size="12px"),
+                                    ),
+                                ),
+                                # 관리 — 편집 중이면 저장/취소, 아니면 수정/삭제
+                                rx.table.cell(
+                                    rx.cond(
+                                        AdminState.sched_edit_id == r["id"].to(str),
+                                        rx.hstack(
+                                            rx.button(
+                                                rx.icon("check", size=12),
+                                                size="1", variant="ghost", color_scheme="green",
+                                                on_click=AdminState.save_sched_edit,
+                                            ),
+                                            rx.button(
+                                                rx.icon("x", size=12),
+                                                size="1", variant="ghost", color_scheme="gray",
+                                                on_click=AdminState.cancel_sched_edit,
+                                            ),
+                                            spacing="1",
+                                        ),
+                                        rx.hstack(
+                                            rx.button(
+                                                rx.icon("pencil", size=12),
+                                                size="1", variant="ghost", color_scheme="blue",
+                                                on_click=AdminState.start_sched_edit(r["id"].to(str)),
+                                            ),
+                                            rx.button(
+                                                rx.icon("trash_2", size=12),
+                                                size="1", variant="ghost", color_scheme="gray",
+                                                on_click=AdminState.delete_sched(r["id"].to(str)),
+                                            ),
+                                            spacing="1",
+                                        ),
                                     ),
                                 ),
                             ),
