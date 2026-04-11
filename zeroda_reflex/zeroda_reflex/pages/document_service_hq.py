@@ -861,6 +861,126 @@ def _issue_panel() -> rx.Component:
                         is_external=True,
                     ),
                 ),
+                # ── U4: 미리보기 카드 ──
+                rx.cond(
+                    AdminState.doc_preview_visible,
+                    rx.card(
+                        rx.vstack(
+                            rx.hstack(
+                                rx.icon("eye", size=16, color="#3b82f6"),
+                                rx.text(
+                                    "미리보기",
+                                    weight="bold",
+                                    color="#3b82f6",
+                                ),
+                                rx.spacer(),
+                                rx.badge(
+                                    AdminState.doc_preview_data["category"].to(str),
+                                    color_scheme="blue",
+                                ),
+                                align="center",
+                                width="100%",
+                            ),
+                            rx.text(
+                                AdminState.doc_preview_summary,
+                                size="1",
+                                color="#6b7280",
+                            ),
+                            rx.divider(),
+                            # 배출자(갑)
+                            rx.vstack(
+                                rx.text("배출자(갑)", size="2", weight="bold", color="#059669"),
+                                rx.hstack(
+                                    rx.text("상호: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["emitter_name"].to(str), size="2"),
+                                    spacing="1",
+                                ),
+                                rx.hstack(
+                                    rx.text("사업자번호: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["emitter_bizno"].to(str), size="2"),
+                                    spacing="1",
+                                ),
+                                rx.hstack(
+                                    rx.text("주소: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["emitter_address"].to(str), size="2"),
+                                    spacing="1",
+                                ),
+                                rx.hstack(
+                                    rx.text("전화: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["emitter_phone"].to(str), size="2"),
+                                    rx.text(" / 대표: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["emitter_rep"].to(str), size="2"),
+                                    spacing="1",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.divider(),
+                            # 수집운반자(을)
+                            rx.vstack(
+                                rx.text("수집운반자(을)", size="2", weight="bold", color="#2563eb"),
+                                rx.hstack(
+                                    rx.text("상호: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["transporter_name"].to(str), size="2"),
+                                    spacing="1",
+                                ),
+                                rx.hstack(
+                                    rx.text("허가번호: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["transporter_license"].to(str), size="2"),
+                                    rx.text(" / 전화: ", size="1", color="#6b7280"),
+                                    rx.text(AdminState.doc_preview_data["transporter_phone"].to(str), size="2"),
+                                    spacing="1",
+                                ),
+                                spacing="1",
+                            ),
+                            rx.divider(),
+                            # 폐기물 정보
+                            rx.cond(
+                                AdminState.doc_preview_data["waste_type_1"].to(str) != "",
+                                rx.vstack(
+                                    rx.text("폐기물 정보", size="2", weight="bold", color="#d97706"),
+                                    rx.hstack(
+                                        rx.badge(
+                                            AdminState.doc_preview_data["waste_type_1"].to(str),
+                                            color_scheme="orange",
+                                        ),
+                                        rx.cond(
+                                            AdminState.doc_preview_data["quantity_1"].to(str) != "",
+                                            rx.text(
+                                                AdminState.doc_preview_data["quantity_1"].to(str),
+                                                size="2",
+                                            ),
+                                        ),
+                                        rx.cond(
+                                            AdminState.doc_preview_data["method_1"].to(str) != "",
+                                            rx.text(
+                                                AdminState.doc_preview_data["method_1"].to(str),
+                                                size="2",
+                                                color="#6b7280",
+                                            ),
+                                        ),
+                                        spacing="2",
+                                        align="center",
+                                    ),
+                                    rx.cond(
+                                        AdminState.doc_preview_data["total_amount"].to(str) != "",
+                                        rx.text(
+                                            "총 계약금액: " + AdminState.doc_preview_data["total_amount"].to(str),
+                                            size="2",
+                                            weight="bold",
+                                        ),
+                                    ),
+                                    spacing="1",
+                                ),
+                            ),
+                            spacing="3",
+                        ),
+                        padding="16px",
+                        width="100%",
+                        border="2px solid #3b82f6",
+                        border_radius="8px",
+                        background="#f0f9ff",
+                    ),
+                ),
                 spacing="3",
             ),
             padding="16px",

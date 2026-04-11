@@ -222,6 +222,10 @@ class AdminState(AuthState):
     doc_new_cust_type: str = ""
     # ── 통합 폼 데이터 (Phase 3: 개별 변수 50개 → dict 1개) ──
     doc_form_data: dict = {}
+    # 미리보기 카드
+    doc_preview_visible: bool = False
+    doc_preview_data: dict = {}
+    doc_preview_summary: str = ""
     # 발급 상태
     doc_issue_msg: str = ""
     doc_issue_ok: bool = False
@@ -997,6 +1001,8 @@ class AdminState(AuthState):
                 for fld in sec.get("fields", []):
                     init_data[fld["key"]] = fld.get("default", "")
         self.doc_form_data = init_data
+        self.doc_preview_visible = False
+        self.doc_preview_data = {}
         # 중간처리업체 정보 자동 로드
         self._load_processor_info()
 
@@ -1062,6 +1068,7 @@ class AdminState(AuthState):
             }
         # 중간처리업체 로드 (Phase 5)
         self._load_processor_info()
+        self.doc_preview_visible = False
 
     def set_doc_customer_query(self, q: str):
         self.doc_customer_query = q
@@ -1190,6 +1197,7 @@ class AdminState(AuthState):
 
     async def issue_hwpx_document(self):
         """양식 선택 + 폼 데이터 → hwpx 셀 채움 → PDF 변환 → DB 기록."""
+        self.doc_preview_visible = False
         import os as _os
         from datetime import datetime as _dt
         from ..utils.form_field_config import CATEGORY_CELL_MAP
@@ -1531,12 +1539,15 @@ class AdminState(AuthState):
             }
 
     def preview_document(self):
-        """미리보기 — build_fill_data로 채움 데이터를 구성하고 요약 메시지 출력."""
+        """미리보기 — build_fill_data로 채움 데이터를 구성하고 미리보기 카드 표시."""
+        self.doc_preview_visible = False
+        self.doc_preview_data = {}
+        self.doc_preview_summary = ""
+
         if not self.doc_selected_template_id:
             self.doc_issue_msg = "양식을 먼저 선택하세요."
             self.doc_issue_ok = False
             return
-        # 거래처 체크: 신규모드면 상호명 필수, 기존모드면 ID 필수
         has_customer = (
             (self.doc_new_customer_mode and self.doc_new_cust_name.strip())
             or (not self.doc_new_customer_mode and self.doc_selected_customer_id)
@@ -1551,11 +1562,33 @@ class AdminState(AuthState):
             total = len(data)
             cat = self.doc_selected_category or "양식"
             cust_name = data.get("emitter_name", "")
+
+            preview = {}
+            preview["emitter_name"] = str(data.get("emitter_name", "") or "")
+            preview["emitter_bizno"] = str(data.get("emitter_bizno", "") or "")
+            preview["emitter_address"] = str(data.get("emitter_address", "") or "")
+            preview["emitter_phone"] = str(data.get("emitter_phone", "") or "")
+            preview["emitter_rep"] = str(data.get("emitter_rep", "") or "")
+            preview["transporter_name"] = str(data.get("transporter_name", "") or "")
+            preview["transporter_license"] = str(data.get("transporter_license", "") or "")
+            preview["transporter_phone"] = str(data.get("transporter_phone", "") or "")
+            preview["transporter_rep"] = str(data.get("transporter_rep", "") or "")
+            preview["waste_type_1"] = str(data.get("waste_type_1", "") or "")
+            preview["quantity_1"] = str(data.get("quantity_1", "") or "")
+            preview["method_1"] = str(data.get("method_1", "") or "")
+            preview["total_amount"] = str(data.get("total_amount", "") or "")
+            preview["category"] = cat
+
+            self.doc_preview_data = preview
+            self.doc_preview_visible = True
+            self.doc_preview_summary = (
+                cat + " / " + cust_name + " / 필드 "
+                + str(filled) + "/" + str(total) + "개"
+            )
             self.doc_issue_msg = ""
             self.doc_issue_ok = True
             yield rx.toast.info(
-                "미리보기 OK — " + cat + " / " + cust_name
-                + " / 필드 " + str(filled) + "/" + str(total) + "개"
+                "미리보기 생성 완료 — 아래 카드에서 확인하세요"
             )
         except Exception as e:
             logger.error(f"[preview_document] {e}", exc_info=True)
