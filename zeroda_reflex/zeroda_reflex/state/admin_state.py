@@ -419,7 +419,11 @@ class AdminState(AuthState):
     sched_sub_tab: str = "일정조회"
     sched_vendor_filter: str = "전체"
     sched_month_filter: str = ""
-    sched_rows: list[dict] = []
+    sched_school_filter: str = ""          # 거래처 텍스트 필터 (P2)
+    sched_driver_filter: str = "전체"      # 기사 드롭다운 필터 (P2)
+    sched_driver_options: list[str] = []   # 기사 선택지 (P2)
+    sched_rows: list[dict] = []            # 필터 적용 후 결과
+    sched_rows_all: list[dict] = []        # DB 조회 원본 (클라이언트 필터 소스)
     sched_msg: str = ""
     sched_ok: bool = False
 
@@ -2824,7 +2828,53 @@ class AdminState(AuthState):
                 vmap[code] = name if name else code
         for r in rows:
             r["vendor_name"] = vmap.get(r.get("vendor", ""), r.get("vendor", ""))
-        self.sched_rows = rows
+        self.sched_rows_all = rows
+        # 기사 옵션 추출 (P2)
+        drivers = set()
+        for r in rows:
+            d = r.get("driver", "")
+            if d:
+                drivers.add(d)
+        self.sched_driver_options = sorted(drivers)
+        # 클라이언트 필터 적용
+        self._apply_sched_client_filter()
+
+    def _apply_sched_client_filter(self):
+        """거래처 텍스트 + 기사 필터를 sched_rows_all에 적용 → sched_rows."""
+        result = list(self.sched_rows_all)
+        # 거래처(학교) 텍스트 필터
+        sq = (self.sched_school_filter or "").strip().lower()
+        if sq:
+            result = [
+                r for r in result
+                if sq in (r.get("schools", "") or "").lower()
+            ]
+        # 기사 필터
+        df = self.sched_driver_filter
+        if df and df != "전체":
+            result = [
+                r for r in result
+                if r.get("driver", "") == df
+            ]
+        self.sched_rows = result
+
+    def set_sched_school_filter(self, q: str):
+        """거래처 텍스트 필터 변경 시 즉시 필터링."""
+        self.sched_school_filter = q
+        self._apply_sched_client_filter()
+
+    def set_sched_driver_filter(self, d: str):
+        """기사 드롭다운 필터 변경 시 즉시 필터링."""
+        self.sched_driver_filter = d
+        self._apply_sched_client_filter()
+
+    def reset_sched_filters(self):
+        """필터 전체 초기화."""
+        self.sched_vendor_filter = "전체"
+        self.sched_month_filter = ""
+        self.sched_school_filter = ""
+        self.sched_driver_filter = "전체"
+        self.load_schedules()
 
     # 일정 등록 폼 세터
     def set_sf_vendor(self, v: str):

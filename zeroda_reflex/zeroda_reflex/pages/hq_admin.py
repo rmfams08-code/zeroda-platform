@@ -1830,27 +1830,54 @@ def _sched_sub_nav() -> rx.Component:
 def _sched_view_sub() -> rx.Component:
     """일정 조회"""
     return rx.vstack(
-        rx.hstack(
-            rx.select(
-                AdminState.vendor_name_options_all,
-                value=AdminState.sched_vendor_filter,
-                on_change=AdminState.set_sched_vendor_filter,
-                placeholder="업체",
-                size="2", width="160px",
+        rx.vstack(
+            rx.hstack(
+                rx.select(
+                    AdminState.vendor_name_options_all,
+                    value=AdminState.sched_vendor_filter,
+                    on_change=AdminState.set_sched_vendor_filter,
+                    placeholder="업체",
+                    size="2", width="150px",
+                ),
+                rx.select(
+                    _month_options(),
+                    value=AdminState.sched_month_filter,
+                    on_change=AdminState.set_sched_month_filter,
+                    placeholder="월별",
+                    size="2", width="130px",
+                ),
+                rx.select(
+                    ["전체"] + AdminState.sched_driver_options,
+                    value=AdminState.sched_driver_filter,
+                    on_change=AdminState.set_sched_driver_filter,
+                    placeholder="기사",
+                    size="2", width="130px",
+                ),
+                spacing="2", flex_wrap="wrap",
             ),
-            rx.select(
-                _month_options(),
-                value=AdminState.sched_month_filter,
-                on_change=AdminState.set_sched_month_filter,
-                placeholder="월별",
-                size="2", width="140px",
+            rx.hstack(
+                rx.input(
+                    placeholder="거래처 검색",
+                    value=AdminState.sched_school_filter,
+                    on_change=AdminState.set_sched_school_filter,
+                    size="2", width="200px",
+                ),
+                rx.button(
+                    rx.icon("refresh_cw", size=14),
+                    on_click=AdminState.load_schedules,
+                    variant="outline", size="2",
+                ),
+                rx.button(
+                    rx.icon("x", size=14),
+                    " 초기화",
+                    on_click=AdminState.reset_sched_filters,
+                    variant="ghost",
+                    color_scheme="gray",
+                    size="2",
+                ),
+                spacing="2", flex_wrap="wrap",
             ),
-            rx.button(
-                rx.icon("refresh_cw", size=14),
-                on_click=AdminState.load_schedules,
-                variant="outline", size="2",
-            ),
-            spacing="2", flex_wrap="wrap",
+            spacing="2", width="100%",
         ),
         rx.hstack(
             rx.text(
