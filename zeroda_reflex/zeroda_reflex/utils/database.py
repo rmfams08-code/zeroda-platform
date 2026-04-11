@@ -909,7 +909,7 @@ def save_collection(
     return db_insert("real_collection", data)
 
 
-def delete_collection(rowid: int, vendor: str = "") -> bool:
+def delete_collection(rowid: int, vendor: str) -> bool:
     """수거 기록 삭제 (id 기반). vendor 지정 시 소유권 검증."""
     conn = get_db()
     try:
@@ -932,7 +932,7 @@ def delete_collection(rowid: int, vendor: str = "") -> bool:
 
 def update_collection_row(
     row_id: int, weight: float, unit_price: float,
-    item_type: str = "", memo: str = "", vendor: str = "",
+    vendor: str, item_type: str = "", memo: str = "",
 ) -> bool:
     """수거 기록 수정 (P1 복원 — HQ 편집용).
 
@@ -1603,7 +1603,7 @@ def get_safety_checklist(vendor: str) -> list[dict]:
         conn.close()
 
 
-def update_safety_checklist_status(chk_id: str, status: str, approved_by: str, vendor: str = "") -> bool:
+def update_safety_checklist_status(chk_id: str, status: str, approved_by: str, vendor: str) -> bool:
     """차량점검 승인/반려 상태 업데이트 (vendor 지정 시 소유권 검증)"""
     conn = get_db()
     try:
@@ -2015,7 +2015,7 @@ def save_schedule(data: dict) -> bool:
         conn.close()
 
 
-def delete_schedule(schedule_id: str, vendor: str = "") -> bool:
+def delete_schedule(schedule_id: str, vendor: str) -> bool:
     """일정 삭제 — id 기준. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
@@ -2390,7 +2390,7 @@ def save_vendor_info(data: dict) -> bool:
     return True
 
 
-def save_safety_education(data: dict, vendor: str = "") -> bool:
+def save_safety_education(data: dict, vendor: str) -> bool:
     """안전교육 이력 저장 (vendor 지정 시 소유권 고정)"""
     vendor_val = vendor if vendor else str(data.get("vendor", ""))
     conn = get_db()
@@ -2421,7 +2421,7 @@ def save_safety_education(data: dict, vendor: str = "") -> bool:
         conn.close()
 
 
-def save_safety_checklist(data: dict, vendor: str = "") -> bool:
+def save_safety_checklist(data: dict, vendor: str) -> bool:
     """차량 안전점검 결과 저장 (vendor 지정 시 소유권 고정)"""
     import json as _json
     vendor_val = vendor if vendor else str(data.get("vendor", ""))
@@ -2476,7 +2476,7 @@ def get_accident_reports(vendor: str) -> list[dict]:
     return sorted(result, key=lambda x: x["occur_date"], reverse=True)
 
 
-def save_accident_report(data: dict, vendor: str = "") -> bool:
+def save_accident_report(data: dict, vendor: str) -> bool:
     """사고 신고 저장 (vendor 지정 시 소유권 고정)"""
     vendor_val = vendor if vendor else str(data.get("vendor", ""))
     conn = get_db()
@@ -2902,7 +2902,7 @@ def confirm_all_pending() -> int:
         conn.close()
 
 
-def reject_collection_by_id(row_id: int, vendor: str = "") -> bool:
+def reject_collection_by_id(row_id: int, vendor: str) -> bool:
     """특정 수거 데이터 반려. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
@@ -3029,7 +3029,7 @@ def get_hq_processing_confirms(
         conn.close()
 
 
-def confirm_processing_item(row_id: int, vendor: str = "") -> bool:
+def confirm_processing_item(row_id: int, vendor: str) -> bool:
     """처리확인 건 확인 처리. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
@@ -3057,7 +3057,7 @@ def confirm_processing_item(row_id: int, vendor: str = "") -> bool:
         conn.close()
 
 
-def reject_processing_item(row_id: int, vendor: str = "") -> bool:
+def reject_processing_item(row_id: int, vendor: str) -> bool:
     """처리확인 건 반려 처리. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
@@ -3462,7 +3462,7 @@ def hq_save_schedule(data: dict) -> bool:
     return save_schedule(data)
 
 
-def hq_delete_schedule(schedule_id: str, vendor: str = "") -> bool:
+def hq_delete_schedule(schedule_id: str, vendor: str) -> bool:
     """본사관리자 일정 삭제"""
     return delete_schedule(schedule_id, vendor=vendor)
 

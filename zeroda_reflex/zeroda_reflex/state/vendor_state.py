@@ -2024,7 +2024,7 @@ class VendorState(AuthState):
     def delete_schedule_handler(self, sched_id: str):
         """일정 삭제"""
         from zeroda_reflex.utils.database import delete_schedule as db_del_sched
-        db_del_sched(sched_id)
+        db_del_sched(sched_id, vendor=self.user_vendor)
         self.load_schedules()
 
     def _compute_settlement(self):
