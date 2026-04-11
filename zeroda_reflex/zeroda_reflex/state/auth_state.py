@@ -61,6 +61,14 @@ class AuthState(rx.State):
     reg_neis_school: str = ""           # 학교코드 7자리
     reg_vendor_options: list[str] = []  # 드롭다운 옵션 (승인된 업체 목록)
 
+    # ── 업체관리자 신규 업체 등록 전용 ──
+    reg_vendor_mode: str = "기존 업체 소속"
+    reg_new_vendor_name: str = ""
+    reg_new_biz_no: str = ""
+    reg_new_rep: str = ""
+    reg_new_address: str = ""
+    reg_new_contact: str = ""
+
     def set_reg_id(self, v: str): self.reg_id = v
     def set_reg_name(self, v: str): self.reg_name = v
     def set_reg_pw(self, v: str): self.reg_pw = v
@@ -70,6 +78,12 @@ class AuthState(rx.State):
         self.reg_vendor = ""
         self.reg_schools = ""
         self.reg_edu_office = ""
+        self.reg_vendor_mode = "기존 업체 소속"
+        self.reg_new_vendor_name = ""
+        self.reg_new_biz_no = ""
+        self.reg_new_rep = ""
+        self.reg_new_address = ""
+        self.reg_new_contact = ""
     def set_reg_vendor(self, v: str): self.reg_vendor = v
     def set_reg_schools(self, v: str): self.reg_schools = v
     def set_reg_edu_office(self, v: str): self.reg_edu_office = v
@@ -77,6 +91,23 @@ class AuthState(rx.State):
     def set_reg_school_name_neis(self, v: str): self.reg_school_name_neis = v
     def set_reg_neis_edu(self, v: str): self.reg_neis_edu = v
     def set_reg_neis_school(self, v: str): self.reg_neis_school = v
+
+    def set_reg_vendor_mode(self, v: str):
+        self.reg_vendor_mode = v
+        if v == "기존 업체 소속":
+            self.reg_new_vendor_name = ""
+            self.reg_new_biz_no = ""
+            self.reg_new_rep = ""
+            self.reg_new_address = ""
+            self.reg_new_contact = ""
+        else:
+            self.reg_vendor = ""
+
+    def set_reg_new_vendor_name(self, v: str): self.reg_new_vendor_name = v
+    def set_reg_new_biz_no(self, v: str): self.reg_new_biz_no = v
+    def set_reg_new_rep(self, v: str): self.reg_new_rep = v
+    def set_reg_new_address(self, v: str): self.reg_new_address = v
+    def set_reg_new_contact(self, v: str): self.reg_new_contact = v
 
     def load_signup_vendor_options(self):
         """회원가입 페이지 on_mount: 승인된 업체 목록 로드."""
@@ -136,12 +167,43 @@ class AuthState(rx.State):
                 self.reg_error = "NEIS 학교코드를 입력할 경우 7자리여야 합니다."
                 self.reg_loading = False
                 return
+        # driver / vendor_admin 업체 처리
+        final_vendor = self.reg_vendor.strip()
+        pending_biz_no = None
+        pending_rep = None
+        pending_address = None
+        pending_contact = None
+        if self.reg_role in ("driver", "vendor_admin"):
+            if self.reg_vendor_mode == "기존 업체 소속":
+                if not self.reg_vendor.strip():
+                    self.reg_error = "소속 업체를 선택해주세요."
+                    self.reg_loading = False
+                    return
+                final_vendor = self.reg_vendor.strip()
+            elif self.reg_vendor_mode == "새 업체 등록":
+                if self.reg_role != "vendor_admin":
+                    self.reg_error = "새 업체 등록은 업체관리자만 가능합니다."
+                    self.reg_loading = False
+                    return
+                if not self.reg_new_vendor_name.strip():
+                    self.reg_error = "새 업체명을 입력해주세요."
+                    self.reg_loading = False
+                    return
+                final_vendor = self.reg_new_vendor_name.strip()
+                pending_biz_no = self.reg_new_biz_no.strip() or None
+                pending_rep = self.reg_new_rep.strip() or None
+                pending_address = self.reg_new_address.strip() or None
+                pending_contact = self.reg_new_contact.strip() or None
+            else:
+                self.reg_error = "업체 선택 방식을 선택해주세요."
+                self.reg_loading = False
+                return
         created, msg = create_user(
             user_id=self.reg_id.strip(),
             password=self.reg_pw,
             role=self.reg_role,
             name=self.reg_name.strip(),
-            vendor=self.reg_vendor.strip(),
+            vendor=final_vendor,
             schools=self.reg_schools.strip(),
             edu_office=self.reg_edu_office.strip(),
             approval_status="pending",
@@ -150,6 +212,10 @@ class AuthState(rx.State):
             pending_school_name=self.reg_school_name_neis.strip() or None,
             neis_edu_pending=self.reg_neis_edu.strip() or None,
             neis_school_pending=self.reg_neis_school.strip() or None,
+            pending_biz_no=pending_biz_no,
+            pending_rep=pending_rep,
+            pending_address=pending_address,
+            pending_contact=pending_contact,
         )
         if not created:
             self.reg_error = msg
@@ -167,6 +233,12 @@ class AuthState(rx.State):
         self.reg_school_name_neis = ""
         self.reg_neis_edu = ""
         self.reg_neis_school = ""
+        self.reg_vendor_mode = "기존 업체 소속"
+        self.reg_new_vendor_name = ""
+        self.reg_new_biz_no = ""
+        self.reg_new_rep = ""
+        self.reg_new_address = ""
+        self.reg_new_contact = ""
         self.reg_loading = False
 
     def goto_login(self):

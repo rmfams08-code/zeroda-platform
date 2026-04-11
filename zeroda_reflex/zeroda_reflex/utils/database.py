@@ -123,6 +123,8 @@ _ALLOWED_COLUMNS = frozenset({
     "account", "biz_name", "contact",
     # 공통
     "id", "vendor", "created_at", "updated_at",
+    # users — 업체 신규 등록 pending 필드
+    "pending_biz_no", "pending_rep", "pending_address", "pending_contact",
 })
 
 
@@ -2835,7 +2837,9 @@ def validate_password(pw: str) -> tuple[bool, str]:
 def create_user(user_id, password, role, name, vendor="", schools="",
                 edu_office="", approval_status="approved", is_active=0,
                 pending_vendor=None, pending_school_name=None,
-                neis_edu_pending=None, neis_school_pending=None):
+                neis_edu_pending=None, neis_school_pending=None,
+                pending_biz_no=None, pending_rep=None,
+                pending_address=None, pending_contact=None):
     import bcrypt
     existing = db_get("users", {"user_id": user_id})
     if existing:
@@ -2848,12 +2852,14 @@ def create_user(user_id, password, role, name, vendor="", schools="",
             "(user_id, pw_hash, role, name, vendor, schools, edu_office, "
             " is_active, approval_status, "
             " pending_vendor, pending_school_name, "
-            " neis_edu_pending, neis_school_pending) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " neis_edu_pending, neis_school_pending, "
+            " pending_biz_no, pending_rep, pending_address, pending_contact) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (user_id, pw_hash, role, name, vendor, schools, edu_office,
              int(is_active), approval_status,
              pending_vendor, pending_school_name,
-             neis_edu_pending, neis_school_pending),
+             neis_edu_pending, neis_school_pending,
+             pending_biz_no, pending_rep, pending_address, pending_contact),
         )
         conn.commit()
         return True, f"계정 '{user_id}' 가입 신청 완료"

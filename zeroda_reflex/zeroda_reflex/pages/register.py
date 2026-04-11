@@ -92,19 +92,113 @@ def register_page() -> rx.Component:
                     spacing="1", width="100%",
                 ),
 
-                # 업체명 (driver, vendor_admin)
+                # 업체 선택 (driver, vendor_admin)
                 rx.cond(
                     (AuthState.reg_role == "driver")
                     | (AuthState.reg_role == "vendor_admin"),
                     rx.vstack(
-                        rx.text("업체명", size="2", weight="bold"),
-                        rx.input(
-                            placeholder="소속 업체명",
-                            value=AuthState.reg_vendor,
-                            on_change=AuthState.set_reg_vendor,
-                            width="100%",
+                        # driver: 기존 업체 드롭다운만
+                        rx.cond(
+                            AuthState.reg_role == "driver",
+                            rx.vstack(
+                                rx.text("소속 업체 *", size="2", weight="bold"),
+                                rx.select(
+                                    AuthState.reg_vendor_options,
+                                    value=AuthState.reg_vendor,
+                                    on_change=AuthState.set_reg_vendor,
+                                    placeholder="업체를 선택하세요",
+                                    width="100%",
+                                ),
+                                rx.callout(
+                                    "기사는 이미 등록된 업체에만 소속 가능합니다.",
+                                    color_scheme="blue",
+                                    size="1",
+                                    width="100%",
+                                ),
+                                spacing="2", width="100%",
+                            ),
+                            rx.fragment(),
                         ),
-                        spacing="1", width="100%",
+                        # vendor_admin: 기존/신규 선택
+                        rx.cond(
+                            AuthState.reg_role == "vendor_admin",
+                            rx.vstack(
+                                rx.text("업체 유형 *", size="2", weight="bold"),
+                                rx.radio_group(
+                                    ["기존 업체 소속", "새 업체 등록"],
+                                    value=AuthState.reg_vendor_mode,
+                                    on_change=AuthState.set_reg_vendor_mode,
+                                    direction="row",
+                                    spacing="4",
+                                ),
+                                rx.cond(
+                                    AuthState.reg_vendor_mode == "기존 업체 소속",
+                                    rx.vstack(
+                                        rx.text("소속 업체 *", size="2", weight="bold"),
+                                        rx.select(
+                                            AuthState.reg_vendor_options,
+                                            value=AuthState.reg_vendor,
+                                            on_change=AuthState.set_reg_vendor,
+                                            placeholder="업체를 선택하세요",
+                                            width="100%",
+                                        ),
+                                        spacing="2", width="100%",
+                                    ),
+                                    rx.fragment(),
+                                ),
+                                rx.cond(
+                                    AuthState.reg_vendor_mode == "새 업체 등록",
+                                    rx.vstack(
+                                        rx.text("업체명 *", size="2", weight="bold"),
+                                        rx.input(
+                                            placeholder="새 업체명",
+                                            value=AuthState.reg_new_vendor_name,
+                                            on_change=AuthState.set_reg_new_vendor_name,
+                                            width="100%",
+                                        ),
+                                        rx.text("사업자등록번호", size="2", weight="bold"),
+                                        rx.input(
+                                            placeholder="000-00-00000",
+                                            value=AuthState.reg_new_biz_no,
+                                            on_change=AuthState.set_reg_new_biz_no,
+                                            width="100%",
+                                        ),
+                                        rx.text("대표자명", size="2", weight="bold"),
+                                        rx.input(
+                                            placeholder="대표자 성명",
+                                            value=AuthState.reg_new_rep,
+                                            on_change=AuthState.set_reg_new_rep,
+                                            width="100%",
+                                        ),
+                                        rx.text("주소", size="2", weight="bold"),
+                                        rx.input(
+                                            placeholder="사업장 주소",
+                                            value=AuthState.reg_new_address,
+                                            on_change=AuthState.set_reg_new_address,
+                                            width="100%",
+                                        ),
+                                        rx.text("연락처", size="2", weight="bold"),
+                                        rx.input(
+                                            placeholder="대표 연락처",
+                                            value=AuthState.reg_new_contact,
+                                            on_change=AuthState.set_reg_new_contact,
+                                            width="100%",
+                                        ),
+                                        rx.callout(
+                                            "새 업체 정보는 본사 관리자 승인 후 등록됩니다.",
+                                            color_scheme="amber",
+                                            size="1",
+                                            width="100%",
+                                        ),
+                                        spacing="2", width="100%",
+                                    ),
+                                    rx.fragment(),
+                                ),
+                                spacing="2", width="100%",
+                            ),
+                            rx.fragment(),
+                        ),
+                        spacing="2", width="100%",
                     ),
                     rx.fragment(),
                 ),
