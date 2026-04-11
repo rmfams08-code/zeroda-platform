@@ -1881,15 +1881,39 @@ def _sched_view_sub() -> rx.Component:
         ),
         rx.hstack(
             rx.text(
-                AdminState.sched_rows.length().to(str) + "건",
+                AdminState.sched_total_filtered.to(str) + "건",
                 size="2",
                 color="#64748b",
                 weight="bold",
             ),
             rx.spacer(),
+            rx.hstack(
+                rx.button(
+                    rx.icon("chevron_left", size=14),
+                    on_click=AdminState.sched_prev_page,
+                    variant="outline",
+                    size="1",
+                    disabled=~AdminState.sched_can_prev,
+                ),
+                rx.text(
+                    AdminState.sched_page_display,
+                    size="2",
+                    color="#64748b",
+                ),
+                rx.button(
+                    rx.icon("chevron_right", size=14),
+                    on_click=AdminState.sched_next_page,
+                    variant="outline",
+                    size="1",
+                    disabled=~AdminState.sched_can_next,
+                ),
+                spacing="2",
+                align="center",
+            ),
             spacing="2",
             width="100%",
             padding_x="4px",
+            align="center",
         ),
         _card_box(
             rx.cond(

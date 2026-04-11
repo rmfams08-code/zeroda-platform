@@ -424,6 +424,9 @@ class AdminState(AuthState):
     sched_driver_options: list[str] = []   # 기사 선택지 (P2)
     sched_rows: list[dict] = []            # 필터 적용 후 결과
     sched_rows_all: list[dict] = []        # DB 조회 원본 (클라이언트 필터 소스)
+    sched_page: int = 0                    # 현재 페이지 (0-based, P4)
+    sched_page_size: int = 30              # 페이지당 건수 (P4)
+    sched_total_filtered: int = 0          # 필터 후 전체 건수 (P4)
     sched_msg: str = ""
     sched_ok: bool = False
 
@@ -740,6 +743,30 @@ class AdminState(AuthState):
     @rx.var
     def has_sched_rows(self) -> bool:
         return len(self.sched_rows) > 0
+
+    @rx.var
+    def sched_page_display(self) -> str:
+        """현재 페이지 / 전체 페이지 표시 (P4)."""
+        total = self.sched_total_filtered
+        if total == 0:
+            return "0건"
+        max_page = max(0, (total - 1) // self.sched_page_size) + 1
+        current = self.sched_page + 1
+        return str(current) + " / " + str(max_page) + " 페이지"
+
+    @rx.var
+    def sched_can_prev(self) -> bool:
+        """이전 페이지 가능 여부 (P4)."""
+        return self.sched_page > 0
+
+    @rx.var
+    def sched_can_next(self) -> bool:
+        """다음 페이지 가능 여부 (P4)."""
+        total = self.sched_total_filtered
+        if total == 0:
+            return False
+        max_page = max(0, (total - 1) // self.sched_page_size)
+        return self.sched_page < max_page
 
     @rx.var
     def sched_has_msg(self) -> bool:
@@ -2816,6 +2843,7 @@ class AdminState(AuthState):
         self.load_schedules()
 
     def load_schedules(self):
+        self.sched_page = 0    # DB 재조회 시 첫 페이지로 (P4)
         vendor = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
         ym = self.sched_month_filter if self.sched_month_filter != "전체" else ""
         rows = get_hq_schedules(vendor=vendor, year_month=ym)
@@ -2856,7 +2884,7 @@ class AdminState(AuthState):
         self._apply_sched_client_filter()
 
     def _apply_sched_client_filter(self):
-        """거래처 텍스트 + 기사 필터를 sched_rows_all에 적용 → sched_rows."""
+        """거래처 텍스트 + 기사 필터를 sched_rows_all에 적용 → 페이징 → sched_rows."""
         result = list(self.sched_rows_all)
         # 거래처(학교) 텍스트 필터
         sq = (self.sched_school_filter or "").strip().lower()
@@ -2872,16 +2900,26 @@ class AdminState(AuthState):
                 r for r in result
                 if r.get("driver", "") == df
             ]
-        self.sched_rows = result
+        # 페이징 (P4)
+        self.sched_total_filtered = len(result)
+        # 페이지 범위 보정
+        max_page = max(0, (len(result) - 1) // self.sched_page_size) if result else 0
+        if self.sched_page > max_page:
+            self.sched_page = max_page
+        start = self.sched_page * self.sched_page_size
+        end = start + self.sched_page_size
+        self.sched_rows = result[start:end]
 
     def set_sched_school_filter(self, q: str):
         """거래처 텍스트 필터 변경 시 즉시 필터링."""
         self.sched_school_filter = q
+        self.sched_page = 0    # 필터 변경 시 첫 페이지로 (P4)
         self._apply_sched_client_filter()
 
     def set_sched_driver_filter(self, d: str):
         """기사 드롭다운 필터 변경 시 즉시 필터링."""
         self.sched_driver_filter = d
+        self.sched_page = 0    # 필터 변경 시 첫 페이지로 (P4)
         self._apply_sched_client_filter()
 
     def reset_sched_filters(self):
@@ -2890,7 +2928,21 @@ class AdminState(AuthState):
         self.sched_month_filter = ""
         self.sched_school_filter = ""
         self.sched_driver_filter = "전체"
+        self.sched_page = 0    # 초기화 시 첫 페이지로 (P4)
         self.load_schedules()
+
+    def sched_prev_page(self):
+        """이전 페이지 (P4)."""
+        if self.sched_page > 0:
+            self.sched_page -= 1
+            self._apply_sched_client_filter()
+
+    def sched_next_page(self):
+        """다음 페이지 (P4)."""
+        max_page = max(0, (self.sched_total_filtered - 1) // self.sched_page_size) if self.sched_total_filtered > 0 else 0
+        if self.sched_page < max_page:
+            self.sched_page += 1
+            self._apply_sched_client_filter()
 
     # 일정 등록 폼 세터
     def set_sf_vendor(self, v: str):
