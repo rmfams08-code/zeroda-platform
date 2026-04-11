@@ -1208,6 +1208,15 @@ class AdminState(AuthState):
             # PDF 변환
             pdf_ok = convert_to_pdf(hwpx_out, pdf_out)
 
+            # 서버 절대경로 → 웹 URL 변환 (nginx /uploads/ alias 기준)
+            _base_prefix = _os.environ.get(
+                "ZERODA_UPLOAD_DIR", "/opt/zeroda-platform/uploads"
+            )
+            def _to_url(path: str) -> str:
+                if path.startswith(_base_prefix):
+                    return "/uploads/" + path[len(_base_prefix):].lstrip("/")
+                return path.replace("/opt/zeroda-platform", "")
+
             # DB 기록
             conn = get_db()
             try:
@@ -1224,7 +1233,7 @@ class AdminState(AuthState):
                         cust_name,
                         self.user_id or "admin",
                         _dt.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        pdf_out if pdf_ok else hwpx_out,
+                        _to_url(pdf_out) if pdf_ok else _to_url(hwpx_out),
                         issue_number,
                     ),
                 )
@@ -1234,10 +1243,10 @@ class AdminState(AuthState):
 
             if pdf_ok:
                 self.doc_issue_msg = f"발급 완료: {issue_number}"
-                self.doc_last_issued_pdf = pdf_out
+                self.doc_last_issued_pdf = _to_url(pdf_out)
             else:
                 self.doc_issue_msg = f"hwpx 저장 완료 (PDF 변환 실패 — libreoffice 확인 필요): {issue_number}"
-                self.doc_last_issued_pdf = hwpx_out
+                self.doc_last_issued_pdf = _to_url(hwpx_out)
             self.doc_issue_ok = True
             self.load_doc_service()
 
@@ -1350,6 +1359,17 @@ class AdminState(AuthState):
         # DB insert
         try:
             conn = get_db()
+            dup_row = conn.execute(
+                "SELECT id FROM document_templates "
+                "WHERE template_name = ? AND category = ? AND is_active = 1 "
+                "LIMIT 1",
+                (self.doc_upload_name.strip(), self.doc_upload_category),
+            ).fetchone()
+            if dup_row:
+                conn.close()
+                self.doc_upload_msg = f"이미 같은 이름의 양식이 있습니다: '{self.doc_upload_name.strip()}' ({self.doc_upload_category})"
+                self.doc_upload_ok = False
+                return
             conn.execute(
                 "INSERT INTO document_templates "
                 "(template_name, category, file_path, file_type, tag_list, "
