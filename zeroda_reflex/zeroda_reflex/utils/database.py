@@ -2015,11 +2015,17 @@ def save_schedule(data: dict) -> bool:
         conn.close()
 
 
-def delete_schedule(schedule_id: str) -> bool:
-    """일정 삭제 — id 기준"""
+def delete_schedule(schedule_id: str, vendor: str = "") -> bool:
+    """일정 삭제 — id 기준. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
-        conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
+        if vendor:
+            conn.execute(
+                "DELETE FROM schedules WHERE id=? AND vendor=?",
+                (schedule_id, vendor),
+            )
+        else:
+            conn.execute("DELETE FROM schedules WHERE id=?", (schedule_id,))
         conn.commit()
         return conn.total_changes > 0
     except Exception as e:
@@ -2896,14 +2902,21 @@ def confirm_all_pending() -> int:
         conn.close()
 
 
-def reject_collection_by_id(row_id: int) -> bool:
-    """특정 수거 데이터 반려"""
+def reject_collection_by_id(row_id: int, vendor: str = "") -> bool:
+    """특정 수거 데이터 반려. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
-        conn.execute(
-            "UPDATE real_collection SET status = 'rejected' WHERE id = ?",
-            (row_id,),
-        )
+        if vendor:
+            conn.execute(
+                "UPDATE real_collection SET status = 'rejected' "
+                "WHERE id = ? AND vendor = ?",
+                (row_id, vendor),
+            )
+        else:
+            conn.execute(
+                "UPDATE real_collection SET status = 'rejected' WHERE id = ?",
+                (row_id,),
+            )
         conn.commit()
         return True
     except Exception as e:
@@ -3016,16 +3029,24 @@ def get_hq_processing_confirms(
         conn.close()
 
 
-def confirm_processing_item(row_id: int) -> bool:
-    """처리확인 건 확인 처리"""
+def confirm_processing_item(row_id: int, vendor: str = "") -> bool:
+    """처리확인 건 확인 처리. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn.execute(
-            "UPDATE processing_confirm SET status = 'confirmed', "
-            "confirmed_by = 'admin', confirmed_at = ? WHERE id = ?",
-            (now, row_id),
-        )
+        if vendor:
+            conn.execute(
+                "UPDATE processing_confirm SET status = 'confirmed', "
+                "confirmed_by = 'admin', confirmed_at = ? "
+                "WHERE id = ? AND vendor = ?",
+                (now, row_id, vendor),
+            )
+        else:
+            conn.execute(
+                "UPDATE processing_confirm SET status = 'confirmed', "
+                "confirmed_by = 'admin', confirmed_at = ? WHERE id = ?",
+                (now, row_id),
+            )
         conn.commit()
         return True
     except Exception as e:
@@ -3036,16 +3057,24 @@ def confirm_processing_item(row_id: int) -> bool:
         conn.close()
 
 
-def reject_processing_item(row_id: int) -> bool:
-    """처리확인 건 반려 처리"""
+def reject_processing_item(row_id: int, vendor: str = "") -> bool:
+    """처리확인 건 반려 처리. vendor 지정 시 소유권 검증 추가"""
     conn = get_db()
     try:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn.execute(
-            "UPDATE processing_confirm SET status = 'rejected', "
-            "confirmed_by = 'admin', confirmed_at = ? WHERE id = ?",
-            (now, row_id),
-        )
+        if vendor:
+            conn.execute(
+                "UPDATE processing_confirm SET status = 'rejected', "
+                "confirmed_by = 'admin', confirmed_at = ? "
+                "WHERE id = ? AND vendor = ?",
+                (now, row_id, vendor),
+            )
+        else:
+            conn.execute(
+                "UPDATE processing_confirm SET status = 'rejected', "
+                "confirmed_by = 'admin', confirmed_at = ? WHERE id = ?",
+                (now, row_id),
+            )
         conn.commit()
         return True
     except Exception as e:
