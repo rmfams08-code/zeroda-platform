@@ -3462,9 +3462,9 @@ def hq_save_schedule(data: dict) -> bool:
     return save_schedule(data)
 
 
-def hq_delete_schedule(schedule_id: str) -> bool:
+def hq_delete_schedule(schedule_id: str, vendor: str = "") -> bool:
     """본사관리자 일정 삭제"""
-    return delete_schedule(schedule_id)
+    return delete_schedule(schedule_id, vendor=vendor)
 
 
 def get_neis_schools_by_vendor(vendor: str) -> list[dict]:

@@ -2058,7 +2058,8 @@ class AdminState(AuthState):
 
     def reject_single_collection(self, row_id: str):
         """특정 수거 데이터 반려"""
-        ok = reject_collection_by_id(int(row_id))
+        v = self.data_vendor_filter if self.data_vendor_filter != "전체" else ""
+        ok = reject_collection_by_id(int(row_id), vendor=v)
         if ok:
             self.data_msg = f"ID {row_id} 반려 완료"
             self.data_ok = True
@@ -2237,11 +2238,13 @@ class AdminState(AuthState):
             self.data_msg = "중량/단가는 숫자여야 합니다."
             self.data_ok = False
             return
+        v = self.data_vendor_filter if self.data_vendor_filter != "전체" else ""
         ok = update_collection_row(
             row_id=int(self.edit_row_id),
             weight=w, unit_price=up,
             item_type=self.edit_row_item_type,
             memo=self.edit_row_memo,
+            vendor=v,
         )
         if ok:
             self.data_msg = f"ID {self.edit_row_id} 수정 완료"
@@ -2253,7 +2256,8 @@ class AdminState(AuthState):
             self.data_ok = False
 
     def delete_collection_row(self, row_id: str):
-        ok = delete_collection(int(row_id))
+        v = self.data_vendor_filter if self.data_vendor_filter != "전체" else ""
+        ok = delete_collection(int(row_id), vendor=v)
         if ok:
             self.data_msg = f"ID {row_id} 삭제 완료"
             self.data_ok = True
@@ -2333,7 +2337,8 @@ class AdminState(AuthState):
 
     def confirm_proc_item(self, row_id: str):
         """처리확인 건 확인"""
-        ok = confirm_processing_item(int(row_id))
+        v = self.proc_vendor_filter if self.proc_vendor_filter != "전체" else ""
+        ok = confirm_processing_item(int(row_id), vendor=v)
         if ok:
             self.data_msg = f"처리확인 ID {row_id} 확인 완료"
             self.data_ok = True
@@ -2344,7 +2349,8 @@ class AdminState(AuthState):
 
     def reject_proc_item(self, row_id: str):
         """처리확인 건 반려"""
-        ok = reject_processing_item(int(row_id))
+        v = self.proc_vendor_filter if self.proc_vendor_filter != "전체" else ""
+        ok = reject_processing_item(int(row_id), vendor=v)
         if ok:
             self.data_msg = f"처리확인 ID {row_id} 반려 완료"
             self.data_ok = True
@@ -2732,7 +2738,8 @@ class AdminState(AuthState):
 
     def delete_sched(self, sched_id: str):
         """일정 삭제"""
-        ok = hq_delete_schedule(sched_id)
+        v = self.sched_vendor_filter if self.sched_vendor_filter != "전체" else ""
+        ok = hq_delete_schedule(sched_id, vendor=v)
         if ok:
             self.sched_msg = f"일정 ID {sched_id} 삭제 완료"
             self.sched_ok = True
