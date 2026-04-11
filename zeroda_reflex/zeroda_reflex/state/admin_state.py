@@ -2828,6 +2828,22 @@ class AdminState(AuthState):
                 vmap[code] = name if name else code
         for r in rows:
             r["vendor_name"] = vmap.get(r.get("vendor", ""), r.get("vendor", ""))
+            # P3: 월별/일별 구분 + 표시용 포맷
+            mk = r.get("month_key", "")
+            if len(mk) == 10:
+                # 일별: 2026-04-30 → "일별", 표시: "04/30"
+                r["sched_type"] = "일별"
+                r["date_display"] = mk[5:7] + "/" + mk[8:10]
+            elif len(mk) == 7:
+                # 월별: 2026-04 → "월별", 표시: "2026년 4월"
+                r["sched_type"] = "월별"
+                try:
+                    r["date_display"] = mk[:4] + "년 " + str(int(mk[5:7])) + "월"
+                except Exception:
+                    r["date_display"] = mk
+            else:
+                r["sched_type"] = ""
+                r["date_display"] = mk
         self.sched_rows_all = rows
         # 기사 옵션 추출 (P2)
         drivers = set()

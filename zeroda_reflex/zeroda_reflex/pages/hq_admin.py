@@ -1898,7 +1898,8 @@ def _sched_view_sub() -> rx.Component:
                     rx.table.header(
                         rx.table.row(
                             rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color="#64748b")),
-                            rx.table.column_header_cell(rx.text("월/날짜", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("구분", font_size="12px", font_weight="700", color="#64748b")),
+                            rx.table.column_header_cell(rx.text("날짜", font_size="12px", font_weight="700", color="#64748b")),
                             rx.table.column_header_cell(rx.text("요일", font_size="12px", font_weight="700", color="#64748b")),
                             rx.table.column_header_cell(rx.text("거래처", font_size="12px", font_weight="700", color="#64748b")),
                             rx.table.column_header_cell(rx.text("품목", font_size="12px", font_weight="700", color="#64748b")),
@@ -1911,7 +1912,18 @@ def _sched_view_sub() -> rx.Component:
                             AdminState.sched_rows,
                             lambda r: rx.table.row(
                                 rx.table.cell(rx.text(r["vendor_name"], font_size="12px")),
-                                rx.table.cell(rx.text(r["month_key"], font_size="12px")),
+                                rx.table.cell(
+                                    rx.cond(
+                                        r["sched_type"].to(str) == "월별",
+                                        rx.badge("월별", color_scheme="blue", size="1"),
+                                        rx.cond(
+                                            r["sched_type"].to(str) == "일별",
+                                            rx.badge("일별", color_scheme="green", size="1"),
+                                            rx.text("", size="1"),
+                                        ),
+                                    ),
+                                ),
+                                rx.table.cell(rx.text(r["date_display"].to(str), font_size="12px")),
                                 rx.table.cell(rx.text(r["weekdays"], font_size="12px")),
                                 rx.table.cell(rx.text(r["schools"], font_size="12px", max_width="240px", overflow="hidden")),
                                 rx.table.cell(rx.text(r["items"], font_size="12px")),
