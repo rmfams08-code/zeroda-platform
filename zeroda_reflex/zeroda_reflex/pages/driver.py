@@ -1058,8 +1058,16 @@ def _schedule_section() -> rx.Component:
                     variant=rx.cond(DriverState.record_filter == "month", "solid", "soft"),
                     on_click=DriverState.set_record_filter("month"),
                 ),
+                rx.select(
+                    DriverState.customer_filter_select_options,
+                    value=DriverState.customer_filter_display,
+                    on_change=DriverState.set_customer_filter,
+                    size="1",
+                    width="120px",
+                ),
                 spacing="2",
                 flex_wrap="wrap",
+                align="center",
             ),
             rx.cond(
                 DriverState.recent_collection_count > 0,

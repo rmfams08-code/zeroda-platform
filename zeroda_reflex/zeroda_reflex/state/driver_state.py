@@ -369,6 +369,8 @@ class DriverState(AuthState):
     today_collections: list[dict] = []
     recent_collections: list[dict] = []
     record_filter: str = "7days"
+    customer_filter: str = ""           # 빈값=전체
+    customer_filter_options: list[str] = []  # 배정 거래처 목록
 
     # ── 음성입력 ──
     voice_active: bool = False
@@ -593,6 +595,8 @@ class DriverState(AuthState):
                 "photo_remark": ex.get("photo_remark", ""),
             })
         self.schedule_schools = result
+        # 거래처 필터 옵션 업데이트 (수거기록 필터용)
+        self.customer_filter_options = [s.get("school_name", "") for s in result if s.get("school_name")]
 
     def set_schedule_date(self, value: str):
         """일정 날짜 변경"""
@@ -665,7 +669,7 @@ class DriverState(AuthState):
             )
 
     def _load_recent_collections(self):
-        """최근 수거 기록 로드 (record_filter 기준)"""
+        """최근 수거 기록 로드 (record_filter + customer_filter 기준)"""
         today = date.today()
         f = self.record_filter
         if f == "today":
@@ -676,16 +680,24 @@ class DriverState(AuthState):
             date_from = today.replace(day=1)
         else:  # "7days" 기본
             date_from = today - timedelta(days=6)
-        self.recent_collections = get_driver_collections_range(
+        rows = get_driver_collections_range(
             vendor=self.user_vendor,
             driver=self.user_name,
             date_from=date_from.strftime("%Y-%m-%d"),
             date_to=today.strftime("%Y-%m-%d"),
         )
+        if self.customer_filter:
+            rows = [r for r in rows if r.get("school_name") == self.customer_filter]
+        self.recent_collections = rows
 
     def set_record_filter(self, value: str):
         """수거 기록 기간 필터 변경"""
         self.record_filter = value
+        self._load_recent_collections()
+
+    def set_customer_filter(self, value: str):
+        """거래처 필터 변경 (전체 = 빈 값)"""
+        self.customer_filter = "" if value == "전체" else value
         self._load_recent_collections()
 
     def _load_checkout_status(self):
@@ -791,6 +803,16 @@ class DriverState(AuthState):
             "month": "이번 달",
         }
         return labels.get(self.record_filter, "최근 7일")
+
+    @rx.var
+    def customer_filter_select_options(self) -> list[str]:
+        """거래처 필터 드롭다운 옵션 (전체 포함)"""
+        return ["전체"] + self.customer_filter_options
+
+    @rx.var
+    def customer_filter_display(self) -> str:
+        """드롭다운 표시값 (빈값→전체)"""
+        return self.customer_filter if self.customer_filter else "전체"
 
     # ── 거래처별 수거 입력 핸들러 (일정 카드 통합 — idx 기반) ──
 
