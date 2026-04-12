@@ -24,6 +24,7 @@ def _header() -> rx.Component:
                 DriverState.today_display,
                 font_size="13px",
                 color="rgba(255,255,255,0.7)",
+                display=["none", "none", "block"],
             ),
             spacing="1",
             align="center",
@@ -185,7 +186,7 @@ def _safety_check_item(item_id: str, item_text: str) -> rx.Component:
             item_text,
             checked=DriverState.checked_items[item_id],
             on_change=lambda _: DriverState.toggle_check(item_id),
-            size="2",
+            size="3",
         ),
         width="100%",
         padding_y="2px",
@@ -204,7 +205,7 @@ def _safety_category(cat_key: str, cat_info: dict) -> rx.Component:
             rx.spacer(),
             rx.button(
                 "✅전체",
-                size="1",
+                size="2",
                 variant="ghost",
                 on_click=DriverState.check_category(cat_key),
             ),
@@ -383,13 +384,13 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
     row_idx: 내부 foreach Var (행 인덱스)
     row: 행 dict {"date", "item_type", "weight", "memo"}
     """
-    return rx.hstack(
+    return rx.flex(
         rx.input(
             value=row["date"],
             on_change=lambda v: DriverState.set_school_row_date([school_idx, row_idx, v]),
             type="date",
             size="1",
-            width="128px",
+            width=["100%", "100%", "128px"],
             flex_shrink="0",
         ),
         rx.select(
@@ -397,7 +398,7 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
             value=row["item_type"],
             on_change=lambda v: DriverState.set_school_row_item_type([school_idx, row_idx, v]),
             size="1",
-            width="82px",
+            width=["100%", "100%", "82px"],
             flex_shrink="0",
         ),
         rx.input(
@@ -407,7 +408,7 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
             type="number",
             input_mode="decimal",
             size="1",
-            width="68px",
+            width=["100%", "100%", "68px"],
             flex_shrink="0",
         ),
         rx.input(
@@ -427,9 +428,11 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
             disabled=~AuthState.is_user_active,
             flex_shrink="0",
         ),
+        direction=["column", "column", "row"],
         width="100%",
-        spacing="1",
-        align="center",
+        gap="2",
+        align=["stretch", "stretch", "center"],
+        flex_wrap="wrap",
     )
 
 
@@ -538,7 +541,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
             rx.vstack(
                 rx.divider(color="#e5e7eb", margin_y="4px"),
 
-                # ── 컬럼 헤더 ──
+                # ── 컬럼 헤더 (데스크탑만 표시) ──
                 rx.hstack(
                     rx.text("📅 날짜", font_size="11px", color="#9ca3af", width="128px", flex_shrink="0"),
                     rx.text("품목", font_size="11px", color="#9ca3af", width="82px", flex_shrink="0"),
@@ -547,6 +550,7 @@ def _schedule_school_card(s: dict, idx) -> rx.Component:
                     rx.box(width="28px", flex_shrink="0"),
                     width="100%",
                     spacing="1",
+                    display=["none", "none", "flex"],
                 ),
 
                 # ── 행 목록 (다일자 입력) — .to(list[dict])로 타입 명시 필수 ──
