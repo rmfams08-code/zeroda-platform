@@ -2092,6 +2092,40 @@ def get_driver_schedule_schools(
         conn.close()
 
 
+def get_driver_all_schedule_schools(vendor: str, driver: str) -> list[str]:
+    """기사에게 배정된 전체 거래처 목록 반환 (날짜/요일 무관).
+
+    schedules 테이블에서 vendor+driver 조건으로 모든 행을 가져온 후
+    schools JSON을 파싱해 중복 제거한 정렬 목록을 반환.
+    driver가 빈 값인 행(업체 전체 배정)도 포함.
+    """
+    import json as _json
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT schools FROM schedules WHERE vendor=? AND (driver=? OR driver='' OR driver IS NULL)",
+            (vendor, driver),
+        ).fetchall()
+        names: set[str] = set()
+        for r in rows:
+            rd = dict(r)
+            try:
+                schools = _json.loads(rd["schools"]) if isinstance(rd.get("schools"), str) else (rd.get("schools") or [])
+            except Exception:
+                schools = []
+            for s in schools:
+                s = str(s).strip()
+                if s:
+                    names.add(s)
+        return sorted(names)
+    except Exception as e:
+        print(f"[DB ERROR] get_driver_all_schedule_schools: {e}")
+        logger.warning(f"get_driver_all_schedule_schools error: {e}")
+        return []
+    finally:
+        conn.close()
+
+
 def save_schedule(data: dict) -> bool:
     """일정 저장 — schedules 테이블 INSERT"""
     conn = get_db()
