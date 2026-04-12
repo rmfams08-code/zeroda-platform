@@ -3237,28 +3237,34 @@ class VendorState(AuthState):
         return None
 
     def download_settlement_excel(self):
-        """정산내역 Excel 다운로드 (업체관리자)"""
-        # monthly_collections에서 정산 데이터 추출 + expenses_list 포함
+        """월말정산 Excel 다운로드 — 2시트 (수입내역 + 지출내역)"""
         from zeroda_reflex.utils.excel_export import export_settlement
-        data = self.monthly_collections
-        summary = {
-            "total_revenue": str(self.total_revenue),
-            "total_expense": str(self.total_expense),
-            "net_profit": str(self.net_profit),
-        }
-        if not data:
+        from zeroda_reflex.utils.database import get_settlement_detail
+
+        year = int(self.selected_year) if self.selected_year else datetime.now().year
+        month = int(self.selected_month) if self.selected_month else datetime.now().month
+
+        detail = get_settlement_detail(self.user_vendor, year, month)
+        if not detail:
             return None
+
+        summary = {
+            "total_revenue": self.total_revenue,
+            "total_expense": self.total_expense,
+            "net_profit": self.net_profit,
+        }
         xlsx = export_settlement(
-            data,
-            summary,
-            self.selected_year,
-            self.selected_month
+            detail_data=detail,
+            expenses=self.expenses_list,
+            summary=summary,
+            year=self.selected_year,
+            month=self.selected_month,
+            vendor=self.user_vendor,
         )
         if xlsx:
-            return rx.download(
-                data=xlsx,
-                filename=f"정산내역_{self.selected_year}-{self.selected_month.zfill(2)}.xlsx"
-            )
+            mm = self.selected_month.zfill(2)
+            fname = f"월말정산_{self.user_vendor}_{self.selected_year}{mm}.xlsx"
+            return rx.download(data=xlsx, filename=fname)
         return None
 
     def download_customer_excel(self):

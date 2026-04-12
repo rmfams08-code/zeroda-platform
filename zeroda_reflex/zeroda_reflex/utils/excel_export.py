@@ -222,45 +222,323 @@ def export_collection_data(data: list[dict], year: str, month: str) -> bytes:
     )
 
 
-def export_settlement(data: list[dict], summary: dict, year: str, month: str) -> bytes:
-    """3-2. 정산내역 Excel (본사/업체 공용)
+def export_settlement(
+    detail_data: list[dict],
+    expenses: list[dict],
+    summary: dict,
+    year: str,
+    month: str,
+    vendor: str = "",
+) -> bytes:
+    """3-2. 월말정산 Excel — 2시트 (수입내역 + 지출내역)
 
     Args:
-        data: 정산 상세 내역
-        summary: 정산 요약 (total_amount, vat, grand_total 등)
+        detail_data: get_settlement_detail() 결과
+            [{name, cust_type, item_type, weight, unit_price, supply, vat, total, is_fixed_fee}, ...]
+        expenses: 지출 내역
+            [{id, item, amount, pay_date, memo}, ...]
+        summary: 정산 요약
+            {total_revenue, total_expense, net_profit}
         year, month: 정산 기간
+        vendor: 업체명
     """
-    headers = ["학교명", "품목", "수거량(kg)", "단가(원)", "공급가액(원)", "수거건수"]
-    aligns = ["L", "C", "R", "R", "R", "C"]
-    rows = []
-    for r in data:
-        rows.append([
-            r.get("school_name", r.get("name", "")),
-            r.get("item_type", ""),
-            float(r.get("weight", 0) or 0),
-            int(float(r.get("unit_price", 0) or 0)),
-            int(float(r.get("amount", 0) or 0)),
-            int(r.get("count", 0) or 0),
-        ])
+    if not HAS_OPENPYXL:
+        logger.error("openpyxl 미설치 — Excel 생성 불가")
+        return b""
 
-    total_amt = summary.get("total_amount", "0")
-    vat = summary.get("vat", "0")
-    grand = summary.get("grand_total", "0")
-    totals = [
-        "합계", "",
-        summary.get("total_weight", ""),
-        "",
-        int(float(total_amt)),
-        "",
-    ]
-    return build_excel(
-        title="정산내역",
-        headers=headers,
-        rows=rows,
-        aligns=aligns,
-        subtitle=f"{year}년 {month}월 정산 | 공급가 {total_amt}원 + VAT {vat}원 = 합계 {grand}원",
-        totals=totals,
+    from openpyxl.worksheet.filters import AutoFilter
+
+    # ── 구분별 배경색 정의 ──
+    cust_colors = {
+        "학교":              "DAEEF3",
+        "관공서":            "E2EFDA",
+        "기업":              "FCE4D6",
+        "일반업장":          "F2DCDB",
+        "기타":              "F2F2F2",
+        "기타1(면세사업장)":  "F2F2F2",
+        "기타2(부가세포함)":  "F2F2F2",
+    }
+    yellow_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    blue_price_font = Font(name="맑은 고딕", size=10, color="0000FF")
+    red_font = Font(name="맑은 고딕", size=10, color="FF0000")
+    bold_font_12 = Font(name="맑은 고딕", size=12, bold=True)
+    double_border = Border(
+        top=Side(style="double"), bottom=Side(style="double"),
+        left=Side(style="thin"), right=Side(style="thin"),
     )
+    mm = str(month).zfill(2)
+
+    wb = Workbook()
+
+    # ════════════════════════════════════════
+    #  시트1: 수입내역
+    # ════════════════════════════════════════
+    ws1 = wb.active
+    ws1.title = "수입내역"
+
+    # 제목
+    ws1.merge_cells("A1:I1")
+    title_cell = ws1.cell(row=1, column=1, value=f"( {mm} )月 월말정산서 — 수입내역")
+    title_cell.font = Font(name="맑은 고딕", size=14, bold=True)
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 부제목
+    ws1.merge_cells("A2:I2")
+    sub_cell = ws1.cell(row=2, column=1, value=f"{year}년 {mm}월 | {vendor}")
+    sub_cell.font = Font(name="맑은 고딕", size=9, color="666666")
+
+    # 헤더 (Row 3)
+    rev_headers = ["No", "구분", "거래처명", "품목", "누적수거량(kg)", "단가(원)", "공급가(원)", "부가세(원)", "정산금액(원)"]
+    rev_widths = [6, 12, 16, 12, 14, 12, 14, 12, 14]
+    for c, h in enumerate(rev_headers, 1):
+        ws1.cell(row=3, column=c, value=h)
+    _apply_header_style(ws1, 3, 9)
+
+    # 열 너비
+    for c, w in enumerate(rev_widths, 1):
+        ws1.column_dimensions[get_column_letter(c)].width = w
+
+    # 데이터 행 — 거래처별 그룹핑
+    # 같은 cust_type 끼리 묶고, 같은 거래처의 다품목은 B/C 병합
+    row_idx = 4
+    no = 1
+
+    # cust_type별 그룹
+    from itertools import groupby
+    type_subtotal_rows: list[int] = []  # 소계 행 번호 (총합계 SUM용)
+
+    for ct, ct_group in groupby(detail_data, key=lambda x: x["cust_type"]):
+        ct_list = list(ct_group)
+        ct_fill = PatternFill(
+            start_color=cust_colors.get(ct, "FFFFFF"),
+            end_color=cust_colors.get(ct, "FFFFFF"),
+            fill_type="solid",
+        )
+        ct_start_row = row_idx
+
+        # 거래처별 그룹
+        for name, name_group in groupby(ct_list, key=lambda x: x["name"]):
+            items = list(name_group)
+            name_start = row_idx
+
+            for item in items:
+                ws1.cell(row=row_idx, column=1, value=no)
+                ws1.cell(row=row_idx, column=2, value=ct)
+                ws1.cell(row=row_idx, column=3, value=name)
+                ws1.cell(row=row_idx, column=4, value=item["item_type"])
+                ws1.cell(row=row_idx, column=5, value=round(item["weight"], 1))
+                ws1.cell(row=row_idx, column=5).number_format = "#,##0.0"
+
+                if item.get("is_fixed_fee"):
+                    ws1.cell(row=row_idx, column=6, value=0)
+                    ws1.cell(row=row_idx, column=7, value=int(item["supply"]))
+                else:
+                    ws1.cell(row=row_idx, column=6, value=int(item["unit_price"]))
+                    # 공급가 수식: =E*F
+                    ws1.cell(row=row_idx, column=7, value=f"=E{row_idx}*F{row_idx}")
+
+                ws1.cell(row=row_idx, column=6).font = blue_price_font
+                ws1.cell(row=row_idx, column=6).number_format = "#,##0"
+                ws1.cell(row=row_idx, column=7).number_format = "#,##0"
+
+                # 부가세 수식
+                tax_free_types = ("학교", "기타1(면세사업장)", "기타")
+                if ct in tax_free_types:
+                    ws1.cell(row=row_idx, column=8, value=0)
+                else:
+                    ws1.cell(row=row_idx, column=8, value=f"=G{row_idx}*0.1")
+                ws1.cell(row=row_idx, column=8).number_format = "#,##0"
+
+                # 정산금액 수식: =G+H
+                ws1.cell(row=row_idx, column=9, value=f"=G{row_idx}+H{row_idx}")
+                ws1.cell(row=row_idx, column=9).number_format = "#,##0"
+
+                # 배경색 + 테두리
+                for c in range(1, 10):
+                    cell = ws1.cell(row=row_idx, column=c)
+                    cell.fill = ct_fill
+                    cell.border = THIN_BORDER
+                    cell.font = cell.font or DATA_FONT
+                    if c <= 4:
+                        cell.alignment = DATA_ALIGN_CENTER
+                    else:
+                        cell.alignment = DATA_ALIGN_RIGHT
+
+                no += 1
+                row_idx += 1
+
+            # 같은 거래처 다품목이면 B(구분), C(거래처명) 셀 병합
+            if len(items) > 1:
+                ws1.merge_cells(
+                    start_row=name_start, start_column=2,
+                    end_row=row_idx - 1, end_column=2,
+                )
+                ws1.merge_cells(
+                    start_row=name_start, start_column=3,
+                    end_row=row_idx - 1, end_column=3,
+                )
+
+        # 구분 소계 행
+        ct_end_row = row_idx - 1
+        ws1.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=4)
+        ws1.cell(row=row_idx, column=1, value=f"{ct} 소계")
+        ws1.cell(row=row_idx, column=1).alignment = DATA_ALIGN_CENTER
+
+        # E열: 수거량 합
+        ws1.cell(row=row_idx, column=5, value=f"=SUM(E{ct_start_row}:E{ct_end_row})")
+        ws1.cell(row=row_idx, column=5).number_format = "#,##0.0"
+        ws1.cell(row=row_idx, column=6, value="")
+        # G열: 공급가 합
+        ws1.cell(row=row_idx, column=7, value=f"=SUM(G{ct_start_row}:G{ct_end_row})")
+        ws1.cell(row=row_idx, column=7).number_format = "#,##0"
+        # H열: 부가세 합
+        ws1.cell(row=row_idx, column=8, value=f"=SUM(H{ct_start_row}:H{ct_end_row})")
+        ws1.cell(row=row_idx, column=8).number_format = "#,##0"
+        # I열: 정산금액 합
+        ws1.cell(row=row_idx, column=9, value=f"=SUM(I{ct_start_row}:I{ct_end_row})")
+        ws1.cell(row=row_idx, column=9).number_format = "#,##0"
+
+        for c in range(1, 10):
+            cell = ws1.cell(row=row_idx, column=c)
+            cell.font = TOTAL_FONT
+            cell.fill = ct_fill
+            cell.border = THIN_BORDER
+            if c >= 5:
+                cell.alignment = DATA_ALIGN_RIGHT
+
+        type_subtotal_rows.append(row_idx)
+        row_idx += 1
+
+    # 총 합계 행
+    total_row_rev = row_idx
+    ws1.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=4)
+    ws1.cell(row=row_idx, column=1, value="총 합계")
+    ws1.cell(row=row_idx, column=1).alignment = DATA_ALIGN_CENTER
+
+    if type_subtotal_rows:
+        e_refs = "+".join(f"E{r}" for r in type_subtotal_rows)
+        g_refs = "+".join(f"G{r}" for r in type_subtotal_rows)
+        h_refs = "+".join(f"H{r}" for r in type_subtotal_rows)
+        i_refs = "+".join(f"I{r}" for r in type_subtotal_rows)
+        ws1.cell(row=row_idx, column=5, value=f"={e_refs}")
+        ws1.cell(row=row_idx, column=7, value=f"={g_refs}")
+        ws1.cell(row=row_idx, column=8, value=f"={h_refs}")
+        ws1.cell(row=row_idx, column=9, value=f"={i_refs}")
+    else:
+        for c in [5, 7, 8, 9]:
+            ws1.cell(row=row_idx, column=c, value=0)
+
+    ws1.cell(row=row_idx, column=5).number_format = "#,##0.0"
+    ws1.cell(row=row_idx, column=6, value="")
+    for c in [7, 8, 9]:
+        ws1.cell(row=row_idx, column=c).number_format = "#,##0"
+
+    for c in range(1, 10):
+        cell = ws1.cell(row=row_idx, column=c)
+        cell.font = TOTAL_FONT
+        cell.fill = yellow_fill
+        cell.border = THIN_BORDER
+        if c >= 5:
+            cell.alignment = DATA_ALIGN_RIGHT
+
+    # AutoFilter
+    if row_idx > 3:
+        ws1.auto_filter.ref = f"A3:I{row_idx}"
+
+    # ════════════════════════════════════════
+    #  시트2: 지출내역
+    # ════════════════════════════════════════
+    ws2 = wb.create_sheet(title="지출내역")
+
+    # 제목
+    ws2.merge_cells("A1:E1")
+    t2 = ws2.cell(row=1, column=1, value=f"( {mm} )月 월말정산서 — 지출내역")
+    t2.font = Font(name="맑은 고딕", size=14, bold=True)
+    t2.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 부제목
+    ws2.merge_cells("A2:E2")
+    s2 = ws2.cell(row=2, column=1, value=f"{year}년 {mm}월 | {vendor}")
+    s2.font = Font(name="맑은 고딕", size=9, color="666666")
+
+    # 헤더 (Row 3)
+    exp_headers = ["No", "지출항목", "금액(원)", "결제일", "비고"]
+    exp_widths = [6, 18, 16, 12, 18]
+    for c, h in enumerate(exp_headers, 1):
+        ws2.cell(row=3, column=c, value=h)
+    _apply_header_style(ws2, 3, 5)
+
+    for c, w in enumerate(exp_widths, 1):
+        ws2.column_dimensions[get_column_letter(c)].width = w
+
+    # 데이터 행
+    exp_row = 4
+    if expenses:
+        for i, exp in enumerate(expenses, 1):
+            ws2.cell(row=exp_row, column=1, value=i)
+            ws2.cell(row=exp_row, column=2, value=str(exp.get("item", "")))
+            amt = abs(float(exp.get("amount", 0) or 0))
+            ws2.cell(row=exp_row, column=3, value=int(amt))
+            ws2.cell(row=exp_row, column=3).font = red_font
+            ws2.cell(row=exp_row, column=3).number_format = "#,##0"
+            ws2.cell(row=exp_row, column=4, value=str(exp.get("pay_date", "")))
+            ws2.cell(row=exp_row, column=5, value=str(exp.get("memo", "")))
+
+            for c in range(1, 6):
+                cell = ws2.cell(row=exp_row, column=c)
+                cell.border = THIN_BORDER
+                cell.font = cell.font if c == 3 else DATA_FONT
+                if c == 3:
+                    cell.alignment = DATA_ALIGN_RIGHT
+                elif c in (1, 4):
+                    cell.alignment = DATA_ALIGN_CENTER
+                else:
+                    cell.alignment = DATA_ALIGN_LEFT
+            exp_row += 1
+    else:
+        # 빈 템플릿 10행
+        for i in range(10):
+            for c in range(1, 6):
+                cell = ws2.cell(row=exp_row, column=c)
+                cell.border = THIN_BORDER
+            exp_row += 1
+
+    last_exp_data = exp_row - 1
+
+    # 지출 합계 행
+    exp_total_row = exp_row
+    ws2.merge_cells(start_row=exp_row, start_column=1, end_row=exp_row, end_column=2)
+    ws2.cell(row=exp_row, column=1, value="지출 합계")
+    ws2.cell(row=exp_row, column=1).alignment = DATA_ALIGN_CENTER
+    ws2.cell(row=exp_row, column=3, value=f"=SUM(C4:C{last_exp_data})")
+    ws2.cell(row=exp_row, column=3).number_format = "#,##0"
+
+    for c in range(1, 6):
+        cell = ws2.cell(row=exp_row, column=c)
+        cell.font = TOTAL_FONT
+        cell.fill = yellow_fill
+        cell.border = THIN_BORDER
+
+    # 순수익 행 (합계 +2줄)
+    profit_row = exp_row + 2
+    ws2.merge_cells(start_row=profit_row, start_column=1, end_row=profit_row, end_column=2)
+    ws2.cell(row=profit_row, column=1, value="순수익 (매출 - 지출)")
+    ws2.cell(row=profit_row, column=1).alignment = DATA_ALIGN_CENTER
+    ws2.cell(row=profit_row, column=1).font = bold_font_12
+    # 시트간 참조: 수입내역 총합계 I열 - 지출합계 C열
+    ws2.cell(row=profit_row, column=3,
+             value=f"=수입내역!I{total_row_rev}-C{exp_total_row}")
+    ws2.cell(row=profit_row, column=3).number_format = "#,##0"
+    ws2.cell(row=profit_row, column=3).font = bold_font_12
+
+    for c in range(1, 6):
+        cell = ws2.cell(row=profit_row, column=c)
+        cell.border = double_border
+
+    # ── 바이트로 반환 ──
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 def export_carbon_data(data: dict, ranking: list[dict], year: str) -> bytes:

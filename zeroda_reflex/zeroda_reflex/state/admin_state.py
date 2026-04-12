@@ -4759,24 +4759,57 @@ class AdminState(AuthState):
         return None
 
     def download_settlement_excel(self):
-        """정산내역 Excel 다운로드 (본사관리자 정산관리)"""
-        # settle_rows와 settle_summary에서 정산 데이터 추출
+        """월말정산 Excel 다운로드 — 2시트 (수입내역 + 지출내역) (본사관리자)"""
         from zeroda_reflex.utils.excel_export import export_settlement
-        data = self.settle_rows
-        summary = self.settle_summary if self.settle_summary else {}
-        if not data:
+        from zeroda_reflex.utils.database import get_settlement_detail, get_expenses
+
+        try:
+            year = int(self.settle_year)
+            month = int(self.settle_month)
+        except (ValueError, TypeError):
             return None
+
+        vendor = self.settle_vendor if self.settle_vendor != "전체" else ""
+        if not vendor:
+            return None  # 업체 미선택 시 다운로드 불가
+
+        detail = get_settlement_detail(vendor, year, month)
+        if not detail:
+            return None
+
+        # 지출 조회
+        ym = f"{self.settle_year}-{str(month).zfill(2)}"
+        exp_raw = get_expenses(vendor, ym)
+        expenses = [
+            {
+                "id":       str(r.get("id", "")),
+                "item":     str(r.get("item", "")),
+                "amount":   str(int(abs(r.get("amount", 0)))),
+                "pay_date": str(r.get("pay_date", "")),
+                "memo":     str(r.get("memo", "")),
+            }
+            for r in exp_raw
+        ]
+
+        total_rev = sum(d["total"] for d in detail)
+        total_exp = sum(abs(float(e.get("amount", 0))) for e in expenses)
+        summary = {
+            "total_revenue": total_rev,
+            "total_expense": total_exp,
+            "net_profit": total_rev - total_exp,
+        }
         xlsx = export_settlement(
-            data,
-            summary,
-            self.selected_year,
-            self.selected_month
+            detail_data=detail,
+            expenses=expenses,
+            summary=summary,
+            year=self.settle_year,
+            month=self.settle_month,
+            vendor=vendor,
         )
         if xlsx:
-            return rx.download(
-                data=xlsx,
-                filename=f"정산내역_{self.selected_year}-{self.selected_month.zfill(2)}.xlsx"
-            )
+            mm = str(month).zfill(2)
+            fname = f"월말정산_{vendor}_{self.settle_year}{mm}.xlsx"
+            return rx.download(data=xlsx, filename=fname)
         return None
 
     def download_carbon_excel(self):

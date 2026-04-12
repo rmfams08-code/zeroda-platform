@@ -2395,6 +2395,152 @@ def get_settlement_summary(vendor: str, year: int, month: int) -> list[dict]:
         conn.close()
 
 
+def get_settlement_detail(vendor: str, year: int, month: int) -> list[dict]:
+    """거래처 × 품목별 정산 상세 — 엑셀 수입내역 시트용
+
+    get_settlement_summary()와 동일 로직이지만, 거래처당 품목별 행을 반환.
+    Returns:
+        [
+            {
+                "name": str, "cust_type": str, "item_type": str,
+                "weight": float, "unit_price": float,
+                "supply": float, "vat": float, "total": float,
+                "is_fixed_fee": bool,
+            },
+            ...
+        ]
+    정렬: cust_type → name → item_type
+    """
+    conn = get_db()
+    try:
+        month_str = str(month).zfill(2)
+        ym = f"{year}-{month_str}"
+
+        coll_rows = conn.execute(
+            "SELECT school_name, item_type, weight FROM real_collection "
+            "WHERE vendor=? AND collect_date LIKE ?",
+            (vendor, f"{ym}%"),
+        ).fetchall()
+
+        cust_rows = conn.execute(
+            "SELECT * FROM customer_info WHERE vendor=?",
+            (vendor,),
+        ).fetchall()
+
+        cust_map = {}
+        for r in cust_rows:
+            d = dict(r)
+            name = str(d.get("name", "") or "")
+            if not name:
+                continue
+            ct = str(d.get("구분", d.get("cust_type", "학교")) or "학교")
+            cust_map[name] = {
+                "cust_type":         ct,
+                "price_food":        float(d.get("price_food", 0) or 0),
+                "price_recycle":     float(d.get("price_recycle", 0) or 0),
+                "price_general":     float(d.get("price_general", 0) or 0),
+                "fixed_monthly_fee": float(d.get("fixed_monthly_fee", 0) or 0),
+            }
+
+        # 거래처 × 품목별 수거량 집계
+        agg: dict[str, dict[str, float]] = {}
+        for r in coll_rows:
+            d = dict(r)
+            sn = str(d.get("school_name", "") or "")
+            it = str(d.get("item_type", "") or "")
+            w = float(d.get("weight", 0) or 0)
+            if not sn:
+                continue
+            if sn not in agg:
+                agg[sn] = {}
+            agg[sn][it] = agg[sn].get(it, 0.0) + w
+
+        price_key_map = {
+            "음식물": "price_food",
+            "재활용": "price_recycle",
+            "일반":   "price_general",
+        }
+        tax_free_types = ("학교", "기타1(면세사업장)")
+        fixed_fee_types = ("기타", "기타2(부가세포함)")
+
+        result = []
+        added = set()
+
+        for name in sorted(agg.keys()):
+            cinfo = cust_map.get(name, {
+                "cust_type": "학교", "price_food": 0,
+                "price_recycle": 0, "price_general": 0, "fixed_monthly_fee": 0,
+            })
+            ct = cinfo["cust_type"]
+            added.add(name)
+
+            if ct in fixed_fee_types:
+                # 월정액: 1행으로 표시
+                ff = cinfo["fixed_monthly_fee"]
+                total_w = sum(agg[name].values())
+                vat_val = round(ff * VAT_RATE) if ct == "기타2(부가세포함)" else 0.0
+                result.append({
+                    "name":       name,
+                    "cust_type":  ct,
+                    "item_type":  "월정액",
+                    "weight":     round(total_w, 1),
+                    "unit_price": 0.0,
+                    "supply":     float(ff),
+                    "vat":        float(vat_val),
+                    "total":      float(ff + vat_val),
+                    "is_fixed_fee": True,
+                })
+            else:
+                # 품목별 행 생성
+                for item_type, item_w in sorted(agg[name].items()):
+                    pk = price_key_map.get(item_type, "price_food")
+                    up = cinfo.get(pk, 0)
+                    supply = round(up * item_w)
+                    vat_val = 0.0 if ct in tax_free_types else round(supply * VAT_RATE)
+                    result.append({
+                        "name":       name,
+                        "cust_type":  ct,
+                        "item_type":  item_type,
+                        "weight":     round(item_w, 1),
+                        "unit_price": float(up),
+                        "supply":     float(supply),
+                        "vat":        float(vat_val),
+                        "total":      float(supply + vat_val),
+                        "is_fixed_fee": False,
+                    })
+
+        # 수거 실적 없는 고정비 거래처 추가
+        for name, cinfo in sorted(cust_map.items()):
+            if name in added:
+                continue
+            ct = cinfo["cust_type"]
+            if ct not in fixed_fee_types:
+                continue
+            ff = cinfo["fixed_monthly_fee"]
+            if ff <= 0:
+                continue
+            vat_val = round(ff * VAT_RATE) if ct == "기타2(부가세포함)" else 0.0
+            result.append({
+                "name":       name,
+                "cust_type":  ct,
+                "item_type":  "월정액",
+                "weight":     0.0,
+                "unit_price": 0.0,
+                "supply":     float(ff),
+                "vat":        float(vat_val),
+                "total":      float(ff + vat_val),
+                "is_fixed_fee": True,
+            })
+
+        return sorted(result, key=lambda x: (x["cust_type"], x["name"], x["item_type"]))
+    except Exception as e:
+        print(f"[DB ERROR] get_settlement_detail: {e}")
+        logger.warning(f'Exception in database operation: {str(e)}')
+        return []
+    finally:
+        conn.close()
+
+
 def get_expenses(vendor: str, year_month: str) -> list[dict]:
     """지출 내역 조회 — vendor + YYYY-MM 필터"""
     conn = get_db()
