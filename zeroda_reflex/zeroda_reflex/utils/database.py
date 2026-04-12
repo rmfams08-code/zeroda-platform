@@ -2653,8 +2653,7 @@ def get_vendor_info(vendor: str) -> dict:
         return {}
     try:
         conn = get_db()
-        cur = conn.cursor()
-        cur.execute(
+        result = conn.execute(
             """
             SELECT biz_name, rep, biz_no, address, contact,
                    COALESCE(stamp_path, '') AS stamp_path,
@@ -2666,7 +2665,7 @@ def get_vendor_info(vendor: str) -> dict:
             """,
             (vendor,),
         )
-        row = cur.fetchone()
+        row = result.fetchone()
         conn.close()
         if not row:
             return {
@@ -2675,14 +2674,14 @@ def get_vendor_info(vendor: str) -> dict:
                 "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
             }
         return {
-            "biz_name": row[0] or str(vendor),
-            "rep":      row[1] or "",
-            "biz_no":   row[2] or "",
-            "address":  row[3] or "",
-            "contact":  decrypt_pii(row[4] or ""),
-            "stamp_path":        row[5] or "",
-            "stamp_uploaded_at": row[6] or "",
-            "stamp_updated_by":  row[7] or "",
+            "biz_name": row["biz_name"] or str(vendor),
+            "rep":      row["rep"] or "",
+            "biz_no":   row["biz_no"] or "",
+            "address":  row["address"] or "",
+            "contact":  decrypt_pii(row["contact"] or ""),
+            "stamp_path":        row["stamp_path"] or "",
+            "stamp_uploaded_at": row["stamp_uploaded_at"] or "",
+            "stamp_updated_by":  row["stamp_updated_by"] or "",
         }
     except Exception as e:
         logger.error(f"get_vendor_info 실패 ({vendor}): {e}")
