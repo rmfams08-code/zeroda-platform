@@ -25,7 +25,8 @@ ExecStart=/opt/zeroda-reflex/venv/bin/reflex run \
     --env prod \
     --backend-only \
     --backend-host 0.0.0.0 \
-    --backend-port 8000
+    --backend-port 8000 \
+    --backend-workers 4
 
 # 자동 재시작 (오류 발생 시 5초 후 재시작)
 Restart=always
