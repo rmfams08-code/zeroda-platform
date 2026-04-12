@@ -369,6 +369,8 @@ class DriverState(AuthState):
     today_collections: list[dict] = []
     recent_collections: list[dict] = []
     record_filter: str = "7days"
+    customer_filter: str = ""                    # 거래처 필터 (빈 값=전체)
+    customer_filter_options: list[str] = []      # 배정 거래처 목록
 
     # ── 음성입력 ──
     voice_active: bool = False
@@ -593,6 +595,11 @@ class DriverState(AuthState):
                 "photo_remark": ex.get("photo_remark", ""),
             })
         self.schedule_schools = result
+        # 배정 거래처 목록 갱신 (수거 기록 필터용)
+        school_names = sorted(set(
+            s["school_name"] for s in self.schedule_schools if s.get("school_name")
+        ))
+        self.customer_filter_options = school_names
 
     def set_schedule_date(self, value: str):
         """일정 날짜 변경"""
@@ -665,7 +672,7 @@ class DriverState(AuthState):
             )
 
     def _load_recent_collections(self):
-        """최근 수거 기록 로드 (record_filter 기준)"""
+        """최근 수거 기록 로드 (record_filter + customer_filter 기준)"""
         today = date.today()
         f = self.record_filter
         if f == "today":
@@ -676,16 +683,28 @@ class DriverState(AuthState):
             date_from = today.replace(day=1)
         else:  # "7days" 기본
             date_from = today - timedelta(days=6)
-        self.recent_collections = get_driver_collections_range(
+        all_records = get_driver_collections_range(
             vendor=self.user_vendor,
             driver=self.user_name,
             date_from=date_from.strftime("%Y-%m-%d"),
             date_to=today.strftime("%Y-%m-%d"),
         )
+        if self.customer_filter:
+            self.recent_collections = [
+                r for r in all_records
+                if r.get("school_name") == self.customer_filter
+            ]
+        else:
+            self.recent_collections = all_records
 
     def set_record_filter(self, value: str):
         """수거 기록 기간 필터 변경"""
         self.record_filter = value
+        self._load_recent_collections()
+
+    def set_customer_filter(self, value: str):
+        """거래처 필터 변경 (전체=빈 문자열)"""
+        self.customer_filter = value if value != "전체" else ""
         self._load_recent_collections()
 
     def _load_checkout_status(self):
@@ -780,6 +799,11 @@ class DriverState(AuthState):
     def recent_collection_count(self) -> int:
         """최근 수거 기록 건수 (record_filter 기준)"""
         return len(self.recent_collections)
+
+    @rx.var
+    def customer_filter_options_all(self) -> list[str]:
+        """거래처 필터 드롭다운용 옵션 목록 (전체 포함)"""
+        return ["전체"] + self.customer_filter_options
 
     @rx.var
     def record_filter_label(self) -> str:
