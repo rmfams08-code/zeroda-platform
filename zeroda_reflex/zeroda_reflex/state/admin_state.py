@@ -1928,7 +1928,7 @@ class AdminState(AuthState):
                 if not existing.get("biz_no"):
                     auto_data = {
                         "vendor": vendor_name,
-                        "biz_name": target.get("pending_biz_no") and vendor_name or vendor_name,
+                        "biz_name": vendor_name,
                         "rep": target.get("pending_rep") or "",
                         "biz_no": target.get("pending_biz_no") or "",
                         "address": target.get("pending_address") or "",

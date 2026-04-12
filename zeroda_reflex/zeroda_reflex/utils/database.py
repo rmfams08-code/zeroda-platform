@@ -2992,17 +2992,23 @@ def approve_all_daily_checks_by_vendor(vendor: str, year_month: str, approved_by
 #  본사관리자(HQ Admin) 전용 함수
 # ══════════════════════════════════════════
 
-def get_all_collections(year_month: str = "") -> list[dict]:
-    """전체 수거 데이터 (업체 무관). year_month: 'YYYY-MM' 필터"""
+def get_all_collections(year_month: str = "", vendor: str = "") -> list[dict]:
+    """전체 수거 데이터. vendor 비어있으면 전체(HQ admin용), 있으면 해당 업체만."""
     conn = get_db()
     try:
+        conditions = []
+        params = []
         if year_month:
-            rows = conn.execute(
-                "SELECT * FROM real_collection WHERE collect_date LIKE ?",
-                (f"{year_month}%",),
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM real_collection").fetchall()
+            conditions.append("collect_date LIKE ?")
+            params.append(f"{year_month}%")
+        if vendor:
+            conditions.append("vendor = ?")
+            params.append(vendor)
+        where = " WHERE " + " AND ".join(conditions) if conditions else ""
+        rows = conn.execute(
+            f"SELECT * FROM real_collection{where}",
+            tuple(params),
+        ).fetchall()
         return [dict(r) for r in rows]
     except Exception as e:
         print(f"[DB ERROR] get_all_collections: {e}")
