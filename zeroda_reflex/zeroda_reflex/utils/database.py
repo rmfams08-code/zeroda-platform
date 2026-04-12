@@ -2646,7 +2646,7 @@ def delete_expense(expense_id: str) -> bool:
 
 def get_vendor_info(vendor: str) -> dict:
     """업체 정보 + 직인 경로 조회.
-    반환 dict keys: biz_name, rep, biz_no, address, contact,
+    반환 dict keys: biz_name, rep, biz_no, address, contact, license_no,
                     stamp_path, stamp_uploaded_at, stamp_updated_by
     """
     if not vendor:
@@ -2656,6 +2656,7 @@ def get_vendor_info(vendor: str) -> dict:
         result = conn.execute(
             """
             SELECT biz_name, rep, biz_no, address, contact,
+                   COALESCE(license_no, '') AS license_no,
                    COALESCE(stamp_path, '') AS stamp_path,
                    COALESCE(stamp_uploaded_at, '') AS stamp_uploaded_at,
                    COALESCE(stamp_updated_by, '') AS stamp_updated_by
@@ -2670,7 +2671,7 @@ def get_vendor_info(vendor: str) -> dict:
         if not row:
             return {
                 "biz_name": str(vendor), "rep": "", "biz_no": "",
-                "address": "", "contact": "",
+                "address": "", "contact": "", "license_no": "",
                 "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
             }
         return {
@@ -2679,6 +2680,7 @@ def get_vendor_info(vendor: str) -> dict:
             "biz_no":   row["biz_no"] or "",
             "address":  row["address"] or "",
             "contact":  decrypt_pii(row["contact"] or ""),
+            "license_no": row["license_no"] or "",
             "stamp_path":        row["stamp_path"] or "",
             "stamp_uploaded_at": row["stamp_uploaded_at"] or "",
             "stamp_updated_by":  row["stamp_updated_by"] or "",
@@ -2687,7 +2689,7 @@ def get_vendor_info(vendor: str) -> dict:
         logger.error(f"get_vendor_info 실패 ({vendor}): {e}")
         return {
             "biz_name": str(vendor), "rep": "", "biz_no": "",
-            "address": "", "contact": "",
+            "address": "", "contact": "", "license_no": "",
             "stamp_path": "", "stamp_uploaded_at": "", "stamp_updated_by": "",
         }
 

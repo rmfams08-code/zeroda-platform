@@ -1091,7 +1091,7 @@ class AdminState(AuthState):
             except Exception:
                 pass
             if not vendor_name:
-                vendor_name = "하영자원"
+                vendor_name = self.user_vendor or "업체미지정"
             vi = get_vendor_info(vendor_name)
             self.doc_vendor_info = {
                 "biz_name": str(vi.get("biz_name") or vendor_name),
@@ -1105,7 +1105,7 @@ class AdminState(AuthState):
         except Exception as e:
             logger.warning("doc_vendor_info 로드 실패: %s", e)
             self.doc_vendor_info = {
-                "biz_name": "하영자원",
+                "biz_name": self.user_vendor or "업체미지정",
                 "rep": "", "biz_no": "", "address": "",
                 "contact": "", "account": "", "license_no": "",
             }
@@ -1331,7 +1331,7 @@ class AdminState(AuthState):
                     "issued_by, issued_at, file_path, issue_number) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        self.user_vendor or "하영자원",
+                        self.user_vendor or "업체미지정",
                         self.doc_selected_template_id,
                         tpl_row.get("template_name", ""),
                         self.doc_selected_customer_id,
@@ -1563,36 +1563,53 @@ class AdminState(AuthState):
         return template_row, customer_row, extra, (template_row.get("file_path") or "")
 
     def _get_vendor_info(self) -> dict:
-        """로그인한 본사(또는 외주업체) 회사정보 조회 — 수집운반업체 태그용."""
-        try:
-            from ..utils.database import get_db
-            conn = get_db()
-            row = conn.execute(
-                "SELECT vendor FROM users WHERE user_id = ? LIMIT 1",
-                (self.user_id or "",),
-            ).fetchone()
-            vendor_name = ""
-            if row:
-                rd = dict(row)
-                vendor_name = rd.get("vendor") or ""
-            if not vendor_name:
-                vendor_name = "하영자원"
-            conn.close()
+        """로그인한 본사(또는 외주업체) 회사정보 조회 — 수집운반업체 태그용.
+        self.doc_vendor_info (vendor_info 테이블 기반)가 이미 로드된 경우 활용,
+        아니면 get_vendor_info()로 DB 직접 조회."""
+        # 1) 이미 로드된 doc_vendor_info 활용
+        vi = self.doc_vendor_info or {}
+        if vi.get("biz_name") and vi["biz_name"] != "업체미지정":
             return {
-                "company_name": vendor_name or "하영자원",
-                "business_no": "",
-                "representative": "정석완",
-                "address": "경기 화성시 남양읍 남양성지로 219, 2층",
-                "phone": "010-3114-4030",
-                "license_no": "제20-35호",
+                "company_name": vi.get("biz_name", ""),
+                "business_no": vi.get("biz_no", ""),
+                "representative": vi.get("rep", ""),
+                "address": vi.get("address", ""),
+                "phone": vi.get("contact", ""),
+                "license_no": vi.get("license_no", ""),
+            }
+        # 2) 미로드 시 DB에서 직접 조회
+        try:
+            from ..utils.database import get_vendor_info as db_get_vendor_info
+            vendor_name = self.user_vendor or ""
+            if not vendor_name:
+                from ..utils.database import get_db
+                conn = get_db()
+                row = conn.execute(
+                    "SELECT vendor FROM users WHERE user_id = ? LIMIT 1",
+                    (self.user_id or "",),
+                ).fetchone()
+                if row:
+                    vendor_name = dict(row).get("vendor") or ""
+                conn.close()
+            if not vendor_name:
+                vendor_name = "업체미지정"
+            db_vi = db_get_vendor_info(vendor_name)
+            return {
+                "company_name": db_vi.get("biz_name", vendor_name),
+                "business_no": db_vi.get("biz_no", ""),
+                "representative": db_vi.get("rep", ""),
+                "address": db_vi.get("address", ""),
+                "phone": db_vi.get("contact", ""),
+                "license_no": db_vi.get("license_no", ""),
             }
         except Exception:
             return {
-                "company_name": "하영자원",
-                "representative": "정석완",
-                "address": "경기 화성시 남양읍 남양성지로 219, 2층",
-                "phone": "010-3114-4030",
-                "license_no": "제20-35호",
+                "company_name": self.user_vendor or "업체미지정",
+                "business_no": "",
+                "representative": "",
+                "address": "",
+                "phone": "",
+                "license_no": "",
             }
 
     def preview_document(self):
