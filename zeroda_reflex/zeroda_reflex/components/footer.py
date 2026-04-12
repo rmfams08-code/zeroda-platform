@@ -6,7 +6,7 @@ def site_footer() -> rx.Component:
     return rx.box(
         rx.vstack(
             rx.text(
-                "하영자원 폐기물데이터플랫폼 ZERODA",
+                "ZERODA 폐기물데이터플랫폼",
                 font_size="0.85em", font_weight="600", color="#444",
             ),
             rx.text(
@@ -33,7 +33,7 @@ def site_footer() -> rx.Component:
                 spacing="2",
             ),
             rx.text(
-                "© 2026 하영자원. All rights reserved.",
+                "© 2026 ZERODA. All rights reserved.",
                 font_size="0.7em", color="#999", margin_top="0.3em",
             ),
             spacing="1", align="center",
