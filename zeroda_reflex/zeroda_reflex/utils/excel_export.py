@@ -488,7 +488,8 @@ def export_settlement(
             for c in range(1, 6):
                 cell = ws2.cell(row=exp_row, column=c)
                 cell.border = THIN_BORDER
-                cell.font = cell.font if c == 3 else DATA_FONT
+                if c != 3:  # col3 already has red_font
+                    cell.font = DATA_FONT
                 if c == 3:
                     cell.alignment = DATA_ALIGN_RIGHT
                 elif c in (1, 4):
