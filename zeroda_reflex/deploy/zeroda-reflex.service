@@ -25,8 +25,7 @@ ExecStart=/opt/zeroda-reflex/venv/bin/reflex run \
     --env prod \
     --backend-only \
     --backend-host 0.0.0.0 \
-    --backend-port 8000 \
-    --backend-workers 4
+    --backend-port 8000
 
 # 자동 재시작 (오류 발생 시 5초 후 재시작)
 Restart=always
@@ -39,10 +38,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=zeroda-reflex
 
-# 보안 (선택적)
 NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=/opt/zeroda-reflex /opt/zeroda-platform/zeroda.db /tmp
 
 # 타임아웃
 TimeoutStartSec=120
