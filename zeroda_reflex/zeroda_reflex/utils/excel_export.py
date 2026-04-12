@@ -358,7 +358,8 @@ def export_settlement(
                     cell = ws1.cell(row=row_idx, column=c)
                     cell.fill = ct_fill
                     cell.border = THIN_BORDER
-                    cell.font = cell.font or DATA_FONT
+                    if c != 6:  # col6 already has blue_price_font
+                        cell.font = DATA_FONT
                     if c <= 4:
                         cell.alignment = DATA_ALIGN_CENTER
                     else:
