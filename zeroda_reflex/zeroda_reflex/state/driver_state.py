@@ -15,6 +15,7 @@ from zeroda_reflex.utils.database import (
     get_driver_checkout_log, save_driver_checkout,
     delete_collection,
     get_driver_schedule_schools,
+    get_driver_all_schedule_schools,
     get_today_processing, save_processing_confirm,
     save_photo_record, get_photo_records_today,
     save_customer_gps,
@@ -510,6 +511,8 @@ class DriverState(AuthState):
         if not self.schedule_date:
             self.schedule_date = self.today_str
         self._load_schedule()
+        # 거래처 필터 옵션 로드 (전체 등록 거래처, 날짜 무관)
+        self._load_customer_filter_options()
         # GPS 취득 → 날씨 업데이트 (비동기, 실패 시 위 기본 날씨 유지)
         yield rx.call_script(
             "new Promise((resolve) => {"
@@ -595,8 +598,6 @@ class DriverState(AuthState):
                 "photo_remark": ex.get("photo_remark", ""),
             })
         self.schedule_schools = result
-        # 거래처 필터 옵션 업데이트 (수거기록 필터용)
-        self.customer_filter_options = [s.get("school_name", "") for s in result if s.get("school_name")]
 
     def set_schedule_date(self, value: str):
         """일정 날짜 변경"""
@@ -607,6 +608,13 @@ class DriverState(AuthState):
         """오늘 날짜로 리셋"""
         self.schedule_date = self.today_str
         self._load_schedule()
+
+    def _load_customer_filter_options(self):
+        """기사의 전체 등록 거래처 목록 로드 (날짜/요일 무관)"""
+        self.customer_filter_options = get_driver_all_schedule_schools(
+            vendor=self.user_vendor,
+            driver=self.user_name,
+        )
 
     @rx.var
     def schedule_date_display(self) -> str:
