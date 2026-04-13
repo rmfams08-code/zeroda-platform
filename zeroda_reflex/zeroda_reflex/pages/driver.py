@@ -428,7 +428,7 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
             disabled=~AuthState.is_user_active,
             flex_shrink="0",
         ),
-        direction=["column", "column", "row"],
+        direction={"initial": "column", "md": "row"},
         width="100%",
         gap="2",
         align=["stretch", "stretch", "center"],
