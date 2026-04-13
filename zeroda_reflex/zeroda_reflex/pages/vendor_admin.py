@@ -563,54 +563,62 @@ def _col_record_row(row: dict) -> rx.Component:
 
 
 def _col_record_card(row: dict) -> rx.Component:
-    """수거 데이터 모바일 카드"""
+    """수거 데이터 — 모바일 카드 레이아웃"""
     return rx.box(
         rx.vstack(
-            # 행1: 날짜 + 품목 배지
+            # 상단: 날짜 + 품목 배지
             rx.hstack(
                 rx.text(row["collect_date"], font_size="12px", color=TEXT_SECONDARY),
                 rx.spacer(),
                 rx.badge(row["item_type"], size="1", color_scheme="green", variant="soft"),
                 width="100%", align="center",
             ),
-            # 행2: 학교명
-            rx.text(row["school_name"], font_size="14px", font_weight="600",
-                    color=TEXT_PRIMARY, width="100%"),
-            # 행3: 수거량 + 기사
+            # 학교명
+            rx.text(row["school_name"], font_size="14px", color=TEXT_PRIMARY,
+                    font_weight="600", width="100%",
+                    overflow="hidden", text_overflow="ellipsis", white_space="nowrap"),
+            # 수거량 + 기사
             rx.hstack(
                 rx.hstack(
-                    rx.text(row["weight"], font_size="14px", font_weight="700", color=ACCENT_VENDOR),
+                    rx.icon("weight", size=13, color=ACCENT_VENDOR),
+                    rx.text(row["weight"], font_size="14px", font_weight="700", color=TEXT_PRIMARY),
                     rx.text("kg", font_size="11px", color=TEXT_MUTED),
                     spacing="1", align="center",
                 ),
                 rx.spacer(),
-                rx.text(row["driver"], font_size="12px", color=TEXT_MUTED),
+                rx.hstack(
+                    rx.icon("user", size=12, color=TEXT_MUTED),
+                    rx.text(row["driver"], font_size="12px", color=TEXT_SECONDARY),
+                    spacing="1", align="center",
+                ),
                 width="100%", align="center",
             ),
-            # 행4: 수정/삭제 버튼
+            # 편집/삭제 버튼
             rx.hstack(
                 rx.button(
                     rx.icon("pencil", size=13), "수정",
                     on_click=VendorState.open_col_edit(row),
                     size="1", variant="soft", color_scheme="blue", cursor="pointer",
+                    gap="4px",
                     disabled=~AuthState.is_user_active,
                 ),
                 rx.button(
                     rx.icon("trash_2", size=13), "삭제",
                     on_click=VendorState.delete_collection_record(row["id"]),
                     size="1", variant="soft", color_scheme="red", cursor="pointer",
+                    gap="4px",
                     disabled=~AuthState.is_user_active,
                 ),
                 spacing="2",
             ),
             spacing="2", width="100%",
         ),
-        padding="14px 16px",
-        border_radius="10px",
+        padding="14px",
+        bg="white",
         border=f"1px solid {BORDER}",
-        bg=BG_PAGE,
+        border_radius="10px",
         box_shadow=SHADOW_SM,
-        width="100%",
+        _hover={"box_shadow": SHADOW_MD},
     )
 
 
@@ -768,7 +776,7 @@ def _col_history_panel() -> rx.Component:
                         rx.text("품목",   font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0", width="60px"),
                         rx.text("수거량", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0"),
                         rx.text("기사",   font_size="12px", font_weight="700", color=TEXT_SECONDARY,
-                                flex_shrink="0", display=["none", "inline", "inline"]),
+                                flex_shrink="0"),
                         rx.text("편집",   font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0"),
                         width="100%", padding_x="16px", padding_y="10px", gap="12px",
                     ),
@@ -782,7 +790,7 @@ def _col_history_panel() -> rx.Component:
                     _empty_state("해당 조건의 수거 데이터가 없습니다."),
                 ),
             ),
-            display=["none", "none", "block"], width="100%",
+            display=["none", "none", "block"],
         ),
         # ── 모바일: 카드 뷰 ──
         rx.box(
@@ -790,11 +798,12 @@ def _col_history_panel() -> rx.Component:
                 VendorState.has_collections,
                 rx.vstack(
                     rx.foreach(VendorState.filtered_collections, _col_record_card),
-                    spacing="2", width="100%",
+                    spacing="3", width="100%",
+                    max_height="500px", overflow_y="auto",
                 ),
                 _empty_state("해당 조건의 수거 데이터가 없습니다."),
             ),
-            display=["block", "block", "none"], width="100%",
+            display=["block", "block", "none"],
         ),
         rx.cond(
             VendorState.edit_col_msg != "",
@@ -2354,47 +2363,45 @@ def _settlement_row(row: dict) -> rx.Component:
 
 
 def _settlement_card(row: dict) -> rx.Component:
-    """정산 모바일 카드"""
+    """정산 — 모바일 카드 레이아웃"""
     return rx.box(
         rx.vstack(
-            # 행1: 거래처명 + 구분 배지
             rx.hstack(
                 rx.text(row["name"], font_size="14px", font_weight="600", color=TEXT_PRIMARY),
                 rx.spacer(),
                 rx.badge(row["cust_type"], size="1", color_scheme="blue", variant="soft"),
                 width="100%", align="center",
             ),
-            # 행2: 수거량 + 공급가
+            rx.box(height="1px", bg=BORDER, width="100%"),
             rx.hstack(
                 rx.vstack(
                     rx.text("수거량", font_size="11px", color=TEXT_MUTED),
                     rx.hstack(
-                        rx.text(row["weight"], font_size="13px", font_weight="700", color=ACCENT_VENDOR),
+                        rx.text(row["weight"], font_size="13px", font_weight="600", color=TEXT_PRIMARY),
                         rx.text("kg", font_size="11px", color=TEXT_MUTED),
-                        spacing="1", align="center",
+                        spacing="1", align="baseline",
                     ),
-                    spacing="0",
+                    spacing="0", align="start", flex="1",
                 ),
                 rx.vstack(
                     rx.text("공급가", font_size="11px", color=TEXT_MUTED),
-                    rx.text(row["supply"], font_size="13px", font_weight="600", color=TEXT_PRIMARY),
-                    spacing="0",
+                    rx.text(row["supply"], font_size="13px", color="#475569"),
+                    spacing="0", align="start", flex="1",
                 ),
                 rx.vstack(
                     rx.text("합계", font_size="11px", color=TEXT_MUTED),
-                    rx.text(row["total"], font_size="13px", font_weight="700", color="#0f172a"),
-                    spacing="0",
+                    rx.text(row["total"], font_size="14px", font_weight="700", color=TEXT_PRIMARY),
+                    spacing="0", align="end", flex="1",
                 ),
-                width="100%", justify="between",
+                width="100%", align="start",
             ),
             spacing="2", width="100%",
         ),
-        padding="14px 16px",
-        border_radius="10px",
+        padding="14px",
+        bg="white",
         border=f"1px solid {BORDER}",
-        bg=BG_PAGE,
+        border_radius="10px",
         box_shadow=SHADOW_SM,
-        width="100%",
     )
 
 
@@ -2451,41 +2458,43 @@ def _settle_summary_panel() -> rx.Component:
             gap="12px", flex_wrap="wrap", width="100%",
         ),
         _section_header("list", "거래처별 정산 요약"),
-        rx.cond(
-            VendorState.has_settlement_data,
-            rx.fragment(
-                # ── 데스크톱: 테이블 뷰 ──
-                rx.box(
-                    _table_box(
-                        rx.table.root(
-                            rx.table.header(
-                                rx.table.row(
-                                    _table_header("거래처"),
-                                    _table_header("구분"),
-                                    _table_header("수거량"),
-                                    _table_header("공급가"),
-                                    _table_header("부가세"),
-                                    _table_header("합계"),
-                                ),
+        # ── 데스크톱: 테이블 ──
+        rx.box(
+            rx.cond(
+                VendorState.has_settlement_data,
+                _table_box(
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                _table_header("거래처"),
+                                _table_header("구분"),
+                                _table_header("수거량"),
+                                _table_header("공급가"),
+                                _table_header("부가세"),
+                                _table_header("합계"),
                             ),
-                            rx.table.body(
-                                rx.foreach(VendorState.settlement_data, _settlement_row),
-                            ),
-                            width="100%",
                         ),
+                        rx.table.body(
+                            rx.foreach(VendorState.settlement_data, _settlement_row),
+                        ),
+                        width="100%",
                     ),
-                    display=["none", "none", "block"], width="100%",
                 ),
-                # ── 모바일: 카드 뷰 ──
-                rx.box(
-                    rx.vstack(
-                        rx.foreach(VendorState.settlement_data, _settlement_card),
-                        spacing="2", width="100%",
-                    ),
-                    display=["block", "block", "none"], width="100%",
-                ),
+                _empty_state("해당 월 정산 데이터가 없습니다."),
             ),
-            _empty_state("해당 월 정산 데이터가 없습니다."),
+            display=["none", "none", "block"],
+        ),
+        # ── 모바일: 카드 ──
+        rx.box(
+            rx.cond(
+                VendorState.has_settlement_data,
+                rx.vstack(
+                    rx.foreach(VendorState.settlement_data, _settlement_card),
+                    spacing="3", width="100%",
+                ),
+                _empty_state("해당 월 정산 데이터가 없습니다."),
+            ),
+            display=["block", "block", "none"],
         ),
         spacing="4", width="100%", align="start",
     )
@@ -4500,282 +4509,4 @@ def _an_weather_panel() -> rx.Component:
 
 def _analytics_tab() -> rx.Component:
     return rx.vstack(
-        _section_header("trending_up", "수거 분석"),
-        rx.hstack(
-            *[_analytics_subtab_btn(label) for label in ANALYTICS_SUBTABS],
-            spacing="2", flex_wrap="wrap",
-        ),
-        rx.cond(
-            VendorState.analytics_sub_tab == "종합현황",
-            _an_summary_panel(),
-            rx.cond(
-                VendorState.analytics_sub_tab == "일별요일별",
-                _an_daily_panel(),
-                rx.cond(
-                    VendorState.analytics_sub_tab == "거래처기사별",
-                    _an_school_driver_panel(),
-                    _an_weather_panel(),
-                ),
-            ),
-        ),
-        spacing="4", width="100%", align="start",
-    )
-
-
-def _photo_card(photo: dict) -> rx.Component:
-    """현장사진 카드 (섹션1)"""
-    type_color = {
-        "collection": "green",
-        "processing":  "blue",
-        "vehicle":     "orange",
-        "accident":    "red",
-    }
-    col = type_color.get(photo.get("photo_type", ""), "gray")
-    return rx.box(
-        rx.vstack(
-            rx.cond(
-                photo["photo_url"] != "",
-                rx.image(
-                    src=photo["photo_url"],
-                    width="100%", height="160px",
-                    object_fit="cover", border_radius="8px",
-                ),
-                rx.box(
-                    rx.icon("image", size=32, color=BORDER_DARK),
-                    width="100%", height="160px",
-                    display="flex", align_items="center",
-                    justify_content="center",
-                    bg=BG_HOVER, border_radius="8px",
-                ),
-            ),
-            rx.vstack(
-                rx.hstack(
-                    rx.badge(photo["photo_type"], size="1",
-                             color_scheme=col, variant="soft"),
-                    rx.text(photo["created_at"], font_size="11px", color=TEXT_MUTED),
-                    spacing="2",
-                ),
-                rx.text(photo["school_name"], font_size="13px",
-                        font_weight="600", color=TEXT_PRIMARY),
-                rx.cond(
-                    photo["driver"] != "",
-                    rx.hstack(
-                        rx.icon("user", size=11, color=TEXT_MUTED),
-                        rx.text(photo["driver"], font_size="11px", color=TEXT_SECONDARY),
-                        spacing="1", align="center",
-                    ),
-                    rx.box(height="0"),
-                ),
-                rx.cond(
-                    photo["memo"] != "",
-                    rx.text(photo["memo"], font_size="11px", color=TEXT_SECONDARY,
-                            overflow="hidden", text_overflow="ellipsis",
-                            white_space="nowrap"),
-                    rx.box(height="0"),
-                ),
-                spacing="1", align="start", width="100%",
-            ),
-            spacing="2", width="100%",
-        ),
-        padding="12px",
-        bg="white",
-        border=f"1px solid {BORDER}",
-        border_radius="12px",
-        box_shadow="0 1px 4px rgba(0,0,0,0.04)",
-    )
-
-
-def _photo_tab() -> rx.Component:
-    """현장사진 탭 (P2 섹션1)"""
-    return rx.vstack(
-        _section_header("camera", "현장사진"),
-        rx.hstack(
-            rx.select(
-                PHOTO_TYPE_OPTIONS,
-                value=VendorState.photo_type_filter,
-                on_change=VendorState.set_photo_type_filter,
-                size="2", width="120px",
-                placeholder="종류",
-            ),
-            rx.input(
-                placeholder="시작일 (YYYY-MM-DD)",
-                value=VendorState.photo_date_from,
-                on_change=VendorState.set_photo_date_from,
-                size="2", width="150px",
-            ),
-            rx.input(
-                placeholder="종료일 (YYYY-MM-DD)",
-                value=VendorState.photo_date_to,
-                on_change=VendorState.set_photo_date_to,
-                size="2", width="150px",
-            ),
-            rx.button(
-                rx.icon("search", size=14), "조회",
-                on_click=VendorState.load_photos,
-                size="2", color_scheme="green", cursor="pointer", gap="6px",
-            ),
-            spacing="2", align="center", flex_wrap="wrap",
-        ),
-        rx.hstack(
-            rx.icon("camera", size=14, color=TEXT_SECONDARY),
-            rx.text("총", font_size="13px", color=TEXT_SECONDARY),
-            rx.badge(VendorState.photo_rows.length(), size="1",
-                     color_scheme="blue", variant="soft"),
-            rx.text("장", font_size="13px", color=TEXT_SECONDARY),
-            spacing="1", align="center",
-        ),
-        rx.cond(
-            VendorState.photo_rows.length() > 0,
-            rx.grid(
-                rx.foreach(VendorState.photo_rows, _photo_card),
-                columns="3",
-                spacing="3",
-                width="100%",
-            ),
-            _empty_state("현장사진 기록이 없습니다. 기사 앱에서 사진을 등록하면 여기에 표시됩니다."),
-        ),
-        spacing="4", width="100%", align="start",
-    )
-
-
-def _settings_tab() -> rx.Component:
-    return rx.vstack(
-        _section_header("settings", "설정"),
-        rx.hstack(
-            *[_settings_subtab_btn(label) for label in SETTINGS_SUBTABS],
-            spacing="2",
-        ),
-        rx.cond(
-            VendorState.settings_active_subtab == "업장관리",
-            _settings_biz_panel(),
-            rx.cond(
-                VendorState.settings_active_subtab == "업체정보",
-                _settings_info_panel(),
-                _settings_account_panel(),
-            ),
-        ),
-        spacing="4", width="100%", align="start",
-    )
-
-
-# ══════════════════════════════════════════════
-#  탭 콘텐츠 라우터
-# ══════════════════════════════════════════════
-
-def _placeholder_tab(tab_name: str) -> rx.Component:
-    return rx.center(
-        rx.vstack(
-            rx.box(
-                rx.icon("wrench", size=40, color=BORDER_DARK),
-                width="80px", height="80px", bg=BG_HOVER,
-                border_radius="20px", display="flex",
-                align_items="center", justify_content="center",
-            ),
-            rx.text(tab_name, font_size="18px", font_weight="700", color="#334155"),
-            rx.text("이 화면은 현재 개발 중입니다.", font_size="13px", color=TEXT_MUTED),
-            rx.badge("준비 중", color_scheme="gray", size="2", variant="soft"),
-            spacing="3", align="center",
-        ),
-        min_height="300px", width="100%", padding_y="60px",
-    )
-
-
-def _tab_content() -> rx.Component:
-    """활성 탭에 따른 콘텐츠 렌더링 (rx.cond 중첩)"""
-    return rx.cond(
-        VendorState.active_tab == "수거현황",
-        _collection_tab(),
-        rx.cond(
-            VendorState.active_tab == "수거데이터",
-            _collection_data_tab(),
-            rx.cond(
-                VendorState.active_tab == "거래처관리",
-                _customer_tab(),
-                rx.cond(
-                    VendorState.active_tab == "일정관리",
-                    _schedule_tab(),
-                    rx.cond(
-                        VendorState.active_tab == "정산관리",
-                        _settlement_tab(),
-                        rx.cond(
-                            VendorState.active_tab == "안전관리",
-                            _safety_tab(),
-                            rx.cond(
-                                VendorState.active_tab == "수거분석",
-                                _analytics_tab(),
-                                rx.cond(
-                                    VendorState.active_tab == "현장사진",
-                                    _photo_tab(),
-                                    rx.cond(
-                                        VendorState.active_tab == "문서서비스",
-                                        doc_service_vendor_panel(),
-                                        _settings_tab(),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        ),
-    )
-
-
-# ══════════════════════════════════════════════
-#  메인 레이아웃
-# ══════════════════════════════════════════════
-
-def _main_content() -> rx.Component:
-    return rx.box(
-        rx.vstack(
-            rx.cond(
-                ~AuthState.is_user_active,
-                rx.callout(
-                    "본사 관리자 활성화 대기 중입니다. 활성화 전까지 기능 사용이 제한됩니다.",
-                    icon="info",
-                    color_scheme="amber",
-                    size="2",
-                    margin_bottom="12px",
-                ),
-                rx.fragment(),
-            ),
-            rx.hstack(
-                rx.text(VendorState.active_tab, font_size="20px",
-                        font_weight="800", color="#0f172a"),
-                rx.spacer(),
-                rx.badge(
-                    VendorState.selected_year, "년 ", VendorState.selected_month, "월",
-                    color_scheme="blue", size="2", variant="soft",
-                ),
-                align="center", width="100%",
-            ),
-            rx.box(height="1px", bg=BORDER, width="100%"),
-            _tab_content(),
-            spacing="4", width="100%",
-        ),
-        flex="1", min_width="0",
-        padding=["16px 16px 80px", "20px 20px 80px", "24px"],
-        overflow_y="auto",
-    )
-
-
-def vendor_admin_page() -> rx.Component:
-    """업체관리자 대시보드 — 메인 페이지"""
-    return rx.box(
-        _mobile_drawer(),
-        _header(),
-        rx.box(
-            _sidebar(),
-            _main_content(),
-            display="flex",
-            flex_direction="row",
-            width="100%",
-            align_items="flex-start",
-            flex="1",
-        ),
-        _mobile_nav(),
-        display="flex",
-        flex_direction="column",
-        min_height="100vh",
-        bg=BG_PAGE,
-    )
+        _section_

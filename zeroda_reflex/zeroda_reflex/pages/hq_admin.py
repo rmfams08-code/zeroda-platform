@@ -371,24 +371,26 @@ def _user_row(user: dict) -> rx.Component:
 
 
 def _user_card(user: dict) -> rx.Component:
-    """계정관리 모바일 카드"""
+    """계정관리 — 모바일 카드 레이아웃"""
     uid = user["user_id"]
     return rx.box(
         rx.vstack(
-            # 행1: 아이디 + 역할 배지
+            # 상단: 아이디 + 역할 배지
             rx.hstack(
-                rx.text(uid, font_size="13px", font_weight="700", color=TEXT_PRIMARY),
+                rx.text(uid, font_size="14px", font_weight="700", color=TEXT_PRIMARY),
                 rx.spacer(),
                 _role_badge(user["role"]),
                 width="100%", align="center",
             ),
-            # 행2: 이름 + 업체
+            # 이름 + 업체
             rx.hstack(
+                rx.icon("user", size=13, color=TEXT_MUTED),
                 rx.text(user["name"], font_size="13px", color=TEXT_PRIMARY),
-                rx.text(user["vendor"], font_size="12px", color=TEXT_MUTED),
+                rx.text("|", font_size="12px", color=BORDER),
+                rx.text(user["vendor"], font_size="12px", color=TEXT_SECONDARY),
                 spacing="2", align="center",
             ),
-            # 행3: 승인 상태 + 활성 상태 배지
+            # 상태 배지 줄
             rx.hstack(
                 rx.badge(
                     rx.cond(user["approval_status"] == "approved", "승인완료",
@@ -404,7 +406,7 @@ def _user_card(user: dict) -> rx.Component:
                 ),
                 spacing="2",
             ),
-            # 행4: 승인 버튼 (pending인 경우)
+            # 승인 대기 시 추가 정보
             rx.cond(
                 user["approval_status"] == "pending",
                 rx.hstack(
@@ -418,32 +420,32 @@ def _user_card(user: dict) -> rx.Component:
                                on_click=AdminState.approve_user(uid)),
                     rx.button("반려", size="1", color_scheme="red", variant="outline",
                                on_click=AdminState.reject_user(uid)),
-                    spacing="1",
+                    spacing="2", flex_wrap="wrap",
                 ),
+                rx.fragment(),
             ),
-            # 행5: 관리 버튼
+            # 관리 버튼
             rx.hstack(
                 rx.button(
                     rx.cond(user["is_active"] == 1, "비활성화", "활성화"),
                     size="1", variant="outline",
                     on_click=AdminState.toggle_user_active(uid),
                 ),
-                rx.button("PW초기화", size="1", variant="ghost", color=f"{TEXT_MUTED}",
+                rx.button("PW초기화", size="1", variant="ghost", color=TEXT_MUTED,
                            on_click=AdminState.reset_password(uid)),
-                rx.button("✏️ 수정", size="1", variant="outline", color_scheme="blue",
+                rx.button("수정", size="1", variant="outline", color_scheme="blue",
                            on_click=AdminState.open_edit_dialog(uid)),
-                rx.button("🗑️ 삭제", size="1", variant="outline", color_scheme="red",
+                rx.button("삭제", size="1", variant="outline", color_scheme="red",
                            on_click=AdminState.open_delete_dialog(uid)),
                 spacing="1", flex_wrap="wrap",
             ),
             spacing="2", width="100%",
         ),
-        padding="14px 16px",
-        border_radius="10px",
+        padding="14px",
+        bg="white",
         border=f"1px solid {BORDER}",
-        bg=BG_PAGE,
+        border_radius="10px",
         box_shadow=SHADOW_SM,
-        width="100%",
     )
 
 
@@ -502,23 +504,22 @@ def _account_tab() -> rx.Component:
             ),
         ),
 
-        # 사용자 테이블
-        rx.cond(
-            AdminState.has_users,
-            rx.fragment(
-                # ── 데스크톱: 테이블 뷰 ──
-                rx.box(
-                    _card_box(
+        # ── 사용자 테이블 (데스크톱) ──
+        rx.box(
+            _card_box(
+                rx.cond(
+                    AdminState.has_users,
+                    rx.box(
                         rx.table.root(
                             rx.table.header(
                                 rx.table.row(
-                                    rx.table.column_header_cell(rx.text("아이디", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                                    rx.table.column_header_cell(rx.text("이름", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                                    rx.table.column_header_cell(rx.text("역할", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                                    rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                                    rx.table.column_header_cell(rx.text("승인", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                                    rx.table.column_header_cell(rx.text("상태", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                                    rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("아이디", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
+                                    rx.table.column_header_cell(rx.text("이름", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
+                                    rx.table.column_header_cell(rx.text("역할", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
+                                    rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
+                                    rx.table.column_header_cell(rx.text("승인", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
+                                    rx.table.column_header_cell(rx.text("상태", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
+                                    rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color=TEXT_SECONDARY)),
                                 ),
                             ),
                             rx.table.body(
@@ -526,20 +527,26 @@ def _account_tab() -> rx.Component:
                             ),
                             width="100%",
                         ),
+                        overflow_x="auto",
                     ),
-                    display=["none", "none", "block"], width="100%",
-                ),
-                # ── 모바일: 카드 뷰 ──
-                rx.box(
-                    rx.vstack(
-                        rx.foreach(AdminState.filtered_users, _user_card),
-                        spacing="2", width="100%",
-                    ),
-                    display=["block", "block", "none"], width="100%",
+                    rx.text("조건에 맞는 사용자가 없습니다.", font_size="13px", color=TEXT_MUTED,
+                             padding="20px", text_align="center"),
                 ),
             ),
-            rx.text("조건에 맞는 사용자가 없습니다.", font_size="13px", color=f"{TEXT_MUTED}",
-                     padding="20px", text_align="center"),
+            display=["none", "none", "block"],
+        ),
+        # ── 사용자 카드 (모바일) ──
+        rx.box(
+            rx.cond(
+                AdminState.has_users,
+                rx.vstack(
+                    rx.foreach(AdminState.filtered_users, _user_card),
+                    spacing="3", width="100%",
+                ),
+                rx.text("조건에 맞는 사용자가 없습니다.", font_size="13px", color=TEXT_MUTED,
+                         padding="20px", text_align="center"),
+            ),
+            display=["block", "block", "none"],
         ),
 
         # ── 업체별 현황 ──
@@ -4424,298 +4431,4 @@ def _photo_tab() -> rx.Component:
                     ),
                     rx.input(
                         type="date",
-                        value=AdminState.photo_date_from,
-                        on_change=AdminState.set_photo_date_from,
-                        width="150px",
-                    ),
-                    rx.text("~", margin_x="4px"),
-                    rx.input(
-                        type="date",
-                        value=AdminState.photo_date_to,
-                        on_change=AdminState.set_photo_date_to,
-                        width="150px",
-                    ),
-                    rx.button(
-                        rx.icon("search", size=14),
-                        "조회",
-                        on_click=AdminState.load_photos,
-                        size="2",
-                    ),
-                    spacing="2", wrap="wrap",
-                ),
-                rx.cond(
-                    AdminState.photo_msg != "",
-                    rx.text(AdminState.photo_msg, font_size="12px", color="gray"),
-                ),
-                spacing="3", width="100%",
-            )
-        ),
-        rx.cond(
-            AdminState.photo_rows.length() > 0,
-            rx.grid(
-                rx.foreach(AdminState.photo_rows, _photo_card),
-                columns="3",
-                spacing="4",
-                width="100%",
-            ),
-            rx.box(
-                rx.text(
-                    "조회된 사진이 없습니다. 필터를 설정하고 [조회] 버튼을 눌러주세요.",
-                    color="gray", font_size="13px",
-                ),
-                padding="40px",
-                text_align="center",
-            ),
-        ),
-        spacing="4", width="100%",
-    )
-
-
-# ══════════════════════════════════════════
-#  탭 콘텐츠 라우터
-# ══════════════════════════════════════════
-
-def _tab_content() -> rx.Component:
-    return rx.box(
-        rx.cond(AdminState.active_tab == "대시보드", _dashboard_tab()),
-        rx.cond(AdminState.active_tab == "계정관리", _account_tab()),
-        rx.cond(AdminState.active_tab == "수거데이터", _data_tab()),
-        rx.cond(AdminState.active_tab == "외주업체관리", _vendor_mgmt_tab()),
-        rx.cond(AdminState.active_tab == "거래처관리", _customer_mgmt_tab()),
-        rx.cond(AdminState.active_tab == "수거일정", _schedule_tab()),
-        rx.cond(AdminState.active_tab == "정산관리", _settlement_tab()),
-        rx.cond(AdminState.active_tab == "안전관리", _safety_tab()),
-        rx.cond(AdminState.active_tab == "탄소감축", _carbon_tab()),
-        rx.cond(AdminState.active_tab == "폐기물분석", _analytics_tab()),
-        rx.cond(AdminState.active_tab == "현장사진", _photo_tab()),
-        rx.cond(AdminState.active_tab == "문서서비스", doc_service_hq_panel()),
-        width="100%",
-    )
-
-
-# ══════════════════════════════════════════
-#  모바일 헤더 + 드로어
-# ══════════════════════════════════════════
-
-def _mobile_header() -> rx.Component:
-    """모바일 전용 상단 헤더 (햄버거 + 로고)"""
-    return rx.box(
-        rx.hstack(
-            rx.button(
-                rx.icon("menu", size=22),
-                on_click=AdminState.toggle_mobile_drawer,
-                variant="ghost",
-                color=TEXT_PRIMARY,
-                padding="6px",
-                _hover={"bg": BG_HOVER},
-                border_radius="8px",
-            ),
-            rx.hstack(
-                rx.box(
-                    rx.text("Z", font_size="14px", font_weight="800", color="white"),
-                    width="28px", height="28px",
-                    bg=f"linear-gradient(135deg, #38bd94, {PRIMARY})",
-                    border_radius="7px",
-                    display="flex", align_items="center", justify_content="center",
-                ),
-                rx.text("ZERODA", font_size="14px", font_weight="800", color="#0f172a"),
-                spacing="2", align="center",
-            ),
-            rx.spacer(),
-            rx.text(
-                AdminState.active_tab,
-                font_size="13px",
-                color=TEXT_SECONDARY,
-                font_weight="600",
-                white_space="nowrap",
-                overflow="hidden",
-                text_overflow="ellipsis",
-                max_width="120px",
-            ),
-            spacing="3",
-            align="center",
-            width="100%",
-        ),
-        display=["flex", "flex", "none"],
-        bg="white",
-        border_bottom=f"1px solid {BORDER}",
-        padding_x="16px",
-        padding_y="12px",
-        position="sticky",
-        top="0",
-        z_index="200",
-        box_shadow=SHADOW_SM,
-    )
-
-
-def _mobile_drawer() -> rx.Component:
-    """모바일 왼쪽 슬라이드 드로어 메뉴 (커스텀 fixed-position 오버레이)"""
-    tab_icons = {
-        "대시보드": "layout_dashboard",
-        "수거데이터": "database",
-        "외주업체관리": "building_2",
-        "거래처관리": "contact",
-        "수거일정": "calendar",
-        "정산관리": "receipt",
-        "안전관리": "shield_check",
-        "탄소감축": "leaf",
-        "폐기물분석": "bar_chart_3",
-        "현장사진": "camera",
-        "계정관리": "users",
-        "문서서비스": "file_text",
-    }
-
-    def _drawer_item(tab_name: str) -> rx.Component:
-        icon_name = tab_icons.get(tab_name, "circle")
-        return rx.button(
-            rx.hstack(
-                rx.icon(icon_name, size=16),
-                rx.text(tab_name, font_size="14px"),
-                spacing="3",
-                width="100%",
-            ),
-            on_click=AdminState.select_tab_mobile(tab_name),
-            variant="ghost",
-            width="100%",
-            justify_content="flex-start",
-            padding_x="16px",
-            padding_y="10px",
-            border_radius="8px",
-            bg=rx.cond(
-                AdminState.active_tab == tab_name,
-                "rgba(59,130,246,0.1)",
-                "transparent",
-            ),
-            color=rx.cond(
-                AdminState.active_tab == tab_name,
-                PRIMARY,
-                TEXT_SECONDARY,
-            ),
-            font_weight=rx.cond(
-                AdminState.active_tab == tab_name,
-                "700",
-                "500",
-            ),
-            _hover={"bg": "rgba(59,130,246,0.06)"},
-        )
-
-    return rx.box(
-        # ── 반투명 오버레이 배경 ──
-        rx.box(
-            on_click=AdminState.close_mobile_drawer,
-            position="fixed",
-            top="0",
-            left="0",
-            right="0",
-            bottom="0",
-            bg="rgba(0,0,0,0.45)",
-            z_index="998",
-            display=rx.cond(AdminState.mobile_drawer_open, "block", "none"),
-        ),
-        # ── 드로어 패널 (슬라이드) ──
-        rx.vstack(
-            # 헤더
-            rx.hstack(
-                rx.box(
-                    rx.text("Z", font_size="16px", font_weight="800", color="white"),
-                    width="32px", height="32px",
-                    bg=f"linear-gradient(135deg, #38bd94, {PRIMARY})",
-                    border_radius="8px",
-                    display="flex", align_items="center", justify_content="center",
-                ),
-                rx.vstack(
-                    rx.text("ZERODA", font_size="14px", font_weight="800", color="#0f172a"),
-                    rx.text("본사 관리자", font_size="10px", color=TEXT_MUTED),
-                    spacing="0",
-                ),
-                rx.spacer(),
-                rx.button(
-                    rx.icon("x", size=18),
-                    on_click=AdminState.close_mobile_drawer,
-                    variant="ghost",
-                    color=TEXT_MUTED,
-                    padding="4px",
-                    border_radius="6px",
-                    cursor="pointer",
-                ),
-                spacing="2",
-                align="center",
-                width="100%",
-                padding_x="16px",
-                padding_y="16px",
-                border_bottom=f"1px solid {BORDER}",
-            ),
-            # 메뉴 목록
-            rx.vstack(
-                *[_drawer_item(t) for t in HQ_TABS],
-                spacing="1",
-                width="100%",
-                padding_x="8px",
-                padding_y="8px",
-                overflow_y="auto",
-                flex="1",
-            ),
-            # 로그아웃
-            rx.box(
-                rx.button(
-                    rx.hstack(
-                        rx.icon("log_out", size=14),
-                        rx.text("로그아웃", font_size="13px"),
-                        spacing="2",
-                    ),
-                    on_click=AdminState.logout,
-                    variant="ghost",
-                    color=TEXT_MUTED,
-                    width="100%",
-                    justify_content="flex-start",
-                    padding_x="16px",
-                    _hover={"color": ERROR},
-                    cursor="pointer",
-                ),
-                width="100%",
-                padding_x="8px",
-                padding_y="8px",
-                border_top=f"1px solid {BORDER}",
-            ),
-            spacing="0",
-            height="100vh",
-            bg="white",
-            position="fixed",
-            top="0",
-            left=rx.cond(AdminState.mobile_drawer_open, "0px", "-300px"),
-            width="280px",
-            z_index="999",
-            box_shadow="4px 0 20px rgba(0,0,0,0.15)",
-            overflow="hidden",
-            style={"transition": "left 0.25s ease"},
-        ),
-        # 래퍼 자체를 fixed + 0크기로 → 레이아웃 공간 완전 제거
-        position="fixed",
-        top="0",
-        left="0",
-        width="0",
-        height="0",
-        overflow="visible",
-        z_index="990",
-        display=["block", "block", "none"],
-    )
-
-
-# ══════════════════════════════════════════
-#  메인 페이지
-# ══════════════════════════════════════════
-
-def hq_admin_page() -> rx.Component:
-    """본사관리자 메인 페이지"""
-    return rx.box(
-        _mobile_header(),
-        _mobile_drawer(),
-        _sidebar(),
-        rx.box(
-            _tab_content(),
-            margin_left=["0", "0", "220px"],
-            padding=["16px", "20px", "24px"],
-            min_height="100vh",
-            bg=f"{BG_HOVER}",
-        ),
-    )
+                        value=Admi
