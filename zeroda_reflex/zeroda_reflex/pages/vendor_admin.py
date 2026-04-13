@@ -378,6 +378,14 @@ def _mobile_drawer() -> rx.Component:
             overflow="hidden",
             style={"transition": "left 0.25s ease"},
         ),
+        # 래퍼 자체를 fixed + 0크기로 → 레이아웃 공간 완전 제거
+        position="fixed",
+        top="0",
+        left="0",
+        width="0",
+        height="0",
+        overflow="visible",
+        z_index="990",
         display=["block", "block", "none"],
     )
 
