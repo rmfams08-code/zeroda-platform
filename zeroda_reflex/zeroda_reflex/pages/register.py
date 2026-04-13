@@ -26,11 +26,13 @@ def register_page() -> rx.Component:
 
                 # 아이디
                 rx.vstack(
-                    rx.text("아이디 *", size="2", weight="bold"),
+                    rx.text("아이디 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                     rx.input(
                         placeholder="아이디 (영문/숫자)",
                         value=AuthState.reg_id,
                         on_change=AuthState.set_reg_id,
+                        auto_complete="off",
+                        name="reg_user_id",
                         width="100%",
                     ),
                     spacing="1", width="100%",
@@ -38,11 +40,13 @@ def register_page() -> rx.Component:
 
                 # 이름
                 rx.vstack(
-                    rx.text("이름 *", size="2", weight="bold"),
+                    rx.text("이름 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                     rx.input(
                         placeholder="실명",
                         value=AuthState.reg_name,
                         on_change=AuthState.set_reg_name,
+                        auto_complete="off",
+                        name="reg_full_name",
                         width="100%",
                     ),
                     spacing="1", width="100%",
@@ -50,13 +54,96 @@ def register_page() -> rx.Component:
 
                 # 비밀번호
                 rx.vstack(
-                    rx.text("비밀번호 *", size="2", weight="bold"),
-                    rx.input(
-                        placeholder="최소 8자, 대·소문자+숫자+특수문자 포함",
-                        type="password",
-                        value=AuthState.reg_pw,
-                        on_change=AuthState.set_reg_pw,
-                        width="100%",
+                    rx.text("비밀번호 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
+                    rx.box(
+                        rx.input(
+                            placeholder="최소 8자, 대·소문자+숫자+특수문자 포함",
+                            type=rx.cond(AuthState.show_reg_pw, "text", "password"),
+                            value=AuthState.reg_pw,
+                            on_change=AuthState.set_reg_pw,
+                            auto_complete="new-password",
+                            name="reg_new_pw",
+                            width="100%",
+                        ),
+                        rx.box(
+                            rx.icon(
+                                rx.cond(AuthState.show_reg_pw, "eye_off", "eye"),
+                                size=16, color="#94a3b8", cursor="pointer",
+                                on_click=AuthState.toggle_reg_pw,
+                            ),
+                            position="absolute", right="10px", top="50%",
+                            transform="translateY(-50%)",
+                        ),
+                        position="relative", width="100%",
+                    ),
+                    # 비밀번호 강도 바
+                    rx.cond(
+                        AuthState.reg_pw != "",
+                        rx.vstack(
+                            rx.hstack(
+                                rx.box(
+                                    width=rx.cond(
+                                        AuthState.pw_strength >= 1, "100%", "0%"
+                                    ),
+                                    height="4px",
+                                    bg=AuthState.pw_strength_color,
+                                    border_radius="2px",
+                                    transition="all 0.3s ease",
+                                    flex="1",
+                                ),
+                                rx.box(
+                                    width=rx.cond(
+                                        AuthState.pw_strength >= 2, "100%", "0%"
+                                    ),
+                                    height="4px",
+                                    bg=rx.cond(
+                                        AuthState.pw_strength >= 2,
+                                        AuthState.pw_strength_color,
+                                        "#e2e8f0",
+                                    ),
+                                    border_radius="2px",
+                                    transition="all 0.3s ease",
+                                    flex="1",
+                                ),
+                                rx.box(
+                                    width=rx.cond(
+                                        AuthState.pw_strength >= 3, "100%", "0%"
+                                    ),
+                                    height="4px",
+                                    bg=rx.cond(
+                                        AuthState.pw_strength >= 3,
+                                        AuthState.pw_strength_color,
+                                        "#e2e8f0",
+                                    ),
+                                    border_radius="2px",
+                                    transition="all 0.3s ease",
+                                    flex="1",
+                                ),
+                                rx.box(
+                                    width=rx.cond(
+                                        AuthState.pw_strength >= 4, "100%", "0%"
+                                    ),
+                                    height="4px",
+                                    bg=rx.cond(
+                                        AuthState.pw_strength >= 4,
+                                        AuthState.pw_strength_color,
+                                        "#e2e8f0",
+                                    ),
+                                    border_radius="2px",
+                                    transition="all 0.3s ease",
+                                    flex="1",
+                                ),
+                                spacing="1", width="100%",
+                            ),
+                            rx.text(
+                                AuthState.pw_strength_label,
+                                size="1",
+                                color=AuthState.pw_strength_color,
+                                font_weight="600",
+                            ),
+                            spacing="1", width="100%",
+                        ),
+                        rx.fragment(),
                     ),
                     rx.text(
                         "8자 이상 · 대문자 · 소문자 · 숫자 · 특수문자(!@#$%^&* 등) 각 1자 이상",
@@ -68,20 +155,40 @@ def register_page() -> rx.Component:
 
                 # 비밀번호 확인
                 rx.vstack(
-                    rx.text("비밀번호 확인 *", size="2", weight="bold"),
-                    rx.input(
-                        placeholder="비밀번호 재입력",
-                        type="password",
-                        value=AuthState.reg_pw2,
-                        on_change=AuthState.set_reg_pw2,
-                        width="100%",
+                    rx.text("비밀번호 확인 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
+                    rx.box(
+                        rx.input(
+                            placeholder="비밀번호 재입력",
+                            type=rx.cond(AuthState.show_reg_pw2, "text", "password"),
+                            value=AuthState.reg_pw2,
+                            on_change=AuthState.set_reg_pw2,
+                            auto_complete="new-password",
+                            name="reg_confirm_pw",
+                            width="100%",
+                        ),
+                        rx.box(
+                            rx.icon(
+                                rx.cond(AuthState.show_reg_pw2, "eye_off", "eye"),
+                                size=16, color="#94a3b8", cursor="pointer",
+                                on_click=AuthState.toggle_reg_pw2,
+                            ),
+                            position="absolute", right="10px", top="50%",
+                            transform="translateY(-50%)",
+                        ),
+                        position="relative", width="100%",
+                    ),
+                    # 비밀번호 불일치 경고
+                    rx.cond(
+                        (AuthState.reg_pw2 != "") & (AuthState.reg_pw != AuthState.reg_pw2),
+                        rx.text("비밀번호가 일치하지 않습니다", size="1", color="#ef4444"),
+                        rx.fragment(),
                     ),
                     spacing="1", width="100%",
                 ),
 
                 # 역할 선택
                 rx.vstack(
-                    rx.text("역할 *", size="2", weight="bold"),
+                    rx.text("역할 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                     rx.radio_group(
                         [item["value"] for item in role_options],
                         value=AuthState.reg_role,
@@ -101,7 +208,7 @@ def register_page() -> rx.Component:
                         rx.cond(
                             AuthState.reg_role == "driver",
                             rx.vstack(
-                                rx.text("소속 업체 *", size="2", weight="bold"),
+                                rx.text("소속 업체 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                                 rx.select(
                                     AuthState.reg_vendor_options,
                                     value=AuthState.reg_vendor,
@@ -123,7 +230,7 @@ def register_page() -> rx.Component:
                         rx.cond(
                             AuthState.reg_role == "vendor_admin",
                             rx.vstack(
-                                rx.text("업체 유형 *", size="2", weight="bold"),
+                                rx.text("업체 유형 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                                 rx.radio_group(
                                     ["기존 업체 소속", "새 업체 등록"],
                                     value=AuthState.reg_vendor_mode,
@@ -134,7 +241,7 @@ def register_page() -> rx.Component:
                                 rx.cond(
                                     AuthState.reg_vendor_mode == "기존 업체 소속",
                                     rx.vstack(
-                                        rx.text("소속 업체 *", size="2", weight="bold"),
+                                        rx.text("소속 업체 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                                         rx.select(
                                             AuthState.reg_vendor_options,
                                             value=AuthState.reg_vendor,
@@ -149,7 +256,7 @@ def register_page() -> rx.Component:
                                 rx.cond(
                                     AuthState.reg_vendor_mode == "새 업체 등록",
                                     rx.vstack(
-                                        rx.text("업체명 *", size="2", weight="bold"),
+                                        rx.text("업체명 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                                         rx.input(
                                             placeholder="새 업체명",
                                             value=AuthState.reg_new_vendor_name,
@@ -208,7 +315,7 @@ def register_page() -> rx.Component:
                     (AuthState.reg_role == "school")
                     | (AuthState.reg_role == "meal_manager"),
                     rx.vstack(
-                        rx.text("소속 업체 *", size="2", weight="bold"),
+                        rx.text("소속 업체 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                         rx.select(
                             AuthState.reg_vendor_options,
                             value=AuthState.reg_vendor_select,
@@ -216,7 +323,7 @@ def register_page() -> rx.Component:
                             placeholder="업체를 선택하세요",
                             width="100%",
                         ),
-                        rx.text("학교명 *", size="2", weight="bold"),
+                        rx.text("학교명 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                         rx.input(
                             placeholder="학교 정식 명칭 (NEIS 등록명)",
                             value=AuthState.reg_school_name_neis,
@@ -254,7 +361,7 @@ def register_page() -> rx.Component:
                 rx.cond(
                     AuthState.reg_role == "edu_office",
                     rx.vstack(
-                        rx.text("교육청 *", size="2", weight="bold"),
+                        rx.text("교육청 ", rx.text("*", color="#ef4444", as_="span"), size="2", weight="bold"),
                         rx.input(
                             placeholder="소속 교육청명",
                             value=AuthState.reg_edu_office,

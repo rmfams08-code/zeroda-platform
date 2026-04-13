@@ -63,9 +63,15 @@ def login_page() -> rx.Component:
                         rx.input(
                             name="user_id",
                             placeholder="아이디를 입력하세요",
+                            auto_complete="username",
                             size="3",
                             width="100%",
                             border_radius="12px",
+                            border=rx.cond(
+                                AuthState.login_error != "",
+                                "1.5px solid #ef4444",
+                                "1px solid #e2e8f0",
+                            ),
                         ),
 
                         rx.text(
@@ -75,13 +81,36 @@ def login_page() -> rx.Component:
                             color="#1e293b",
                             margin_top="8px",
                         ),
-                        rx.input(
-                            name="password",
-                            type="password",
-                            placeholder="비밀번호를 입력하세요",
-                            size="3",
+                        rx.box(
+                            rx.input(
+                                name="password",
+                                type=rx.cond(AuthState.show_login_pw, "text", "password"),
+                                placeholder="비밀번호를 입력하세요",
+                                auto_complete="current-password",
+                                size="3",
+                                width="100%",
+                                border_radius="12px",
+                                border=rx.cond(
+                                    AuthState.login_error != "",
+                                    "1.5px solid #ef4444",
+                                    "1px solid #e2e8f0",
+                                ),
+                            ),
+                            rx.box(
+                                rx.icon(
+                                    rx.cond(AuthState.show_login_pw, "eye_off", "eye"),
+                                    size=18,
+                                    color="#94a3b8",
+                                    cursor="pointer",
+                                    on_click=AuthState.toggle_login_pw,
+                                ),
+                                position="absolute",
+                                right="12px",
+                                top="50%",
+                                transform="translateY(-50%)",
+                            ),
+                            position="relative",
                             width="100%",
-                            border_radius="12px",
                         ),
 
                         # ── 로그인 버튼 ──

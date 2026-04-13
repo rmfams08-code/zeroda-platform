@@ -40,6 +40,7 @@ class AuthState(rx.State):
     # ── 로그인 폼 ──
     login_error: str = ""
     login_loading: bool = False
+    show_login_pw: bool = False         # 비밀번호 표시/숨김 토글
 
     # ── 회원가입 폼 ──
     reg_id: str = ""
@@ -53,6 +54,8 @@ class AuthState(rx.State):
     reg_error: str = ""
     reg_success: str = ""
     reg_loading: bool = False
+    show_reg_pw: bool = False           # 회원가입 비밀번호 표시/숨김
+    show_reg_pw2: bool = False          # 비밀번호 확인 표시/숨김
 
     # ── 회원가입 NEIS 필드 (school/meal_manager 전용) ──
     reg_vendor_select: str = ""         # 소속 업체 드롭다운 선택값
@@ -102,6 +105,65 @@ class AuthState(rx.State):
             self.reg_new_contact = ""
         else:
             self.reg_vendor = ""
+
+    def toggle_login_pw(self):
+        """로그인 비밀번호 표시/숨김 토글"""
+        self.show_login_pw = not self.show_login_pw
+
+    def toggle_reg_pw(self):
+        """회원가입 비밀번호 표시/숨김 토글"""
+        self.show_reg_pw = not self.show_reg_pw
+
+    def toggle_reg_pw2(self):
+        """회원가입 비밀번호 확인 표시/숨김 토글"""
+        self.show_reg_pw2 = not self.show_reg_pw2
+
+    @rx.var
+    def pw_strength(self) -> int:
+        """비밀번호 강도 점수 (0~4)
+        0: 없음, 1: 약함, 2: 보통, 3: 강함, 4: 매우강함
+        """
+        pw = self.reg_pw
+        if not pw:
+            return 0
+        score = 0
+        if len(pw) >= 8:
+            score += 1
+        if any(c.isupper() for c in pw) and any(c.islower() for c in pw):
+            score += 1
+        if any(c.isdigit() for c in pw):
+            score += 1
+        if any(c in "!@#$%^&*()_+-=[]{}|;:',.<>?/`~" for c in pw):
+            score += 1
+        return score
+
+    @rx.var
+    def pw_strength_label(self) -> str:
+        """비밀번호 강도 라벨"""
+        s = self.pw_strength
+        if s == 0:
+            return ""
+        elif s == 1:
+            return "약함"
+        elif s == 2:
+            return "보통"
+        elif s == 3:
+            return "강함"
+        else:
+            return "매우 강함"
+
+    @rx.var
+    def pw_strength_color(self) -> str:
+        """비밀번호 강도 색상"""
+        s = self.pw_strength
+        if s <= 1:
+            return "#ef4444"
+        elif s == 2:
+            return "#f59e0b"
+        elif s == 3:
+            return "#22c55e"
+        else:
+            return "#16a34a"
 
     def set_reg_new_vendor_name(self, v: str): self.reg_new_vendor_name = v
     def set_reg_new_biz_no(self, v: str): self.reg_new_biz_no = v
