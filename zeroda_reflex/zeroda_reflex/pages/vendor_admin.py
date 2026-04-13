@@ -16,6 +16,18 @@ from zeroda_reflex.components.shared import (
     table_header_row as _table_header,
     card_box as _card_box,                     # 차트용 카드 박스
 )
+# ── 색상 상수 (colors.py 중앙 관리) ──
+from zeroda_reflex.utils.colors import (
+    PRIMARY, PRIMARY_ALPHA_08, PRIMARY_ALPHA_10, PRIMARY_ALPHA_12, PRIMARY_ALPHA_30,
+    TEXT_900, TEXT_800, TEXT_700, TEXT_GRAY, TEXT_600, TEXT_500, TEXT_400, TEXT_300, TEXT_GRAY_400,
+    BG_WHITE, BG_50, BG_100, BORDER,
+    SUCCESS, SUCCESS_DARK, SUCCESS_BG,
+    ERROR, ERROR_DARK, ERROR_BG, ERROR_ALPHA_08, ERROR_ALPHA_10, ERROR_ALPHA_30,
+    BLUE, BLUE_ALPHA_10, BLUE_BG, BLUE_BORDER,
+    AMBER, AMBER_ALPHA_10, AMBER_BG, AMBER_BG_LIGHT, AMBER_DARK, AMBER_DARKER,
+    PURPLE, PURPLE_ALPHA_10,
+    SHADOW_SM, SHADOW_MD,
+)
 
 # ── 연/월/일 선택 옵션 (Phase 0-B: 동적 생성으로 교체) ──
 YEAR_OPTIONS = get_year_options()
@@ -96,7 +108,7 @@ def _header() -> rx.Component:
             rx.text(
                 VendorState.user_name,
                 font_size="13px",
-                color="#475569",
+                color=TEXT_600,
                 font_weight="600",
                 display=["none", "inline", "inline"],
             ),
@@ -105,23 +117,23 @@ def _header() -> rx.Component:
                 rx.text("로그아웃", font_size="13px", display=["none", "none", "inline"]),
                 on_click=VendorState.logout,
                 variant="ghost",
-                color="#94a3b8",
+                color=TEXT_400,
                 size="2",
                 cursor="pointer",
-                _hover={"color": "#64748b"},
+                _hover={"color": TEXT_500},
             ),
             spacing="3",
             align="center",
             width="100%",
         ),
         bg="white",
-        border_bottom="1px solid #e2e8f0",
+        border_bottom=f"1px solid {BORDER}",
         padding_x=["16px", "20px", "24px"],
         padding_y="13px",
         position="sticky",
         top="0",
         z_index="100",
-        box_shadow="0 1px 4px rgba(0,0,0,0.05)",
+        box_shadow=f"0 1px 4px {SHADOW_MD}",
     )
 
 
@@ -146,11 +158,11 @@ def _sidebar_item(label: str, icon: str) -> rx.Component:
         padding_x="14px",
         padding_y="10px",
         border_radius="10px",
-        bg=rx.cond(is_active, "rgba(56,189,148,0.12)", "transparent"),
-        color=rx.cond(is_active, "#38bd94", "#64748b"),
+        bg=rx.cond(is_active, PRIMARY_ALPHA_12, "transparent"),
+        color=rx.cond(is_active, PRIMARY, TEXT_500),
         font_weight=rx.cond(is_active, "700", "500"),
         cursor="pointer",
-        _hover={"bg": "rgba(56,189,148,0.08)", "color": "#38bd94"},
+        _hover={"bg": PRIMARY_ALPHA_08, "color": PRIMARY},
     )
 
 
@@ -161,12 +173,12 @@ def _sidebar() -> rx.Component:
                 "업체관리자",
                 font_size="10px",
                 font_weight="700",
-                color="#94a3b8",
+                color=TEXT_400,
                 letter_spacing="1.5px",
                 padding_x="14px",
                 padding_top="4px",
             ),
-            rx.box(height="1px", bg="#e2e8f0", width="100%", margin_y="6px"),
+            rx.box(height="1px", bg=BORDER, width="100%", margin_y="6px"),
             *[_sidebar_item(label, icon) for label, icon in TABS],
             spacing="1",
             width="100%",
@@ -175,7 +187,7 @@ def _sidebar() -> rx.Component:
         width="220px",
         min_width="220px",
         bg="white",
-        border_right="1px solid #e2e8f0",
+        border_right=f"1px solid {BORDER}",
         padding="12px",
         min_height="calc(100vh - 62px)",
         display=["none", "none", "block"],
@@ -201,9 +213,9 @@ def _mobile_nav_item(label: str, icon: str) -> rx.Component:
         flex="1",
         padding_y="8px",
         padding_x="2px",
-        color=rx.cond(is_active, "#38bd94", "#94a3b8"),
+        color=rx.cond(is_active, PRIMARY, TEXT_400),
         font_weight=rx.cond(is_active, "700", "400"),
-        _hover={"color": "#38bd94"},
+        _hover={"color": PRIMARY},
         cursor="pointer",
         border_radius="0",
         min_width="0",
@@ -223,9 +235,9 @@ def _mobile_nav() -> rx.Component:
         left="0",
         right="0",
         bg="white",
-        border_top="1px solid #e2e8f0",
+        border_top=f"1px solid {BORDER}",
         z_index="100",
-        box_shadow="0 -2px 8px rgba(0,0,0,0.05)",
+        box_shadow=f"0 -2px 8px {SHADOW_MD}",
     )
 
 
@@ -239,23 +251,23 @@ def _mobile_nav() -> rx.Component:
 def _school_summary_row(row: dict) -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.text(row["school_name"], font_size="13px", color="#1e293b",
+            rx.text(row["school_name"], font_size="13px", color=TEXT_800,
                     font_weight="500", flex="2", min_width="0",
                     overflow="hidden", text_overflow="ellipsis", white_space="nowrap"),
             rx.hstack(
-                rx.text(row["total_weight"], font_size="13px", font_weight="700", color="#0f172a"),
-                rx.text("kg", font_size="11px", color="#94a3b8"),
+                rx.text(row["total_weight"], font_size="13px", font_weight="700", color=TEXT_900),
+                rx.text("kg", font_size="11px", color=TEXT_400),
                 spacing="1", align="center", justify="end", flex="1",
             ),
             rx.hstack(
-                rx.text(row["collect_count"], font_size="13px", font_weight="700", color="#0f172a"),
-                rx.text("건", font_size="11px", color="#94a3b8"),
+                rx.text(row["collect_count"], font_size="13px", font_weight="700", color=TEXT_900),
+                rx.text("건", font_size="11px", color=TEXT_400),
                 spacing="1", align="center", justify="end", flex="1",
             ),
             width="100%", padding_x="16px", padding_y="11px", align="center",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -263,19 +275,19 @@ def _school_card(school: dict) -> rx.Component:
     return rx.box(
         rx.vstack(
             rx.box(
-                rx.icon("building_2", size=20, color="#38bd94"),
-                width="36px", height="36px", bg="rgba(56,189,148,0.10)",
+                rx.icon("building_2", size=20, color=PRIMARY),
+                width="36px", height="36px", bg=PRIMARY_ALPHA_10,
                 border_radius="10px", display="flex",
                 align_items="center", justify_content="center",
             ),
             rx.text(school["name"], font_size="12px", font_weight="600",
-                    color="#1e293b", text_align="center", width="100%"),
+                    color=TEXT_800, text_align="center", width="100%"),
             spacing="2", align="center", width="100%",
         ),
         bg="white", border_radius="12px", padding="14px 10px",
-        border="1px solid #e2e8f0", box_shadow="0 1px 3px rgba(0,0,0,0.04)",
+        border=f"1px solid {BORDER}", box_shadow=f"0 1px 3px {SHADOW_SM}",
         text_align="center", flex="1 1 130px", min_width="130px", max_width="180px",
-        _hover={"border_color": "#38bd94", "box_shadow": "0 2px 8px rgba(56,189,148,0.12)"},
+        _hover={"border_color": PRIMARY, "box_shadow": f"0 2px 8px {PRIMARY_ALPHA_12}"},
         transition="all 0.15s ease",
     )
 
@@ -285,10 +297,10 @@ def _collection_tab() -> rx.Component:
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.button(
                 rx.icon("refresh_cw", size=14),
                 rx.text("새로고침", font_size="13px", display=["none", "inline", "inline"]),
@@ -306,10 +318,10 @@ def _collection_tab() -> rx.Component:
             spacing="2", align="center",
         ),
         rx.flex(
-            _kpi_card("총 수거량",   VendorState.total_weight,        "kg",  "weight",      "#38bd94", "rgba(56,189,148,0.12)"),
-            _kpi_card("수거 건수",   VendorState.total_count,         "건",  "truck",       "#3b82f6", "rgba(59,130,246,0.10)"),
-            _kpi_card("담당 학교",   VendorState.vendor_school_count, "개교","school",      "#f59e0b", "rgba(245,158,11,0.10)"),
-            _kpi_card("학교당 평균", VendorState.avg_weight_per_school,"kg", "bar_chart_2", "#8b5cf6", "rgba(139,92,246,0.10)"),
+            _kpi_card("총 수거량",   VendorState.total_weight,        "kg",  "weight",      PRIMARY, PRIMARY_ALPHA_12),
+            _kpi_card("수거 건수",   VendorState.total_count,         "건",  "truck",       BLUE, BLUE_ALPHA_10),
+            _kpi_card("담당 학교",   VendorState.vendor_school_count, "개교","school",      AMBER, AMBER_ALPHA_10),
+            _kpi_card("학교당 평균", VendorState.avg_weight_per_school,"kg", "bar_chart_2", PURPLE, PURPLE_ALPHA_10),
             gap="12px", flex_wrap="wrap", width="100%",
         ),
         _table_box(
@@ -330,7 +342,7 @@ def _collection_tab() -> rx.Component:
                     rx.recharts.bar_chart(
                         rx.recharts.bar(
                             data_key="weight_num",
-                            fill="#38bd94",
+                            fill=PRIMARY,
                             name="수거량(kg)",
                         ),
                         rx.recharts.x_axis(data_key="school_name", font_size=10, angle=-30),
@@ -350,7 +362,7 @@ def _collection_tab() -> rx.Component:
             VendorState.has_schools,
             rx.flex(rx.foreach(VendorState.vendor_schools, _school_card),
                     gap="12px", flex_wrap="wrap", width="100%"),
-            rx.center(rx.text("담당 학교가 없습니다.", font_size="13px", color="#94a3b8"),
+            rx.center(rx.text("담당 학교가 없습니다.", font_size="13px", color=TEXT_400),
                       padding_y="24px", width="100%"),
         ),
         spacing="4", width="100%", align="start",
@@ -364,19 +376,19 @@ def _collection_tab() -> rx.Component:
 def _col_record_row(row: dict) -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.text(row["collect_date"], font_size="12px", color="#64748b",
+            rx.text(row["collect_date"], font_size="12px", color=TEXT_500,
                     flex="1", min_width="80px"),
-            rx.text(row["school_name"], font_size="13px", color="#1e293b",
+            rx.text(row["school_name"], font_size="13px", color=TEXT_800,
                     font_weight="500", flex="2", min_width="0",
                     overflow="hidden", text_overflow="ellipsis", white_space="nowrap"),
             rx.badge(row["item_type"], size="1", color_scheme="green",
                      variant="soft", flex_shrink="0"),
             rx.hstack(
-                rx.text(row["weight"], font_size="13px", font_weight="700", color="#0f172a"),
-                rx.text("kg", font_size="11px", color="#94a3b8"),
+                rx.text(row["weight"], font_size="13px", font_weight="700", color=TEXT_900),
+                rx.text("kg", font_size="11px", color=TEXT_400),
                 spacing="1", align="center", flex_shrink="0",
             ),
-            rx.text(row["driver"], font_size="12px", color="#94a3b8",
+            rx.text(row["driver"], font_size="12px", color=TEXT_400,
                     flex_shrink="0", display=["none", "inline", "inline"]),
             rx.hstack(
                 rx.button(
@@ -397,7 +409,7 @@ def _col_record_row(row: dict) -> rx.Component:
             align="center", gap="12px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -408,16 +420,16 @@ def _col_edit_form() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("pencil", size=14, color="#3b82f6"),
+                    rx.icon("pencil", size=14, color=BLUE),
                     rx.text("수거 데이터 수정", font_size="13px",
-                            font_weight="700", color="#1e293b"),
+                            font_weight="700", color=TEXT_800),
                     rx.text(f"ID: {VendorState.edit_col_id}",
-                            font_size="11px", color="#94a3b8"),
+                            font_size="11px", color=TEXT_400),
                     spacing="2", align="center",
                 ),
                 rx.hstack(
                     rx.vstack(
-                        rx.text("수거량(kg)", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("수거량(kg)", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.input(
                             value=VendorState.edit_col_weight,
                             on_change=VendorState.set_edit_col_weight,
@@ -426,7 +438,7 @@ def _col_edit_form() -> rx.Component:
                         spacing="1",
                     ),
                     rx.vstack(
-                        rx.text("메모", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("메모", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.input(
                             value=VendorState.edit_col_memo,
                             on_change=VendorState.set_edit_col_memo,
@@ -454,14 +466,14 @@ def _col_edit_form() -> rx.Component:
                         font_size="12px",
                         color=rx.cond(
                             VendorState.edit_col_msg.contains("✅"),
-                            "#22c55e", "#ef4444",
+                            SUCCESS, ERROR,
                         ),
                     ),
                 ),
                 spacing="2", align="start",
             ),
             padding="12px 16px",
-            bg="#eff6ff",
+            bg=BLUE_BG,
             border="1px solid #bfdbfe",
             border_radius="8px",
             width="100%",
@@ -501,10 +513,10 @@ def _col_history_panel() -> rx.Component:
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.select(
                 VendorState.col_school_names,
                 value=VendorState.col_school_filter,
@@ -525,7 +537,7 @@ def _col_history_panel() -> rx.Component:
                 on_change=VendorState.set_col_day_filter,
                 size="2", width="80px",
             ),
-            rx.text("일", font_size="13px", color="#64748b"),
+            rx.text("일", font_size="13px", color=TEXT_500),
             rx.input(
                 placeholder="검색 (학교/기사/품목/상태)",
                 value=VendorState.col_keyword,
@@ -541,23 +553,23 @@ def _col_history_panel() -> rx.Component:
         ),
         rx.hstack(
             rx.badge(VendorState.total_count, color_scheme="blue", size="2", variant="soft"),
-            rx.text("건 조회됨", font_size="13px", color="#64748b"),
+            rx.text("건 조회됨", font_size="13px", color=TEXT_500),
             spacing="2", align="center",
         ),
         _col_edit_form(),
         _table_box(
             rx.box(
                 rx.hstack(
-                    rx.text("수거일", font_size="12px", font_weight="700", color="#64748b", flex="1"),
-                    rx.text("학교명", font_size="12px", font_weight="700", color="#64748b", flex="2"),
-                    rx.text("품목",   font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="60px"),
-                    rx.text("수거량", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
-                    rx.text("기사",   font_size="12px", font_weight="700", color="#64748b",
+                    rx.text("수거일", font_size="12px", font_weight="700", color=TEXT_500, flex="1"),
+                    rx.text("학교명", font_size="12px", font_weight="700", color=TEXT_500, flex="2"),
+                    rx.text("품목",   font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0", width="60px"),
+                    rx.text("수거량", font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
+                    rx.text("기사",   font_size="12px", font_weight="700", color=TEXT_500,
                             flex_shrink="0", display=["none", "inline", "inline"]),
-                    rx.text("편집",   font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
+                    rx.text("편집",   font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
                     width="100%", padding_x="16px", padding_y="10px", gap="12px",
                 ),
-                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                 border_radius="12px 12px 0 0",
             ),
             rx.cond(
@@ -574,7 +586,7 @@ def _col_history_panel() -> rx.Component:
                 font_size="12px",
                 color=rx.cond(
                     VendorState.edit_col_msg.contains("✅"),
-                    "#22c55e", "#ef4444",
+                    SUCCESS, ERROR,
                 ),
             ),
         ),
@@ -588,12 +600,12 @@ def _col_input_panel() -> rx.Component:
     return rx.box(
         rx.vstack(
             _section_header("circle_plus", "수거 데이터 입력"),
-            rx.box(height="1px", bg="#e2e8f0", width="100%"),
+            rx.box(height="1px", bg=BORDER, width="100%"),
             rx.vstack(
                 # 거래처 + 수거일
                 rx.hstack(
                     rx.vstack(
-                        rx.text("거래처 *", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("거래처 *", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.input(
                             placeholder="거래처 검색...",
                             value=VendorState.form_school_search,
@@ -612,7 +624,7 @@ def _col_input_panel() -> rx.Component:
                         spacing="1", align="start", flex="1",
                     ),
                     rx.vstack(
-                        rx.text("수거일 *", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("수거일 *", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.input(
                             placeholder="YYYY-MM-DD",
                             value=VendorState.form_date,
@@ -627,7 +639,7 @@ def _col_input_panel() -> rx.Component:
                 # 품목 + 수거량
                 rx.hstack(
                     rx.vstack(
-                        rx.text("품목 *", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("품목 *", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.select(
                             ITEM_TYPE_OPTIONS,
                             value=VendorState.form_item_type,
@@ -638,7 +650,7 @@ def _col_input_panel() -> rx.Component:
                         spacing="1", align="start", flex="1",
                     ),
                     rx.vstack(
-                        rx.text("수거량 (kg) *", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("수거량 (kg) *", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.input(
                             placeholder="0.0",
                             value=VendorState.form_weight,
@@ -654,7 +666,7 @@ def _col_input_panel() -> rx.Component:
                 # 기사 + 메모
                 rx.hstack(
                     rx.vstack(
-                        rx.text("기사명", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("기사명", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.select(
                             VendorState.sched_driver_options,
                             value=VendorState.form_driver,
@@ -666,7 +678,7 @@ def _col_input_panel() -> rx.Component:
                         spacing="1", align="start", flex="1",
                     ),
                     rx.vstack(
-                        rx.text("메모", font_size="12px", color="#64748b", font_weight="600"),
+                        rx.text("메모", font_size="12px", color=TEXT_500, font_weight="600"),
                         rx.input(
                             placeholder="메모 (선택)",
                             value=VendorState.form_memo,
@@ -698,18 +710,18 @@ def _col_input_panel() -> rx.Component:
                             rx.icon(
                                 rx.cond(VendorState.form_save_ok, "circle_check", "circle_alert"),
                                 size=15,
-                                color=rx.cond(VendorState.form_save_ok, "#38bd94", "#ef4444"),
+                                color=rx.cond(VendorState.form_save_ok, PRIMARY, ERROR),
                             ),
                             rx.text(
                                 VendorState.form_save_msg,
                                 font_size="13px",
-                                color=rx.cond(VendorState.form_save_ok, "#38bd94", "#ef4444"),
+                                color=rx.cond(VendorState.form_save_ok, PRIMARY, ERROR),
                                 font_weight="500",
                             ),
                             spacing="2", align="center",
                         ),
                         bg=rx.cond(VendorState.form_save_ok,
-                                   "rgba(56,189,148,0.08)", "rgba(239,68,68,0.08)"),
+                                   PRIMARY_ALPHA_08, ERROR_ALPHA_08),
                         border=rx.cond(VendorState.form_save_ok,
                                        "1px solid rgba(56,189,148,0.3)",
                                        "1px solid rgba(239,68,68,0.3)"),
@@ -724,7 +736,7 @@ def _col_input_panel() -> rx.Component:
             spacing="4", align="start", width="100%",
         ),
         bg="white", border_radius="12px", padding="20px",
-        border="1px solid #e2e8f0",
+        border=f"1px solid {BORDER}",
         box_shadow="0 1px 4px rgba(0,0,0,0.04)",
         width="100%", max_width="600px",
     )
@@ -747,13 +759,13 @@ def _proc_confirm_row(row: dict) -> rx.Component:
         rx.hstack(
             rx.vstack(
                 rx.hstack(
-                    rx.text(row["confirm_date"], font_size="12px", color="#64748b"),
-                    rx.text(row["confirm_time"], font_size="11px", color="#94a3b8"),
+                    rx.text(row["confirm_date"], font_size="12px", color=TEXT_500),
+                    rx.text(row["confirm_time"], font_size="11px", color=TEXT_400),
                     spacing="2", align="center",
                 ),
                 rx.hstack(
-                    rx.icon("user", size=11, color="#94a3b8"),
-                    rx.text(row["driver"], font_size="12px", color="#475569"),
+                    rx.icon("user", size=11, color=TEXT_400),
+                    rx.text(row["driver"], font_size="12px", color=TEXT_600),
                     spacing="1", align="center",
                 ),
                 spacing="1", align="start",
@@ -761,8 +773,8 @@ def _proc_confirm_row(row: dict) -> rx.Component:
             rx.spacer(),
             rx.hstack(
                 rx.text(row["total_weight"], font_size="14px",
-                        font_weight="700", color="#0f172a"),
-                rx.text("kg", font_size="11px", color="#94a3b8"),
+                        font_weight="700", color=TEXT_900),
+                rx.text("kg", font_size="11px", color=TEXT_400),
                 spacing="1", align="center",
             ),
             rx.badge(
@@ -797,7 +809,7 @@ def _proc_confirm_row(row: dict) -> rx.Component:
             align="center", gap="12px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -806,11 +818,11 @@ def _col_confirm_panel() -> rx.Component:
         # ── 오늘 수거 vs 처리 비교 KPI (섹션3) ──
         rx.flex(
             _kpi_card("오늘 수거량", VendorState.proc_today_coll_weight,
-                      "kg", "truck", "#38bd94", "rgba(56,189,148,0.12)"),
+                      "kg", "truck", PRIMARY, PRIMARY_ALPHA_12),
             _kpi_card("오늘 처리량", VendorState.proc_today_proc_weight,
-                      "kg", "circle_check", "#3b82f6", "rgba(59,130,246,0.10)"),
+                      "kg", "circle_check", BLUE, BLUE_ALPHA_10),
             _kpi_card("차이",        VendorState.proc_today_diff,
-                      "kg", "arrow_right_left", "#f59e0b", "rgba(245,158,11,0.10)"),
+                      "kg", "arrow_right_left", AMBER, AMBER_ALPHA_10),
             gap="12px", flex_wrap="wrap", width="100%",
         ),
         rx.hstack(
@@ -833,16 +845,16 @@ def _col_confirm_panel() -> rx.Component:
             rx.box(
                 rx.hstack(
                     rx.text("처리일시 / 기사", font_size="12px", font_weight="700",
-                            color="#64748b", flex="1"),
+                            color=TEXT_500, flex="1"),
                     rx.text("처리량",          font_size="12px", font_weight="700",
-                            color="#64748b", flex_shrink="0"),
+                            color=TEXT_500, flex_shrink="0"),
                     rx.text("상태",            font_size="12px", font_weight="700",
-                            color="#64748b", flex_shrink="0"),
+                            color=TEXT_500, flex_shrink="0"),
                     rx.text("처리",            font_size="12px", font_weight="700",
-                            color="#64748b", flex_shrink="0"),
+                            color=TEXT_500, flex_shrink="0"),
                     width="100%", padding_x="16px", padding_y="10px", gap="12px",
                 ),
-                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                 border_radius="12px 12px 0 0",
             ),
             rx.cond(
@@ -867,7 +879,7 @@ def _collection_data_tab() -> rx.Component:
             *[_col_subtab_btn(label) for label in COL_SUBTABS],
             spacing="2",
         ),
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
         # 서브탭 콘텐츠
         rx.cond(
             VendorState.col_active_subtab == "수거내역",
@@ -915,22 +927,22 @@ def _cust_type_filter_btn(t: str) -> rx.Component:
 def _cust_list_row(cust: dict) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
-            rx.text(cust["name"], font_size="13px", font_weight="600", color="#1e293b"),
+            rx.text(cust["name"], font_size="13px", font_weight="600", color=TEXT_800),
         ),
         rx.table.cell(
             rx.badge(cust["cust_type"], size="1", color_scheme="blue", variant="soft"),
         ),
         rx.table.cell(
-            rx.text(cust["ceo"], font_size="13px", color="#475569"),
+            rx.text(cust["ceo"], font_size="13px", color=TEXT_600),
         ),
         rx.table.cell(
-            rx.text(cust["phone"], font_size="13px", color="#475569"),
+            rx.text(cust["phone"], font_size="13px", color=TEXT_600),
         ),
         rx.table.cell(
             rx.hstack(
-                rx.text("음식", font_size="11px", color="#94a3b8"),
-                rx.text(cust["price_food"], font_size="12px", font_weight="600", color="#1e293b"),
-                rx.text("원", font_size="11px", color="#94a3b8"),
+                rx.text("음식", font_size="11px", color=TEXT_400),
+                rx.text(cust["price_food"], font_size="12px", font_weight="600", color=TEXT_800),
+                rx.text("원", font_size="11px", color=TEXT_400),
                 spacing="1", align="center",
             ),
         ),
@@ -950,7 +962,7 @@ def _cust_list_row(cust: dict) -> rx.Component:
                 spacing="2",
             ),
         ),
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -1004,7 +1016,7 @@ def _cust_list_panel() -> rx.Component:
 
 
 def _cust_form_panel() -> rx.Component:
-    field_label_style = {"font_size": "12px", "color": "#64748b", "font_weight": "600", "min_width": "90px"}
+    field_label_style = {"font_size": "12px", "color": TEXT_500, "font_weight": "600", "min_width": "90px"}
     return rx.vstack(
         rx.hstack(
             rx.badge(
@@ -1023,7 +1035,7 @@ def _cust_form_panel() -> rx.Component:
             ),
             align="center", width="100%",
         ),
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
 
         # ── 거래처명 ──
         rx.hstack(
@@ -1148,7 +1160,7 @@ def _cust_form_panel() -> rx.Component:
             align="center", width="100%", spacing="3",
         ),
 
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
 
         # ── 단가 (음식물 / 재활용 / 일반) ──
         rx.hstack(
@@ -1230,7 +1242,7 @@ def _cust_form_panel() -> rx.Component:
             rx.box(),
         ),
 
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
 
         # ── 저장 메시지 ──
         rx.cond(
@@ -1258,7 +1270,7 @@ def _cust_form_panel() -> rx.Component:
 
         spacing="3", width="100%", align="start",
         bg="white", border_radius="12px", padding="20px",
-        border="1px solid #e2e8f0",
+        border=f"1px solid {BORDER}",
     )
 
 
@@ -1268,11 +1280,11 @@ def _cust_alias_panel() -> rx.Component:
         rx.text(
             "음성 인식 시 오인식되는 거래처 별칭을 등록하면 자동으로 매칭됩니다.",
             font_size="12px",
-            color="#64748b",
+            color=TEXT_500,
         ),
         # ── 거래처 선택 ──
         rx.hstack(
-            rx.text("거래처 선택", font_size="13px", font_weight="600", color="#374151"),
+            rx.text("거래처 선택", font_size="13px", font_weight="600", color=TEXT_GRAY),
             rx.select(
                 VendorState.customer_names,
                 value=VendorState.alias_customer_sel,
@@ -1293,7 +1305,7 @@ def _cust_alias_panel() -> rx.Component:
                     "현재 별칭 목록",
                     font_size="13px",
                     font_weight="600",
-                    color="#374151",
+                    color=TEXT_GRAY,
                 ),
                 rx.cond(
                     VendorState.alias_list.length() > 0,
@@ -1316,7 +1328,7 @@ def _cust_alias_panel() -> rx.Component:
                     rx.text(
                         "등록된 별칭이 없습니다.",
                         font_size="12px",
-                        color="#9ca3af",
+                        color=TEXT_GRAY_400,
                     ),
                 ),
                 # ── 별칭 추가 입력 ──
@@ -1345,11 +1357,11 @@ def _cust_alias_panel() -> rx.Component:
                         font_size="12px",
                         color=rx.cond(
                             VendorState.alias_msg.contains("✅"),
-                            "#16a34a",
+                            SUCCESS_DARK,
                             rx.cond(
                                 VendorState.alias_msg.contains("🗑️"),
-                                "#64748b",
-                                "#dc2626",
+                                TEXT_500,
+                                ERROR_DARK,
                             ),
                         ),
                     ),
@@ -1373,7 +1385,7 @@ def _cust_edit_panel() -> rx.Component:
     """P2-9: 거래처 수정 탭 — 검색 후 선택 → 폼 편집"""
     return rx.vstack(
         rx.vstack(
-            rx.text("거래처 검색", font_size="13px", font_weight="600", color="#334155"),
+            rx.text("거래처 검색", font_size="13px", font_weight="600", color=TEXT_700),
             rx.input(
                 placeholder="거래처명 검색...",
                 value=VendorState.cust_search_name,
@@ -1390,14 +1402,14 @@ def _cust_edit_panel() -> rx.Component:
             ),
             spacing="2", width="100%",
             bg="white", border_radius="10px", padding="14px",
-            border="1px solid #e2e8f0",
+            border=f"1px solid {BORDER}",
         ),
         rx.cond(
             VendorState.edit_mode,
             _cust_form_panel(),
             rx.text(
                 "거래처를 검색하여 선택하면 수정 폼이 표시됩니다.",
-                font_size="13px", color="#94a3b8", padding="12px 0",
+                font_size="13px", color=TEXT_400, padding="12px 0",
             ),
         ),
         spacing="4", width="100%", align="start",
@@ -1488,9 +1500,9 @@ def _sched_card(sched: dict) -> rx.Component:
         rx.hstack(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("calendar", size=13, color="#38bd94"),
+                    rx.icon("calendar", size=13, color=PRIMARY),
                     rx.text(sched["month_key"], font_size="13px",
-                            font_weight="600", color="#1e293b"),
+                            font_weight="600", color=TEXT_800),
                     rx.cond(
                         sched["is_done"] == "true",
                         rx.badge("✅ 완료", size="1", color_scheme="green", variant="soft"),
@@ -1501,8 +1513,8 @@ def _sched_card(sched: dict) -> rx.Component:
                 rx.cond(
                     sched["weekdays"] != "",
                     rx.hstack(
-                        rx.icon("clock", size=11, color="#94a3b8"),
-                        rx.text(sched["weekdays"], font_size="11px", color="#64748b"),
+                        rx.icon("clock", size=11, color=TEXT_400),
+                        rx.text(sched["weekdays"], font_size="11px", color=TEXT_500),
                         spacing="1", align="center",
                     ),
                     rx.box(height="0"),
@@ -1520,8 +1532,8 @@ def _sched_card(sched: dict) -> rx.Component:
                 rx.cond(
                     sched["driver"] != "",
                     rx.hstack(
-                        rx.icon("user", size=11, color="#94a3b8"),
-                        rx.text(sched["driver"], font_size="11px", color="#64748b"),
+                        rx.icon("user", size=11, color=TEXT_400),
+                        rx.text(sched["driver"], font_size="11px", color=TEXT_500),
                         spacing="1", align="center",
                     ),
                     rx.box(height="0"),
@@ -1530,7 +1542,7 @@ def _sched_card(sched: dict) -> rx.Component:
                     sched["schools"] != "",
                     rx.text(
                         sched["schools"],
-                        font_size="11px", color="#64748b",
+                        font_size="11px", color=TEXT_500,
                         max_width="200px", overflow="hidden",
                         text_overflow="ellipsis", white_space="nowrap",
                     ),
@@ -1544,14 +1556,14 @@ def _sched_card(sched: dict) -> rx.Component:
                         size="1", variant="soft", color_scheme="red", cursor="pointer",
                         disabled=~AuthState.is_user_active,
                     ),
-                    rx.text("본사 등록", font_size="10px", color="#94a3b8"),
+                    rx.text("본사 등록", font_size="10px", color=TEXT_400),
                 ),
                 spacing="2", align="end",
             ),
             width="100%", padding_x="16px", padding_y="12px", align="center",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -1561,7 +1573,7 @@ def _neis_meal_badge(d: str) -> rx.Component:
 
 def _sched_neis_panel() -> rx.Component:
     """수거일정 - NEIS 연동 서브탭"""
-    label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    label_st = {"font_size": "12px", "font_weight": "600", "color": TEXT_600}
     return rx.vstack(
         _section_header("link", "NEIS 급식일정 연동"),
         # ── 학사일정 동기화 ──
@@ -1577,7 +1589,7 @@ def _sched_neis_panel() -> rx.Component:
             ),
             rx.cond(
                 VendorState.sched_sync_msg != "",
-                rx.text(VendorState.sched_sync_msg, font_size="12px", color="#64748b"),
+                rx.text(VendorState.sched_sync_msg, font_size="12px", color=TEXT_500),
                 rx.fragment(),
             ),
             spacing="3", align="center",
@@ -1613,11 +1625,11 @@ def _sched_neis_panel() -> rx.Component:
         ),
         rx.text(
             f"NEIS 코드 등록 학교: {VendorState.neis_school_count}개",
-            font_size="11px", color="#94a3b8",
+            font_size="11px", color=TEXT_400,
         ),
         rx.cond(
             VendorState.neis_msg != "",
-            rx.text(VendorState.neis_msg, font_size="12px", color="#64748b"),
+            rx.text(VendorState.neis_msg, font_size="12px", color=TEXT_500),
         ),
 
         # 조회 결과
@@ -1683,7 +1695,7 @@ def _meal_apv_school_card(grp: dict) -> rx.Component:
     return rx.box(
         rx.vstack(
             rx.hstack(
-                rx.icon("school", size=16, color="#3b82f6"),
+                rx.icon("school", size=16, color=BLUE),
                 rx.text(grp["school"], font_size="13px", font_weight="700"),
                 rx.badge(
                     f"{grp['count']}건 대기",
@@ -1708,14 +1720,14 @@ def _meal_apv_school_card(grp: dict) -> rx.Component:
             ),
             spacing="2", align="start",
         ),
-        padding="10px", border="1px solid #e2e8f0", border_radius="8px",
-        bg="#ffffff", width="100%",
+        padding="10px", border=f"1px solid {BORDER}", border_radius="8px",
+        bg=BG_WHITE, width="100%",
     )
 
 
 def _sched_meal_approval_panel() -> rx.Component:
     """수거일정 - 급식일정 승인 서브탭"""
-    label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    label_st = {"font_size": "12px", "font_weight": "600", "color": TEXT_600}
     return rx.vstack(
         _section_header("clipboard_check", "급식일정 승인"),
         rx.hstack(
@@ -1769,7 +1781,7 @@ def _sched_meal_approval_panel() -> rx.Component:
         ),
         rx.cond(
             VendorState.meal_apv_msg != "",
-            rx.text(VendorState.meal_apv_msg, font_size="12px", color="#64748b"),
+            rx.text(VendorState.meal_apv_msg, font_size="12px", color=TEXT_500),
         ),
         rx.cond(
             VendorState.meal_pending_count > 0,
@@ -1807,14 +1819,14 @@ def _sched_view_panel() -> rx.Component:
             rx.box(
                 rx.hstack(
                     rx.text("일정(월/일)", font_size="12px", font_weight="700",
-                            color="#64748b", flex="1"),
+                            color=TEXT_500, flex="1"),
                     rx.text("요일 / 품목", font_size="12px", font_weight="700",
-                            color="#64748b"),
+                            color=TEXT_500),
                     rx.text("기사 / 거래처", font_size="12px", font_weight="700",
-                            color="#64748b", text_align="right", flex="1"),
+                            color=TEXT_500, text_align="right", flex="1"),
                     width="100%", padding_x="16px", padding_y="10px",
                 ),
-                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                 border_radius="12px 12px 0 0",
             ),
             rx.cond(
@@ -1871,7 +1883,7 @@ def _sched_item_btn_form(item: str) -> rx.Component:
 
 
 def _sched_form_panel() -> rx.Component:
-    label_style = {"font_size": "12px", "color": "#64748b", "font_weight": "600"}
+    label_style = {"font_size": "12px", "color": TEXT_500, "font_weight": "600"}
     return rx.vstack(
         # ── 등록 모드 선택 ──
         rx.hstack(
@@ -1903,7 +1915,7 @@ def _sched_form_panel() -> rx.Component:
             spacing="2", align="center", width="100%",
         ),
 
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
 
         # ── 월/일 선택 ──
         rx.cond(
@@ -1925,14 +1937,14 @@ def _sched_form_panel() -> rx.Component:
                     on_change=VendorState.set_sched_form_year,
                     size="2", width="95px",
                 ),
-                rx.text("년", font_size="13px", color="#64748b"),
+                rx.text("년", font_size="13px", color=TEXT_500),
                 rx.select(
                     MONTH_OPTIONS,
                     value=VendorState.sched_form_month,
                     on_change=VendorState.set_sched_form_month,
                     size="2", width="72px",
                 ),
-                rx.text("월", font_size="13px", color="#64748b"),
+                rx.text("월", font_size="13px", color=TEXT_500),
                 spacing="2", align="center",
             ),
         ),
@@ -1960,7 +1972,7 @@ def _sched_form_panel() -> rx.Component:
                     gap="6px", flex_wrap="wrap",
                 ),
                 max_height="150px", overflow_y="auto",
-                border="1px solid #e2e8f0", border_radius="8px",
+                border=f"1px solid {BORDER}", border_radius="8px",
                 padding="8px", width="100%",
             ),
             spacing="2", align="start", width="100%",
@@ -1988,7 +2000,7 @@ def _sched_form_panel() -> rx.Component:
             align="center", spacing="3", width="100%",
         ),
 
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
 
         # ── 저장 메시지 ──
         rx.cond(
@@ -2012,7 +2024,7 @@ def _sched_form_panel() -> rx.Component:
 
         spacing="3", width="100%", align="start",
         bg="white", border_radius="12px", padding="20px",
-        border="1px solid #e2e8f0",
+        border=f"1px solid {BORDER}",
     )
 
 
@@ -2047,26 +2059,26 @@ def _schedule_tab() -> rx.Component:
 def _monthly_settle_detail_row(row: dict) -> rx.Component:
     """월말정산 상세 — 거래처별 행 (섹션6)"""
     return rx.table.row(
-        rx.table.cell(rx.text(row["name"], font_size="12px", font_weight="600", color="#1e293b")),
+        rx.table.cell(rx.text(row["name"], font_size="12px", font_weight="600", color=TEXT_800)),
         rx.table.cell(rx.badge(row["cust_type"], size="1", color_scheme="blue", variant="soft")),
         rx.table.cell(rx.badge(row["tax_label"], size="1", color_scheme="gray", variant="outline")),
         rx.table.cell(
-            rx.hstack(rx.text(row["weight"], font_size="12px", color="#475569"),
-                      rx.text("kg", font_size="11px", color="#94a3b8"), spacing="1"),
+            rx.hstack(rx.text(row["weight"], font_size="12px", color=TEXT_600),
+                      rx.text("kg", font_size="11px", color=TEXT_400), spacing="1"),
         ),
         rx.table.cell(
-            rx.hstack(rx.text(row["supply"], font_size="12px", color="#475569"),
-                      rx.text("원", font_size="11px", color="#94a3b8"), spacing="1"),
+            rx.hstack(rx.text(row["supply"], font_size="12px", color=TEXT_600),
+                      rx.text("원", font_size="11px", color=TEXT_400), spacing="1"),
         ),
         rx.table.cell(
-            rx.hstack(rx.text(row["vat"], font_size="12px", color="#64748b"),
-                      rx.text("원", font_size="11px", color="#94a3b8"), spacing="1"),
+            rx.hstack(rx.text(row["vat"], font_size="12px", color=TEXT_500),
+                      rx.text("원", font_size="11px", color=TEXT_400), spacing="1"),
         ),
         rx.table.cell(
-            rx.hstack(rx.text(row["total"], font_size="12px", font_weight="700", color="#0f172a"),
-                      rx.text("원", font_size="11px", color="#94a3b8"), spacing="1"),
+            rx.hstack(rx.text(row["total"], font_size="12px", font_weight="700", color=TEXT_900),
+                      rx.text("원", font_size="11px", color=TEXT_400), spacing="1"),
         ),
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -2099,48 +2111,48 @@ def _settle_type_filter_btn(t: str) -> rx.Component:
 def _settlement_row(row: dict) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
-            rx.text(row["name"], font_size="13px", font_weight="600", color="#1e293b"),
+            rx.text(row["name"], font_size="13px", font_weight="600", color=TEXT_800),
         ),
         rx.table.cell(
             rx.badge(row["cust_type"], size="1", color_scheme="blue", variant="soft"),
         ),
         rx.table.cell(
             rx.hstack(
-                rx.text(row["weight"], font_size="13px", color="#475569"),
-                rx.text("kg", font_size="11px", color="#94a3b8"),
+                rx.text(row["weight"], font_size="13px", color=TEXT_600),
+                rx.text("kg", font_size="11px", color=TEXT_400),
                 spacing="1", align="center",
             ),
         ),
         rx.table.cell(
-            rx.text(row["supply"], font_size="13px", color="#475569"),
+            rx.text(row["supply"], font_size="13px", color=TEXT_600),
         ),
         rx.table.cell(
-            rx.text(row["vat"], font_size="13px", color="#94a3b8"),
+            rx.text(row["vat"], font_size="13px", color=TEXT_400),
         ),
         rx.table.cell(
-            rx.text(row["total"], font_size="13px", font_weight="700", color="#0f172a"),
+            rx.text(row["total"], font_size="13px", font_weight="700", color=TEXT_900),
         ),
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
 def _expense_row(row: dict) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
-            rx.text(row["item"], font_size="13px", font_weight="600", color="#1e293b"),
+            rx.text(row["item"], font_size="13px", font_weight="600", color=TEXT_800),
         ),
         rx.table.cell(
             rx.hstack(
-                rx.text(row["amount"], font_size="13px", color="#475569"),
-                rx.text("원", font_size="11px", color="#94a3b8"),
+                rx.text(row["amount"], font_size="13px", color=TEXT_600),
+                rx.text("원", font_size="11px", color=TEXT_400),
                 spacing="1", align="center",
             ),
         ),
         rx.table.cell(
-            rx.text(row["pay_date"], font_size="12px", color="#64748b"),
+            rx.text(row["pay_date"], font_size="12px", color=TEXT_500),
         ),
         rx.table.cell(
-            rx.text(row["memo"], font_size="12px", color="#94a3b8"),
+            rx.text(row["memo"], font_size="12px", color=TEXT_400),
         ),
         rx.table.cell(
             rx.button(
@@ -2150,7 +2162,7 @@ def _expense_row(row: dict) -> rx.Component:
                 disabled=~AuthState.is_user_active,
             ),
         ),
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -2159,10 +2171,10 @@ def _settle_summary_panel() -> rx.Component:
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.button(
                 rx.icon("refresh_cw", size=14),
                 on_click=VendorState.load_settlement,
@@ -2171,9 +2183,9 @@ def _settle_summary_panel() -> rx.Component:
             spacing="2", align="center",
         ),
         rx.flex(
-            _kpi_card("총 수거량",   VendorState.total_weight,   "kg", "weight",      "#38bd94", "rgba(56,189,148,0.12)"),
-            _kpi_card("공급가 합계", VendorState.total_revenue,  "원", "credit_card",  "#8b5cf6", "rgba(139,92,246,0.10)"),
-            _kpi_card("거래처 수",   VendorState.school_count,   "곳", "building_2",   "#f59e0b", "rgba(245,158,11,0.10)"),
+            _kpi_card("총 수거량",   VendorState.total_weight,   "kg", "weight",      PRIMARY, PRIMARY_ALPHA_12),
+            _kpi_card("공급가 합계", VendorState.total_revenue,  "원", "credit_card",  PURPLE, PURPLE_ALPHA_10),
+            _kpi_card("거래처 수",   VendorState.school_count,   "곳", "building_2",   AMBER, AMBER_ALPHA_10),
             gap="12px", flex_wrap="wrap", width="100%",
         ),
         _section_header("list", "거래처별 정산 요약"),
@@ -2216,16 +2228,16 @@ def _stmt_row(row: dict) -> rx.Component:
 
 def _stmt_send_panel() -> rx.Component:
     """명세서발송 서브탭"""
-    field_label = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    field_label = {"font_size": "12px", "font_weight": "600", "color": TEXT_600}
     return rx.vstack(
         # ── 조회 조건 ──
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.select(
                 CUST_TYPE_OPTIONS,
                 value=VendorState.stmt_cust_type,
@@ -2249,7 +2261,7 @@ def _stmt_send_panel() -> rx.Component:
         ),
         rx.cond(
             VendorState.stmt_load_msg != "",
-            rx.text(VendorState.stmt_load_msg, font_size="11px", color="#64748b"),
+            rx.text(VendorState.stmt_load_msg, font_size="11px", color=TEXT_500),
         ),
 
         # ── 수거 데이터 테이블 ──
@@ -2281,38 +2293,38 @@ def _stmt_send_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.text("총 수거량", font_size="12px", color="#64748b"),
+                    rx.text("총 수거량", font_size="12px", color=TEXT_500),
                     rx.text(f"{VendorState.stmt_total_weight} kg", font_size="13px", font_weight="600"),
                     spacing="3",
                 ),
                 rx.hstack(
-                    rx.text("공급가액", font_size="12px", color="#64748b"),
+                    rx.text("공급가액", font_size="12px", color=TEXT_500),
                     rx.text(f"{VendorState.stmt_total_amount} 원", font_size="13px", font_weight="600"),
                     spacing="3",
                 ),
                 rx.hstack(
-                    rx.text("월정액", font_size="12px", color="#64748b"),
+                    rx.text("월정액", font_size="12px", color=TEXT_500),
                     rx.text(f"{VendorState.stmt_fixed_fee} 원", font_size="13px", font_weight="600"),
                     spacing="3",
                 ),
                 rx.hstack(
-                    rx.text("부가세", font_size="12px", color="#64748b"),
+                    rx.text("부가세", font_size="12px", color=TEXT_500),
                     rx.text(f"{VendorState.stmt_vat} 원", font_size="13px", font_weight="600"),
                     spacing="3",
                 ),
                 rx.hstack(
-                    rx.text("합계", font_size="13px", color="#0f172a", font_weight="700"),
-                    rx.text(f"{VendorState.stmt_grand_total} 원", font_size="14px", font_weight="800", color="#3b82f6"),
+                    rx.text("합계", font_size="13px", color=TEXT_900, font_weight="700"),
+                    rx.text(f"{VendorState.stmt_grand_total} 원", font_size="14px", font_weight="800", color=BLUE),
                     spacing="3",
                 ),
                 rx.text(
                     f"세금분류: {VendorState.stmt_tax_type}",
-                    font_size="11px", color="#94a3b8",
+                    font_size="11px", color=TEXT_400,
                 ),
                 spacing="2", align="start",
             ),
-            padding="12px", border="1px solid #e2e8f0", border_radius="8px",
-            bg="#f8fafc", width="100%",
+            padding="12px", border=f"1px solid {BORDER}", border_radius="8px",
+            bg=BG_50, width="100%",
         ),
 
         # ── 미수금 ──
@@ -2378,7 +2390,7 @@ def _stmt_send_panel() -> rx.Component:
                 spacing="1",
             ),
             rx.vstack(
-                rx.text("재활용자(처리자)", font_size="12px", color="#64748b", font_weight="600"),
+                rx.text("재활용자(처리자)", font_size="12px", color=TEXT_500, font_weight="600"),
                 rx.input(
                     placeholder="재활용 처리업체명",
                     value=VendorState.rcv_recycler,
@@ -2437,7 +2449,7 @@ def _stmt_send_panel() -> rx.Component:
             rx.text(
                 VendorState.email_msg,
                 font_size="11px",
-                color=rx.cond(VendorState.email_ok, "#22c55e", "#ef4444"),
+                color=rx.cond(VendorState.email_ok, SUCCESS, ERROR),
             ),
         ),
         rx.cond(
@@ -2445,7 +2457,7 @@ def _stmt_send_panel() -> rx.Component:
             rx.text(
                 VendorState.detail_sms_msg,
                 font_size="11px",
-                color=rx.cond(VendorState.detail_sms_ok, "#22c55e", "#ef4444"),
+                color=rx.cond(VendorState.detail_sms_ok, SUCCESS, ERROR),
             ),
         ),
 
@@ -2458,10 +2470,10 @@ def _settle_monthly_panel() -> rx.Component:
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.spacer(),
             rx.button(
                 rx.icon("download", size=14), "Excel",
@@ -2526,11 +2538,11 @@ def _settle_monthly_panel() -> rx.Component:
                 spacing="3", width="100%",
             ),
         ),
-        rx.box(height="1px", bg="#e2e8f0", width="100%"),
+        rx.box(height="1px", bg=BORDER, width="100%"),
         rx.flex(
-            _kpi_card("총 수입",   VendorState.total_revenue, "원", "trending_up",   "#38bd94", "rgba(56,189,148,0.12)"),
-            _kpi_card("총 지출",   VendorState.total_expense, "원", "trending_down",  "#ef4444", "rgba(239,68,68,0.10)"),
-            _kpi_card("순이익",    VendorState.net_profit,    "원", "circle_dollar_sign", "#3b82f6", "rgba(59,130,246,0.10)"),
+            _kpi_card("총 수입",   VendorState.total_revenue, "원", "trending_up",   PRIMARY, PRIMARY_ALPHA_12),
+            _kpi_card("총 지출",   VendorState.total_expense, "원", "trending_down",  ERROR, ERROR_ALPHA_10),
+            _kpi_card("순이익",    VendorState.net_profit,    "원", "circle_dollar_sign", BLUE, BLUE_ALPHA_10),
             gap="12px", flex_wrap="wrap", width="100%",
         ),
         spacing="4", width="100%", align="start",
@@ -2538,15 +2550,15 @@ def _settle_monthly_panel() -> rx.Component:
 
 
 def _settle_expense_panel() -> rx.Component:
-    field_label_style = {"font_size": "12px", "color": "#64748b", "font_weight": "600", "min_width": "80px"}
+    field_label_style = {"font_size": "12px", "color": TEXT_500, "font_weight": "600", "min_width": "80px"}
     return rx.vstack(
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.button(
                 rx.icon("refresh_cw", size=14),
                 on_click=VendorState.load_expenses,
@@ -2576,7 +2588,7 @@ def _settle_expense_panel() -> rx.Component:
                         on_change=VendorState.set_exp_amount,
                         size="2", width="100%", type="number",
                     ),
-                    rx.text("원", font_size="13px", color="#64748b"),
+                    rx.text("원", font_size="13px", color=TEXT_500),
                     align="center", spacing="2", flex="1",
                 ),
                 spacing="4", width="100%",
@@ -2623,7 +2635,7 @@ def _settle_expense_panel() -> rx.Component:
             ),
             spacing="3", width="100%",
             bg="white", border_radius="12px", padding="16px",
-            border="1px solid #e2e8f0",
+            border=f"1px solid {BORDER}",
         ),
 
         # ── 지출 목록 ──
@@ -2680,7 +2692,7 @@ def _settlement_tab() -> rx.Component:
         # ── 이메일 발송 (Phase 6) ──
         rx.box(
             rx.hstack(
-                rx.icon("mail", size=14, color="#64748b"),
+                rx.icon("mail", size=14, color=TEXT_500),
                 rx.input(
                     value=VendorState.email_to,
                     on_change=VendorState.set_email_to,
@@ -2700,7 +2712,7 @@ def _settlement_tab() -> rx.Component:
                     rx.text(
                         VendorState.email_msg,
                         font_size="11px",
-                        color=rx.cond(VendorState.email_ok, "#22c55e", "#ef4444"),
+                        color=rx.cond(VendorState.email_ok, SUCCESS, ERROR),
                     ),
                 ),
                 spacing="2", align="center",
@@ -2710,7 +2722,7 @@ def _settlement_tab() -> rx.Component:
         # ── SMS 발송 (Phase 8) ──
         rx.box(
             rx.hstack(
-                rx.icon("message_square", size=14, color="#64748b"),
+                rx.icon("message_square", size=14, color=TEXT_500),
                 rx.input(
                     value=VendorState.sms_to,
                     on_change=VendorState.set_sms_to,
@@ -2730,7 +2742,7 @@ def _settlement_tab() -> rx.Component:
                     rx.text(
                         VendorState.sms_msg,
                         font_size="11px",
-                        color=rx.cond(VendorState.sms_ok, "#22c55e", "#ef4444"),
+                        color=rx.cond(VendorState.sms_ok, SUCCESS, ERROR),
                     ),
                 ),
                 spacing="2", align="center",
@@ -2761,22 +2773,22 @@ def _settlement_tab() -> rx.Component:
 def _edu_row(row: dict) -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.text(row["edu_date"], font_size="12px", color="#64748b",
+            rx.text(row["edu_date"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", width="90px"),
-            rx.text(row["driver"], font_size="13px", color="#1e293b",
+            rx.text(row["driver"], font_size="13px", color=TEXT_800,
                     font_weight="500", flex="1"),
             rx.badge(row["edu_type"], size="1", color_scheme="blue",
                      variant="soft", flex_shrink="0"),
             rx.badge(row["result"], size="1",
                      color_scheme=rx.cond(row["result"] == "이수", "green", "red"),
                      variant="soft", flex_shrink="0"),
-            rx.text(row["edu_hours"], font_size="12px", color="#64748b",
+            rx.text(row["edu_hours"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", display=["none", "inline", "inline"]),
             width="100%", padding_x="16px", padding_y="10px",
             align="center", gap="10px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -2785,22 +2797,22 @@ def _check_row(row: dict) -> rx.Component:
     is_rejected = row["status"] == "반려"
     return rx.box(
         rx.hstack(
-            rx.text(row["check_date"], font_size="12px", color="#64748b",
+            rx.text(row["check_date"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", width="90px"),
-            rx.text(row["driver"], font_size="13px", color="#1e293b",
+            rx.text(row["driver"], font_size="13px", color=TEXT_800,
                     font_weight="500", flex="1"),
-            rx.text(row["vehicle_no"], font_size="12px", color="#64748b",
+            rx.text(row["vehicle_no"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", display=["none", "inline", "inline"]),
             rx.hstack(
-                rx.text("양호", font_size="11px", color="#38bd94"),
+                rx.text("양호", font_size="11px", color=PRIMARY),
                 rx.text(row["total_ok"], font_size="12px", font_weight="700",
-                        color="#38bd94"),
+                        color=PRIMARY),
                 spacing="1", align="center", flex_shrink="0",
             ),
             rx.hstack(
-                rx.text("불량", font_size="11px", color="#ef4444"),
+                rx.text("불량", font_size="11px", color=ERROR),
                 rx.text(row["total_fail"], font_size="12px", font_weight="700",
-                        color="#ef4444"),
+                        color=ERROR),
                 spacing="1", align="center", flex_shrink="0",
             ),
             rx.cond(
@@ -2835,32 +2847,32 @@ def _check_row(row: dict) -> rx.Component:
             align="center", gap="10px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
 def _daily_row(row: dict) -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.text(row["check_date"], font_size="12px", color="#64748b",
+            rx.text(row["check_date"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", width="90px"),
-            rx.text(row["driver"], font_size="13px", color="#1e293b",
+            rx.text(row["driver"], font_size="13px", color=TEXT_800,
                     font_weight="500", flex="1"),
-            rx.text(row["category"], font_size="12px", color="#64748b",
+            rx.text(row["category"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", display=["none", "inline", "inline"]),
             rx.hstack(
                 rx.text(row["total_ok"], font_size="12px", font_weight="700",
-                        color="#38bd94"),
-                rx.text("/", font_size="11px", color="#94a3b8"),
+                        color=PRIMARY),
+                rx.text("/", font_size="11px", color=TEXT_400),
                 rx.text(row["total_fail"], font_size="12px", font_weight="700",
-                        color=rx.cond(row["total_fail"] == "0", "#94a3b8", "#ef4444")),
+                        color=rx.cond(row["total_fail"] == "0", TEXT_400, ERROR)),
                 spacing="1", align="center", flex_shrink="0",
             ),
             width="100%", padding_x="16px", padding_y="10px",
             align="center", gap="10px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -2880,7 +2892,7 @@ def _safety_subtab_btn(label: str) -> rx.Component:
 def _chk_item_row(label: str, value_var, setter_ok, setter_bad) -> rx.Component:
     is_ok = value_var == "양호"
     return rx.hstack(
-        rx.text(label, font_size="13px", color="#334155", flex="1", min_width="0"),
+        rx.text(label, font_size="13px", color=TEXT_700, flex="1", min_width="0"),
         rx.hstack(
             rx.button(
                 "양호",
@@ -2916,9 +2928,9 @@ def _acc_row(row: dict) -> rx.Component:
     )
     return rx.box(
         rx.hstack(
-            rx.text(row["occur_date"], font_size="12px", color="#64748b",
+            rx.text(row["occur_date"], font_size="12px", color=TEXT_500,
                     flex_shrink="0", width="90px"),
-            rx.text(row["driver"], font_size="13px", color="#1e293b",
+            rx.text(row["driver"], font_size="13px", color=TEXT_800,
                     font_weight="500", flex="1"),
             rx.badge(row["accident_type"], size="1", color_scheme="blue",
                      variant="soft", flex_shrink="0"),
@@ -2931,7 +2943,7 @@ def _acc_row(row: dict) -> rx.Component:
             align="center", gap="10px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -2941,41 +2953,41 @@ def _safety_edu_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 _section_header("graduation_cap", "안전교육 등록"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.grid(
                     rx.vstack(
-                        rx.text("기사명 *", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("기사명 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="기사명 입력", value=VendorState.edu_driver,
                                  on_change=VendorState.set_edu_driver, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("교육일 *", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("교육일 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="YYYY-MM-DD", value=VendorState.edu_date,
                                  on_change=VendorState.set_edu_date, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("교육 유형", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("교육 유형", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.select(EDU_TYPES, value=VendorState.edu_type,
                                   on_change=VendorState.set_edu_type, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("교육 시간(h)", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("교육 시간(h)", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="2", value=VendorState.edu_hours,
                                  on_change=VendorState.set_edu_hours,
                                  type="number", size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("강사/기관", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("강사/기관", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="강사 또는 기관명", value=VendorState.edu_instructor,
                                  on_change=VendorState.set_edu_instructor, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("이수 여부", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("이수 여부", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.select(EDU_RESULTS, value=VendorState.edu_result,
                                   on_change=VendorState.set_edu_result, size="2", width="100%"),
                         gap="4px",
@@ -2983,7 +2995,7 @@ def _safety_edu_panel() -> rx.Component:
                     columns="2", spacing="3", width="100%",
                 ),
                 rx.vstack(
-                    rx.text("메모", font_size="13px", font_weight="600", color="#374151"),
+                    rx.text("메모", font_size="13px", font_weight="600", color=TEXT_GRAY),
                     rx.input(placeholder="메모 (선택)", value=VendorState.edu_memo,
                              on_change=VendorState.set_edu_memo, size="2", width="100%"),
                     gap="4px", width="100%",
@@ -3003,22 +3015,22 @@ def _safety_edu_panel() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         _section_header("list", "교육 이력", VendorState.safety_edu_rows.length()),
         _table_box(
             rx.box(
                 rx.hstack(
-                    rx.text("교육일",   font_size="12px", font_weight="700", color="#64748b", width="90px", flex_shrink="0"),
-                    rx.text("기사",     font_size="12px", font_weight="700", color="#64748b", flex="1"),
-                    rx.text("유형",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
-                    rx.text("이수여부", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
-                    rx.text("시간",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0",
+                    rx.text("교육일",   font_size="12px", font_weight="700", color=TEXT_500, width="90px", flex_shrink="0"),
+                    rx.text("기사",     font_size="12px", font_weight="700", color=TEXT_500, flex="1"),
+                    rx.text("유형",     font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
+                    rx.text("이수여부", font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
+                    rx.text("시간",     font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0",
                             display=["none", "inline", "inline"]),
                     width="100%", padding_x="16px", padding_y="10px", gap="10px",
                 ),
-                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                 border_radius="12px 12px 0 0",
             ),
             rx.cond(
@@ -3038,28 +3050,28 @@ def _safety_chk_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 _section_header("car", "차량 안전점검 등록"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.grid(
                     rx.vstack(
-                        rx.text("기사명 *", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("기사명 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="기사명", value=VendorState.chk_driver,
                                  on_change=VendorState.set_chk_driver, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("점검일 *", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("점검일 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="YYYY-MM-DD", value=VendorState.chk_date,
                                  on_change=VendorState.set_chk_date, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("차량번호", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("차량번호", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="차량번호", value=VendorState.chk_vehicle_no,
                                  on_change=VendorState.set_chk_vehicle_no, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("점검자", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("점검자", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="점검자명", value=VendorState.chk_inspector,
                                  on_change=VendorState.set_chk_inspector, size="2", width="100%"),
                         gap="4px",
@@ -3067,7 +3079,7 @@ def _safety_chk_panel() -> rx.Component:
                     columns="2", spacing="3", width="100%",
                 ),
                 rx.text("점검 항목 (8개)", font_size="13px", font_weight="600",
-                        color="#374151", margin_top="8px"),
+                        color=TEXT_GRAY, margin_top="8px"),
                 rx.box(
                     _chk_item_row(SAFETY_CHECKLIST_LABELS[0], VendorState.chk_item_0,
                                   VendorState.set_chk_item_0("양호"),
@@ -3093,11 +3105,11 @@ def _safety_chk_panel() -> rx.Component:
                     _chk_item_row(SAFETY_CHECKLIST_LABELS[7], VendorState.chk_item_7,
                                   VendorState.set_chk_item_7("양호"),
                                   VendorState.set_chk_item_7("불량")),
-                    bg="white", border="1px solid #e2e8f0", border_radius="8px",
+                    bg="white", border=f"1px solid {BORDER}", border_radius="8px",
                     padding_x="8px", width="100%",
                 ),
                 rx.vstack(
-                    rx.text("특이사항", font_size="13px", font_weight="600", color="#374151"),
+                    rx.text("특이사항", font_size="13px", font_weight="600", color=TEXT_GRAY),
                     rx.input(placeholder="특이사항 (선택)", value=VendorState.chk_memo,
                              on_change=VendorState.set_chk_memo, size="2", width="100%"),
                     gap="4px", width="100%",
@@ -3117,7 +3129,7 @@ def _safety_chk_panel() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         rx.hstack(
@@ -3135,17 +3147,17 @@ def _safety_chk_panel() -> rx.Component:
         _table_box(
             rx.box(
                 rx.hstack(
-                    rx.text("점검일",   font_size="12px", font_weight="700", color="#64748b", width="90px", flex_shrink="0"),
-                    rx.text("기사",     font_size="12px", font_weight="700", color="#64748b", flex="1"),
-                    rx.text("차량번호", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0",
+                    rx.text("점검일",   font_size="12px", font_weight="700", color=TEXT_500, width="90px", flex_shrink="0"),
+                    rx.text("기사",     font_size="12px", font_weight="700", color=TEXT_500, flex="1"),
+                    rx.text("차량번호", font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0",
                             display=["none", "inline", "inline"]),
-                    rx.text("양호",     font_size="12px", font_weight="700", color="#38bd94", flex_shrink="0"),
-                    rx.text("불량",     font_size="12px", font_weight="700", color="#ef4444", flex_shrink="0"),
-                    rx.text("상태",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
-                    rx.text("처리",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
+                    rx.text("양호",     font_size="12px", font_weight="700", color=PRIMARY, flex_shrink="0"),
+                    rx.text("불량",     font_size="12px", font_weight="700", color=ERROR, flex_shrink="0"),
+                    rx.text("상태",     font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
+                    rx.text("처리",     font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
                     width="100%", padding_x="16px", padding_y="10px", gap="10px",
                 ),
-                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                 border_radius="12px 12px 0 0",
             ),
             rx.cond(
@@ -3162,7 +3174,7 @@ def _safety_chk_panel() -> rx.Component:
                 font_size="12px",
                 color=rx.cond(
                     VendorState.safety_chk_approve_msg.contains("✅"),
-                    "#22c55e", "#ef4444",
+                    SUCCESS, ERROR,
                 ),
             ),
             rx.box(),
@@ -3177,28 +3189,28 @@ def _safety_acc_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 _section_header("triangle_alert", "사고 신고"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.grid(
                     rx.vstack(
-                        rx.text("기사명 *", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("기사명 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="기사명", value=VendorState.acc_driver,
                                  on_change=VendorState.set_acc_driver, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("발생일 *", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("발생일 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.input(placeholder="YYYY-MM-DD", value=VendorState.acc_date,
                                  on_change=VendorState.set_acc_date, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("사고 유형", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("사고 유형", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.select(ACC_TYPES, value=VendorState.acc_type,
                                   on_change=VendorState.set_acc_type, size="2", width="100%"),
                         gap="4px",
                     ),
                     rx.vstack(
-                        rx.text("심각도", font_size="13px", font_weight="600", color="#374151"),
+                        rx.text("심각도", font_size="13px", font_weight="600", color=TEXT_GRAY),
                         rx.select(ACC_SEVERITIES, value=VendorState.acc_severity,
                                   on_change=VendorState.set_acc_severity, size="2", width="100%"),
                         gap="4px",
@@ -3206,20 +3218,20 @@ def _safety_acc_panel() -> rx.Component:
                     columns="2", spacing="3", width="100%",
                 ),
                 rx.vstack(
-                    rx.text("발생 장소", font_size="13px", font_weight="600", color="#374151"),
+                    rx.text("발생 장소", font_size="13px", font_weight="600", color=TEXT_GRAY),
                     rx.input(placeholder="발생 장소", value=VendorState.acc_location,
                              on_change=VendorState.set_acc_location, size="2", width="100%"),
                     gap="4px", width="100%",
                 ),
                 rx.vstack(
-                    rx.text("사고 경위 *", font_size="13px", font_weight="600", color="#374151"),
+                    rx.text("사고 경위 *", font_size="13px", font_weight="600", color=TEXT_GRAY),
                     rx.text_area(placeholder="사고 경위를 상세히 입력하세요", value=VendorState.acc_desc,
                                  on_change=VendorState.set_acc_desc, size="2", width="100%",
                                  min_height="80px"),
                     gap="4px", width="100%",
                 ),
                 rx.vstack(
-                    rx.text("조치 사항", font_size="13px", font_weight="600", color="#374151"),
+                    rx.text("조치 사항", font_size="13px", font_weight="600", color=TEXT_GRAY),
                     rx.text_area(placeholder="취한 조치 사항 (선택)", value=VendorState.acc_action,
                                  on_change=VendorState.set_acc_action, size="2", width="100%",
                                  min_height="60px"),
@@ -3243,22 +3255,22 @@ def _safety_acc_panel() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         _section_header("list", "사고 이력", VendorState.accident_list.length()),
         _table_box(
             rx.box(
                 rx.hstack(
-                    rx.text("발생일",   font_size="12px", font_weight="700", color="#64748b", width="90px", flex_shrink="0"),
-                    rx.text("기사",     font_size="12px", font_weight="700", color="#64748b", flex="1"),
-                    rx.text("유형",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
-                    rx.text("심각도",   font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
-                    rx.text("상태",     font_size="12px", font_weight="700", color="#64748b", flex_shrink="0",
+                    rx.text("발생일",   font_size="12px", font_weight="700", color=TEXT_500, width="90px", flex_shrink="0"),
+                    rx.text("기사",     font_size="12px", font_weight="700", color=TEXT_500, flex="1"),
+                    rx.text("유형",     font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
+                    rx.text("심각도",   font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
+                    rx.text("상태",     font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0",
                             display=["none", "inline", "inline"]),
                     width="100%", padding_x="16px", padding_y="10px", gap="10px",
                 ),
-                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                 border_radius="12px 12px 0 0",
             ),
             rx.cond(
@@ -3278,25 +3290,25 @@ def _driver_compliance_row(row: dict) -> rx.Component:
     return rx.box(
         rx.hstack(
             rx.text(row["driver"], font_size="13px", font_weight="500",
-                    color="#1e293b", flex="1"),
+                    color=TEXT_800, flex="1"),
             rx.hstack(
-                rx.text(row["check_days"], font_size="12px", color="#475569"),
-                rx.text("일", font_size="11px", color="#94a3b8"),
+                rx.text(row["check_days"], font_size="12px", color=TEXT_600),
+                rx.text("일", font_size="11px", color=TEXT_400),
                 spacing="1", flex_shrink="0", width="70px",
             ),
             rx.hstack(
                 rx.text(row["avg_rate"], font_size="13px", font_weight="700",
-                        color="#3b82f6"),
-                rx.text("%", font_size="11px", color="#94a3b8"),
+                        color=BLUE),
+                rx.text("%", font_size="11px", color=TEXT_400),
                 spacing="1", flex_shrink="0", width="80px",
             ),
             rx.text(row["total_fail"], font_size="12px",
-                    color=rx.cond(row["total_fail"] == "0", "#94a3b8", "#ef4444"),
+                    color=rx.cond(row["total_fail"] == "0", TEXT_400, ERROR),
                     flex_shrink="0", width="60px"),
             width="100%", padding_x="16px", padding_y="10px", gap="10px",
         ),
         border_bottom="1px solid #f1f5f9",
-        _hover={"bg": "#f8fafc"},
+        _hover={"bg": BG_50},
     )
 
 
@@ -3304,7 +3316,7 @@ def _safety_daily_panel() -> rx.Component:
     return rx.vstack(
         _section_header("clipboard_list", "일일안전보건 점검 조회"),
         rx.text("기사가 매일 출발 전 입력한 점검 결과를 조회합니다.",
-                font_size="12px", color="#94a3b8"),
+                font_size="12px", color=TEXT_400),
         rx.hstack(
             rx.input(
                 placeholder="YYYY-MM",
@@ -3373,7 +3385,7 @@ def _safety_daily_panel() -> rx.Component:
                             font_size="12px",
                             color=rx.cond(
                                 VendorState.daily_approve_msg.contains("✅"),
-                                "#22c55e", "#ef4444",
+                                SUCCESS, ERROR,
                             ),
                         ),
                         rx.box(),
@@ -3385,40 +3397,40 @@ def _safety_daily_panel() -> rx.Component:
                     VendorState.has_daily_fails,
                     rx.box(
                         rx.hstack(
-                            rx.icon("triangle_alert", size=15, color="#b45309"),
+                            rx.icon("triangle_alert", size=15, color=AMBER_DARK),
                             rx.text(
                                 "⚠️ 불량 항목이 발견되었습니다. 즉시 조치가 필요합니다.",
-                                font_size="13px", font_weight="600", color="#92400e",
+                                font_size="13px", font_weight="600", color=AMBER_DARKER,
                             ),
                             spacing="2", align="center",
                         ),
                         padding="10px 14px",
-                        bg="#fef3c7", border="1px solid #fde68a",
+                        bg=AMBER_BG, border="1px solid #fde68a",
                         border_radius="8px", width="100%",
                     ),
                 ),
                 rx.flex(
                     _kpi_card("점검 건수", VendorState.daily_check_count,
-                              "건", "clipboard_list", "#38bd94", "#f0fdf4"),
+                              "건", "clipboard_list", PRIMARY, SUCCESS_BG),
                     _kpi_card("양호 항목", VendorState.daily_check_total_ok,
-                              "개", "circle_check", "#3b82f6", "#eff6ff"),
+                              "개", "circle_check", BLUE, BLUE_BG),
                     _kpi_card("불량 항목", VendorState.daily_check_total_fail,
-                              "개", "circle_x", "#ef4444", "#fef2f2"),
+                              "개", "circle_x", ERROR, ERROR_BG),
                     _kpi_card("양호율", VendorState.daily_check_rate_str,
-                              "%", "trending_up", "#f59e0b", "#fffbeb"),
+                              "%", "trending_up", AMBER, AMBER_BG_LIGHT),
                     gap="12px", flex_wrap="wrap", width="100%",
                 ),
                 _table_box(
                     rx.box(
                         rx.hstack(
-                            rx.text("점검일",    font_size="12px", font_weight="700", color="#64748b", width="90px", flex_shrink="0"),
-                            rx.text("기사",      font_size="12px", font_weight="700", color="#64748b", flex="1"),
-                            rx.text("카테고리",  font_size="12px", font_weight="700", color="#64748b", flex_shrink="0",
+                            rx.text("점검일",    font_size="12px", font_weight="700", color=TEXT_500, width="90px", flex_shrink="0"),
+                            rx.text("기사",      font_size="12px", font_weight="700", color=TEXT_500, flex="1"),
+                            rx.text("카테고리",  font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0",
                                     display=["none", "inline", "inline"]),
-                            rx.text("양호/불량", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0"),
+                            rx.text("양호/불량", font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0"),
                             width="100%", padding_x="16px", padding_y="10px", gap="10px",
                         ),
-                        bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                        bg=BG_50, border_bottom=f"1px solid {BORDER}",
                         border_radius="12px 12px 0 0",
                     ),
                     rx.box(rx.foreach(VendorState.daily_check_items, _daily_row),
@@ -3432,13 +3444,13 @@ def _safety_daily_panel() -> rx.Component:
                         _table_box(
                             rx.box(
                                 rx.hstack(
-                                    rx.text("기사",     font_size="12px", font_weight="700", color="#64748b", flex="1"),
-                                    rx.text("점검일수", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="70px"),
-                                    rx.text("평균이행률", font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="80px"),
-                                    rx.text("총불량",   font_size="12px", font_weight="700", color="#64748b", flex_shrink="0", width="60px"),
+                                    rx.text("기사",     font_size="12px", font_weight="700", color=TEXT_500, flex="1"),
+                                    rx.text("점검일수", font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0", width="70px"),
+                                    rx.text("평균이행률", font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0", width="80px"),
+                                    rx.text("총불량",   font_size="12px", font_weight="700", color=TEXT_500, flex_shrink="0", width="60px"),
                                     width="100%", padding_x="16px", padding_y="10px", gap="10px",
                                 ),
-                                bg="#f8fafc", border_bottom="1px solid #e2e8f0",
+                                bg=BG_50, border_bottom=f"1px solid {BORDER}",
                                 border_radius="12px 12px 0 0",
                             ),
                             rx.box(
@@ -3512,8 +3524,8 @@ def _settings_subtab_btn(label: str) -> rx.Component:
 
 def _biz_customer_row(name: str) -> rx.Component:
     return rx.hstack(
-        rx.icon("building_2", size=14, color="#64748b", flex_shrink="0"),
-        rx.text(name, font_size="13px", color="#1e293b", flex="1"),
+        rx.icon("building_2", size=14, color=TEXT_500, flex_shrink="0"),
+        rx.text(name, font_size="13px", color=TEXT_800, flex="1"),
         rx.button(
             "삭제",
             on_click=VendorState.delete_biz_customer_handler(name),
@@ -3534,7 +3546,7 @@ def _settings_biz_panel() -> rx.Component:
             VendorState.has_biz_customers,
             rx.box(
                 rx.foreach(VendorState.biz_customers_list, _biz_customer_row),
-                bg="white", border="1px solid #e2e8f0", border_radius="12px",
+                bg="white", border=f"1px solid {BORDER}", border_radius="12px",
                 overflow="hidden", width="100%",
                 box_shadow="0 1px 4px rgba(0,0,0,0.04)",
             ),
@@ -3544,7 +3556,7 @@ def _settings_biz_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 _section_header("circle_plus", "업장 단건 등록"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.hstack(
                     rx.input(
                         placeholder="업장명 입력 (예: 화성시청 구내식당)",
@@ -3569,16 +3581,16 @@ def _settings_biz_panel() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         # 일괄 등록
         rx.box(
             rx.vstack(
                 _section_header("list", "업장 일괄 등록"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.text("업장명을 줄바꿈으로 구분하여 입력하세요.",
-                        font_size="12px", color="#94a3b8"),
+                        font_size="12px", color=TEXT_400),
                 rx.text_area(
                     placeholder="화성시청 구내식당\n동탄2청사 식당\n...",
                     value=VendorState.bulk_biz_names,
@@ -3594,7 +3606,7 @@ def _settings_biz_panel() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         spacing="4", width="100%", align="start",
@@ -3605,7 +3617,7 @@ def _settings_biz_panel() -> rx.Component:
 def _settings_info_panel() -> rx.Component:
     def _info_field(label: str, value_var, setter, placeholder: str = "") -> rx.Component:
         return rx.vstack(
-            rx.text(label, font_size="13px", font_weight="600", color="#374151"),
+            rx.text(label, font_size="13px", font_weight="600", color=TEXT_GRAY),
             rx.input(placeholder=placeholder or label, value=value_var,
                      on_change=setter, size="2", width="100%"),
             gap="4px", width="100%",
@@ -3615,7 +3627,7 @@ def _settings_info_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 _section_header("building", "업체 정보 수정"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.grid(
                     _info_field("회사명", VendorState.vinfo_biz_name,
                                 VendorState.set_vinfo_biz_name, "상호명"),
@@ -3648,17 +3660,17 @@ def _settings_info_panel() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         # ── 직인 관리 카드 ──
         rx.box(
             rx.vstack(
                 _section_header("stamp", "직인 관리"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.text(
                     "거래명세서 PDF에 찍힐 업체 직인 이미지를 등록하세요. (PNG/JPG, 2MB 이하)",
-                    font_size="12px", color="#64748b",
+                    font_size="12px", color=TEXT_500,
                 ),
                 rx.cond(
                     VendorState.stamp_current_path != "",
@@ -3668,8 +3680,8 @@ def _settings_info_panel() -> rx.Component:
                         spacing="2", align="center",
                     ),
                     rx.hstack(
-                        rx.icon("circle-x", size=14, color="#ef4444"),
-                        rx.text("현재: 미등록", font_size="12px", color="#ef4444"),
+                        rx.icon("circle-x", size=14, color=ERROR),
+                        rx.text("현재: 미등록", font_size="12px", color=ERROR),
                         spacing="2", align="center",
                     ),
                 ),
@@ -3705,7 +3717,7 @@ def _settings_info_panel() -> rx.Component:
                     VendorState.stamp_upload_loading,
                     rx.hstack(
                         rx.spinner(size="2"),
-                        rx.text("업로드 중...", font_size="12px", color="#64748b"),
+                        rx.text("업로드 중...", font_size="12px", color=TEXT_500),
                         spacing="2", align="center",
                     ),
                     rx.fragment(),
@@ -3715,13 +3727,13 @@ def _settings_info_panel() -> rx.Component:
                     rx.text(VendorState.stamp_upload_status, font_size="12px",
                             color=rx.cond(
                                 VendorState.stamp_upload_status.contains("완료"),
-                                "green", "#ef4444"
+                                "green", ERROR
                             )),
                     rx.fragment(),
                 ),
                 spacing="3", width="100%",
             ),
-            bg="white", border="1px solid #e2e8f0", border_radius="12px",
+            bg="white", border=f"1px solid {BORDER}", border_radius="12px",
             padding="20px", width="100%",
         ),
         spacing="4", width="100%", align="start",
@@ -3734,29 +3746,29 @@ def _settings_account_panel() -> rx.Component:
         rx.box(
             rx.vstack(
                 _section_header("user", "계정 정보"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.vstack(
                     rx.hstack(
-                        rx.text("이름",   font_size="13px", color="#64748b",
+                        rx.text("이름",   font_size="13px", color=TEXT_500,
                                 font_weight="600", width="80px", flex_shrink="0"),
-                        rx.text(VendorState.user_name, font_size="13px", color="#1e293b"),
+                        rx.text(VendorState.user_name, font_size="13px", color=TEXT_800),
                         spacing="4", align="center",
                     ),
                     rx.hstack(
-                        rx.text("아이디", font_size="13px", color="#64748b",
+                        rx.text("아이디", font_size="13px", color=TEXT_500,
                                 font_weight="600", width="80px", flex_shrink="0"),
-                        rx.text(VendorState.user_id, font_size="13px", color="#1e293b"),
+                        rx.text(VendorState.user_id, font_size="13px", color=TEXT_800),
                         spacing="4", align="center",
                     ),
                     rx.hstack(
-                        rx.text("업체명", font_size="13px", color="#64748b",
+                        rx.text("업체명", font_size="13px", color=TEXT_500,
                                 font_weight="600", width="80px", flex_shrink="0"),
                         rx.badge(VendorState.user_vendor, color_scheme="green",
                                  size="2", variant="soft"),
                         spacing="4", align="center",
                     ),
                     rx.hstack(
-                        rx.text("권한",   font_size="13px", color="#64748b",
+                        rx.text("권한",   font_size="13px", color=TEXT_500,
                                 font_weight="600", width="80px", flex_shrink="0"),
                         rx.badge(VendorState.user_role, color_scheme="blue",
                                  size="2", variant="soft"),
@@ -3767,14 +3779,14 @@ def _settings_account_panel() -> rx.Component:
                 spacing="3", align="start", width="100%",
             ),
             bg="white", border_radius="12px", padding="20px",
-            border="1px solid #e2e8f0",
+            border=f"1px solid {BORDER}",
             box_shadow="0 1px 4px rgba(0,0,0,0.04)",
             width="100%", max_width="480px",
         ),
         rx.box(
             rx.vstack(
                 _section_header("lock", "비밀번호 변경"),
-                rx.box(height="1px", bg="#e2e8f0", width="100%"),
+                rx.box(height="1px", bg=BORDER, width="100%"),
                 rx.vstack(
                     rx.input(
                         placeholder="현재 비밀번호",
@@ -3814,16 +3826,16 @@ def _settings_account_panel() -> rx.Component:
                             rx.icon(
                                 rx.cond(VendorState.settings_ok, "circle_check", "circle_alert"),
                                 size=15,
-                                color=rx.cond(VendorState.settings_ok, "#38bd94", "#ef4444"),
+                                color=rx.cond(VendorState.settings_ok, PRIMARY, ERROR),
                             ),
                             rx.text(
                                 VendorState.settings_msg, font_size="13px", font_weight="500",
-                                color=rx.cond(VendorState.settings_ok, "#38bd94", "#ef4444"),
+                                color=rx.cond(VendorState.settings_ok, PRIMARY, ERROR),
                             ),
                             spacing="2", align="center",
                         ),
                         bg=rx.cond(VendorState.settings_ok,
-                                   "rgba(56,189,148,0.08)", "rgba(239,68,68,0.08)"),
+                                   PRIMARY_ALPHA_08, ERROR_ALPHA_08),
                         border=rx.cond(VendorState.settings_ok,
                                        "1px solid rgba(56,189,148,0.3)",
                                        "1px solid rgba(239,68,68,0.3)"),
@@ -3834,7 +3846,7 @@ def _settings_account_panel() -> rx.Component:
                 spacing="3", align="start", width="100%",
             ),
             bg="white", border_radius="12px", padding="20px",
-            border="1px solid #e2e8f0",
+            border=f"1px solid {BORDER}",
             box_shadow="0 1px 4px rgba(0,0,0,0.04)",
             width="100%", max_width="480px",
         ),
@@ -3860,16 +3872,16 @@ def _analytics_subtab_btn(label: str) -> rx.Component:
 def _an_kpi(title: str, value, suffix: str = "kg") -> rx.Component:
     return rx.box(
         rx.vstack(
-            rx.text(title, font_size="11px", color="#64748b", font_weight="600"),
+            rx.text(title, font_size="11px", color=TEXT_500, font_weight="600"),
             rx.text(
                 value,
-                font_size="18px", font_weight="800", color="#0f172a",
+                font_size="18px", font_weight="800", color=TEXT_900,
             ),
-            rx.text(suffix, font_size="10px", color="#94a3b8"),
+            rx.text(suffix, font_size="10px", color=TEXT_400),
             spacing="1", align="start",
         ),
-        padding="12px", border="1px solid #e2e8f0", border_radius="10px",
-        bg="#ffffff", flex="1", min_width="120px",
+        padding="12px", border=f"1px solid {BORDER}", border_radius="10px",
+        bg=BG_WHITE, flex="1", min_width="120px",
     )
 
 
@@ -3885,7 +3897,7 @@ def _an_anomaly_row(row: dict) -> rx.Component:
     return rx.table.row(
         rx.table.cell(row["collect_date"], style={"font_size": "12px"}),
         rx.table.cell(f"{row['total_kg']} kg", style={"font_size": "12px"}),
-        rx.table.cell(row["z_score"], style={"font_size": "12px", "color": "#ef4444"}),
+        rx.table.cell(row["z_score"], style={"font_size": "12px", "color": ERROR}),
     )
 
 
@@ -3948,10 +3960,10 @@ def _an_summary_panel() -> rx.Component:
         rx.hstack(
             rx.select(YEAR_OPTIONS, value=VendorState.selected_year,
                       on_change=VendorState.set_selected_year, size="2", width="95px"),
-            rx.text("년", font_size="13px", color="#64748b"),
+            rx.text("년", font_size="13px", color=TEXT_500),
             rx.select(MONTH_OPTIONS, value=VendorState.selected_month,
                       on_change=VendorState.set_selected_month, size="2", width="72px"),
-            rx.text("월", font_size="13px", color="#64748b"),
+            rx.text("월", font_size="13px", color=TEXT_500),
             rx.button(
                 "🔄 분석 실행",
                 size="2", color_scheme="blue",
@@ -3961,7 +3973,7 @@ def _an_summary_panel() -> rx.Component:
         ),
         rx.cond(
             VendorState.an_load_msg != "",
-            rx.text(VendorState.an_load_msg, font_size="11px", color="#64748b"),
+            rx.text(VendorState.an_load_msg, font_size="11px", color=TEXT_500),
         ),
         # KPI 행 1
         rx.flex(
@@ -3981,7 +3993,7 @@ def _an_summary_panel() -> rx.Component:
         ),
         rx.text(
             f"전월대비: {VendorState.an_mom_change}",
-            font_size="13px", color="#3b82f6", font_weight="700",
+            font_size="13px", color=BLUE, font_weight="700",
         ),
         # 품목별 표
         _section_header("pie_chart", "품목별"),
@@ -4134,7 +4146,7 @@ def _an_school_driver_panel() -> rx.Component:
 
 
 def _an_weather_panel() -> rx.Component:
-    label_st = {"font_size": "12px", "font_weight": "600", "color": "#475569"}
+    label_st = {"font_size": "12px", "font_weight": "600", "color": TEXT_600}
     return rx.vstack(
         _section_header("cloud_sun", "기상 상관분석 (기상청 ASOS)"),
         rx.hstack(
@@ -4169,7 +4181,7 @@ def _an_weather_panel() -> rx.Component:
         ),
         rx.cond(
             VendorState.an_weather_msg != "",
-            rx.text(VendorState.an_weather_msg, font_size="12px", color="#64748b"),
+            rx.text(VendorState.an_weather_msg, font_size="12px", color=TEXT_500),
         ),
         # 상관계수 KPI
         rx.flex(
@@ -4253,34 +4265,34 @@ def _photo_card(photo: dict) -> rx.Component:
                     object_fit="cover", border_radius="8px",
                 ),
                 rx.box(
-                    rx.icon("image", size=32, color="#cbd5e1"),
+                    rx.icon("image", size=32, color=TEXT_300),
                     width="100%", height="160px",
                     display="flex", align_items="center",
                     justify_content="center",
-                    bg="#f1f5f9", border_radius="8px",
+                    bg=BG_100, border_radius="8px",
                 ),
             ),
             rx.vstack(
                 rx.hstack(
                     rx.badge(photo["photo_type"], size="1",
                              color_scheme=col, variant="soft"),
-                    rx.text(photo["created_at"], font_size="11px", color="#94a3b8"),
+                    rx.text(photo["created_at"], font_size="11px", color=TEXT_400),
                     spacing="2",
                 ),
                 rx.text(photo["school_name"], font_size="13px",
-                        font_weight="600", color="#1e293b"),
+                        font_weight="600", color=TEXT_800),
                 rx.cond(
                     photo["driver"] != "",
                     rx.hstack(
-                        rx.icon("user", size=11, color="#94a3b8"),
-                        rx.text(photo["driver"], font_size="11px", color="#64748b"),
+                        rx.icon("user", size=11, color=TEXT_400),
+                        rx.text(photo["driver"], font_size="11px", color=TEXT_500),
                         spacing="1", align="center",
                     ),
                     rx.box(height="0"),
                 ),
                 rx.cond(
                     photo["memo"] != "",
-                    rx.text(photo["memo"], font_size="11px", color="#64748b",
+                    rx.text(photo["memo"], font_size="11px", color=TEXT_500,
                             overflow="hidden", text_overflow="ellipsis",
                             white_space="nowrap"),
                     rx.box(height="0"),
@@ -4291,7 +4303,7 @@ def _photo_card(photo: dict) -> rx.Component:
         ),
         padding="12px",
         bg="white",
-        border="1px solid #e2e8f0",
+        border=f"1px solid {BORDER}",
         border_radius="12px",
         box_shadow="0 1px 4px rgba(0,0,0,0.04)",
     )
@@ -4329,11 +4341,11 @@ def _photo_tab() -> rx.Component:
             spacing="2", align="center", flex_wrap="wrap",
         ),
         rx.hstack(
-            rx.icon("camera", size=14, color="#64748b"),
-            rx.text("총", font_size="13px", color="#64748b"),
+            rx.icon("camera", size=14, color=TEXT_500),
+            rx.text("총", font_size="13px", color=TEXT_500),
             rx.badge(VendorState.photo_rows.length(), size="1",
                      color_scheme="blue", variant="soft"),
-            rx.text("장", font_size="13px", color="#64748b"),
+            rx.text("장", font_size="13px", color=TEXT_500),
             spacing="1", align="center",
         ),
         rx.cond(
@@ -4378,13 +4390,13 @@ def _placeholder_tab(tab_name: str) -> rx.Component:
     return rx.center(
         rx.vstack(
             rx.box(
-                rx.icon("wrench", size=40, color="#cbd5e1"),
-                width="80px", height="80px", bg="#f1f5f9",
+                rx.icon("wrench", size=40, color=TEXT_300),
+                width="80px", height="80px", bg=BG_100,
                 border_radius="20px", display="flex",
                 align_items="center", justify_content="center",
             ),
-            rx.text(tab_name, font_size="18px", font_weight="700", color="#334155"),
-            rx.text("이 화면은 현재 개발 중입니다.", font_size="13px", color="#94a3b8"),
+            rx.text(tab_name, font_size="18px", font_weight="700", color=TEXT_700),
+            rx.text("이 화면은 현재 개발 중입니다.", font_size="13px", color=TEXT_400),
             rx.badge("준비 중", color_scheme="gray", size="2", variant="soft"),
             spacing="3", align="center",
         ),
@@ -4453,7 +4465,7 @@ def _main_content() -> rx.Component:
             ),
             rx.hstack(
                 rx.text(VendorState.active_tab, font_size="20px",
-                        font_weight="800", color="#0f172a"),
+                        font_weight="800", color=TEXT_900),
                 rx.spacer(),
                 rx.badge(
                     VendorState.selected_year, "년 ", VendorState.selected_month, "월",
@@ -4461,7 +4473,7 @@ def _main_content() -> rx.Component:
                 ),
                 align="center", width="100%",
             ),
-            rx.box(height="1px", bg="#e2e8f0", width="100%"),
+            rx.box(height="1px", bg=BORDER, width="100%"),
             _tab_content(),
             spacing="4", width="100%",
         ),
@@ -4488,5 +4500,5 @@ def vendor_admin_page() -> rx.Component:
         display="flex",
         flex_direction="column",
         min_height="100vh",
-        bg="#f8fafc",
+        bg=BG_50,
     )
