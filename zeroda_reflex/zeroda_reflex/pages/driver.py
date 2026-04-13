@@ -431,7 +431,7 @@ def _row_input(school_idx, row_idx, row) -> rx.Component:
         direction={"initial": "column", "md": "row"},
         width="100%",
         gap="2",
-        align=["stretch", "stretch", "center"],
+        align={"initial": "stretch", "md": "center"},
         flex_wrap="wrap",
     )
 
