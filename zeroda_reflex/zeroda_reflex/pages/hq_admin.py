@@ -370,6 +370,83 @@ def _user_row(user: dict) -> rx.Component:
     )
 
 
+def _user_card(user: dict) -> rx.Component:
+    """계정관리 모바일 카드"""
+    uid = user["user_id"]
+    return rx.box(
+        rx.vstack(
+            # 행1: 아이디 + 역할 배지
+            rx.hstack(
+                rx.text(uid, font_size="13px", font_weight="700", color=TEXT_PRIMARY),
+                rx.spacer(),
+                _role_badge(user["role"]),
+                width="100%", align="center",
+            ),
+            # 행2: 이름 + 업체
+            rx.hstack(
+                rx.text(user["name"], font_size="13px", color=TEXT_PRIMARY),
+                rx.text(user["vendor"], font_size="12px", color=TEXT_MUTED),
+                spacing="2", align="center",
+            ),
+            # 행3: 승인 상태 + 활성 상태 배지
+            rx.hstack(
+                rx.badge(
+                    rx.cond(user["approval_status"] == "approved", "승인완료",
+                        rx.cond(user["approval_status"] == "pending", "승인대기", "반려")),
+                    color_scheme=rx.cond(user["approval_status"] == "approved", "green",
+                        rx.cond(user["approval_status"] == "pending", "orange", "red")),
+                    size="1",
+                ),
+                rx.badge(
+                    rx.cond(user["is_active"] == 1, "활성", "비활성"),
+                    color_scheme=rx.cond(user["is_active"] == 1, "green", "gray"),
+                    size="1",
+                ),
+                spacing="2",
+            ),
+            # 행4: 승인 버튼 (pending인 경우)
+            rx.cond(
+                user["approval_status"] == "pending",
+                rx.hstack(
+                    rx.cond(
+                        user["_school_in_db"] == False,
+                        rx.badge("거래처 미등록", color_scheme="red", size="1"),
+                        rx.fragment(),
+                    ),
+                    rx.button("승인", size="1", color_scheme="green",
+                               disabled=user["_school_in_db"] == False,
+                               on_click=AdminState.approve_user(uid)),
+                    rx.button("반려", size="1", color_scheme="red", variant="outline",
+                               on_click=AdminState.reject_user(uid)),
+                    spacing="1",
+                ),
+            ),
+            # 행5: 관리 버튼
+            rx.hstack(
+                rx.button(
+                    rx.cond(user["is_active"] == 1, "비활성화", "활성화"),
+                    size="1", variant="outline",
+                    on_click=AdminState.toggle_user_active(uid),
+                ),
+                rx.button("PW초기화", size="1", variant="ghost", color=f"{TEXT_MUTED}",
+                           on_click=AdminState.reset_password(uid)),
+                rx.button("✏️ 수정", size="1", variant="outline", color_scheme="blue",
+                           on_click=AdminState.open_edit_dialog(uid)),
+                rx.button("🗑️ 삭제", size="1", variant="outline", color_scheme="red",
+                           on_click=AdminState.open_delete_dialog(uid)),
+                spacing="1", flex_wrap="wrap",
+            ),
+            spacing="2", width="100%",
+        ),
+        padding="14px 16px",
+        border_radius="10px",
+        border=f"1px solid {BORDER}",
+        bg=BG_PAGE,
+        box_shadow=SHADOW_SM,
+        width="100%",
+    )
+
+
 def _account_tab() -> rx.Component:
     return rx.vstack(
         # 제목 + 필터
@@ -426,29 +503,43 @@ def _account_tab() -> rx.Component:
         ),
 
         # 사용자 테이블
-        _card_box(
-            rx.cond(
-                AdminState.has_users,
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            rx.table.column_header_cell(rx.text("아이디", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                            rx.table.column_header_cell(rx.text("이름", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                            rx.table.column_header_cell(rx.text("역할", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                            rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                            rx.table.column_header_cell(rx.text("승인", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                            rx.table.column_header_cell(rx.text("상태", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
-                            rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+        rx.cond(
+            AdminState.has_users,
+            rx.fragment(
+                # ── 데스크톱: 테이블 뷰 ──
+                rx.box(
+                    _card_box(
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    rx.table.column_header_cell(rx.text("아이디", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("이름", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("역할", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("업체", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("승인", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("상태", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                    rx.table.column_header_cell(rx.text("관리", font_size="12px", font_weight="700", color=f"{TEXT_SECONDARY}")),
+                                ),
+                            ),
+                            rx.table.body(
+                                rx.foreach(AdminState.filtered_users, _user_row),
+                            ),
+                            width="100%",
                         ),
                     ),
-                    rx.table.body(
-                        rx.foreach(AdminState.filtered_users, _user_row),
-                    ),
-                    width="100%",
+                    display=["none", "none", "block"], width="100%",
                 ),
-                rx.text("조건에 맞는 사용자가 없습니다.", font_size="13px", color=f"{TEXT_MUTED}",
-                         padding="20px", text_align="center"),
+                # ── 모바일: 카드 뷰 ──
+                rx.box(
+                    rx.vstack(
+                        rx.foreach(AdminState.filtered_users, _user_card),
+                        spacing="2", width="100%",
+                    ),
+                    display=["block", "block", "none"], width="100%",
+                ),
             ),
+            rx.text("조건에 맞는 사용자가 없습니다.", font_size="13px", color=f"{TEXT_MUTED}",
+                     padding="20px", text_align="center"),
         ),
 
         # ── 업체별 현황 ──

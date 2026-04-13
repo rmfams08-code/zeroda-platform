@@ -562,6 +562,58 @@ def _col_record_row(row: dict) -> rx.Component:
     )
 
 
+def _col_record_card(row: dict) -> rx.Component:
+    """수거 데이터 모바일 카드"""
+    return rx.box(
+        rx.vstack(
+            # 행1: 날짜 + 품목 배지
+            rx.hstack(
+                rx.text(row["collect_date"], font_size="12px", color=TEXT_SECONDARY),
+                rx.spacer(),
+                rx.badge(row["item_type"], size="1", color_scheme="green", variant="soft"),
+                width="100%", align="center",
+            ),
+            # 행2: 학교명
+            rx.text(row["school_name"], font_size="14px", font_weight="600",
+                    color=TEXT_PRIMARY, width="100%"),
+            # 행3: 수거량 + 기사
+            rx.hstack(
+                rx.hstack(
+                    rx.text(row["weight"], font_size="14px", font_weight="700", color=ACCENT_VENDOR),
+                    rx.text("kg", font_size="11px", color=TEXT_MUTED),
+                    spacing="1", align="center",
+                ),
+                rx.spacer(),
+                rx.text(row["driver"], font_size="12px", color=TEXT_MUTED),
+                width="100%", align="center",
+            ),
+            # 행4: 수정/삭제 버튼
+            rx.hstack(
+                rx.button(
+                    rx.icon("pencil", size=13), "수정",
+                    on_click=VendorState.open_col_edit(row),
+                    size="1", variant="soft", color_scheme="blue", cursor="pointer",
+                    disabled=~AuthState.is_user_active,
+                ),
+                rx.button(
+                    rx.icon("trash_2", size=13), "삭제",
+                    on_click=VendorState.delete_collection_record(row["id"]),
+                    size="1", variant="soft", color_scheme="red", cursor="pointer",
+                    disabled=~AuthState.is_user_active,
+                ),
+                spacing="2",
+            ),
+            spacing="2", width="100%",
+        ),
+        padding="14px 16px",
+        border_radius="10px",
+        border=f"1px solid {BORDER}",
+        bg=BG_PAGE,
+        box_shadow=SHADOW_SM,
+        width="100%",
+    )
+
+
 def _col_edit_form() -> rx.Component:
     """수거 데이터 인라인 편집 폼 (edit_col_id가 있을 때 표시)"""
     return rx.cond(
@@ -706,27 +758,43 @@ def _col_history_panel() -> rx.Component:
             spacing="2", align="center",
         ),
         _col_edit_form(),
-        _table_box(
-            rx.box(
-                rx.hstack(
-                    rx.text("수거일", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex="1"),
-                    rx.text("학교명", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex="2"),
-                    rx.text("품목",   font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0", width="60px"),
-                    rx.text("수거량", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0"),
-                    rx.text("기사",   font_size="12px", font_weight="700", color=TEXT_SECONDARY,
-                            flex_shrink="0", display=["none", "inline", "inline"]),
-                    rx.text("편집",   font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0"),
-                    width="100%", padding_x="16px", padding_y="10px", gap="12px",
+        # ── 데스크톱: 테이블 뷰 ──
+        rx.box(
+            _table_box(
+                rx.box(
+                    rx.hstack(
+                        rx.text("수거일", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex="1"),
+                        rx.text("학교명", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex="2"),
+                        rx.text("품목",   font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0", width="60px"),
+                        rx.text("수거량", font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0"),
+                        rx.text("기사",   font_size="12px", font_weight="700", color=TEXT_SECONDARY,
+                                flex_shrink="0", display=["none", "inline", "inline"]),
+                        rx.text("편집",   font_size="12px", font_weight="700", color=TEXT_SECONDARY, flex_shrink="0"),
+                        width="100%", padding_x="16px", padding_y="10px", gap="12px",
+                    ),
+                    bg=BG_PAGE, border_bottom=f"1px solid {BORDER}",
+                    border_radius="12px 12px 0 0",
                 ),
-                bg=BG_PAGE, border_bottom=f"1px solid {BORDER}",
-                border_radius="12px 12px 0 0",
+                rx.cond(
+                    VendorState.has_collections,
+                    rx.box(rx.foreach(VendorState.filtered_collections, _col_record_row),
+                           max_height="420px", overflow_y="auto"),
+                    _empty_state("해당 조건의 수거 데이터가 없습니다."),
+                ),
             ),
+            display=["none", "none", "block"], width="100%",
+        ),
+        # ── 모바일: 카드 뷰 ──
+        rx.box(
             rx.cond(
                 VendorState.has_collections,
-                rx.box(rx.foreach(VendorState.filtered_collections, _col_record_row),
-                       max_height="420px", overflow_y="auto"),
+                rx.vstack(
+                    rx.foreach(VendorState.filtered_collections, _col_record_card),
+                    spacing="2", width="100%",
+                ),
                 _empty_state("해당 조건의 수거 데이터가 없습니다."),
             ),
+            display=["block", "block", "none"], width="100%",
         ),
         rx.cond(
             VendorState.edit_col_msg != "",
@@ -2285,6 +2353,51 @@ def _settlement_row(row: dict) -> rx.Component:
     )
 
 
+def _settlement_card(row: dict) -> rx.Component:
+    """정산 모바일 카드"""
+    return rx.box(
+        rx.vstack(
+            # 행1: 거래처명 + 구분 배지
+            rx.hstack(
+                rx.text(row["name"], font_size="14px", font_weight="600", color=TEXT_PRIMARY),
+                rx.spacer(),
+                rx.badge(row["cust_type"], size="1", color_scheme="blue", variant="soft"),
+                width="100%", align="center",
+            ),
+            # 행2: 수거량 + 공급가
+            rx.hstack(
+                rx.vstack(
+                    rx.text("수거량", font_size="11px", color=TEXT_MUTED),
+                    rx.hstack(
+                        rx.text(row["weight"], font_size="13px", font_weight="700", color=ACCENT_VENDOR),
+                        rx.text("kg", font_size="11px", color=TEXT_MUTED),
+                        spacing="1", align="center",
+                    ),
+                    spacing="0",
+                ),
+                rx.vstack(
+                    rx.text("공급가", font_size="11px", color=TEXT_MUTED),
+                    rx.text(row["supply"], font_size="13px", font_weight="600", color=TEXT_PRIMARY),
+                    spacing="0",
+                ),
+                rx.vstack(
+                    rx.text("합계", font_size="11px", color=TEXT_MUTED),
+                    rx.text(row["total"], font_size="13px", font_weight="700", color="#0f172a"),
+                    spacing="0",
+                ),
+                width="100%", justify="between",
+            ),
+            spacing="2", width="100%",
+        ),
+        padding="14px 16px",
+        border_radius="10px",
+        border=f"1px solid {BORDER}",
+        bg=BG_PAGE,
+        box_shadow=SHADOW_SM,
+        width="100%",
+    )
+
+
 def _expense_row(row: dict) -> rx.Component:
     return rx.table.row(
         rx.table.cell(
@@ -2340,22 +2453,36 @@ def _settle_summary_panel() -> rx.Component:
         _section_header("list", "거래처별 정산 요약"),
         rx.cond(
             VendorState.has_settlement_data,
-            _table_box(
-                rx.table.root(
-                    rx.table.header(
-                        rx.table.row(
-                            _table_header("거래처"),
-                            _table_header("구분"),
-                            _table_header("수거량"),
-                            _table_header("공급가"),
-                            _table_header("부가세"),
-                            _table_header("합계"),
+            rx.fragment(
+                # ── 데스크톱: 테이블 뷰 ──
+                rx.box(
+                    _table_box(
+                        rx.table.root(
+                            rx.table.header(
+                                rx.table.row(
+                                    _table_header("거래처"),
+                                    _table_header("구분"),
+                                    _table_header("수거량"),
+                                    _table_header("공급가"),
+                                    _table_header("부가세"),
+                                    _table_header("합계"),
+                                ),
+                            ),
+                            rx.table.body(
+                                rx.foreach(VendorState.settlement_data, _settlement_row),
+                            ),
+                            width="100%",
                         ),
                     ),
-                    rx.table.body(
-                        rx.foreach(VendorState.settlement_data, _settlement_row),
+                    display=["none", "none", "block"], width="100%",
+                ),
+                # ── 모바일: 카드 뷰 ──
+                rx.box(
+                    rx.vstack(
+                        rx.foreach(VendorState.settlement_data, _settlement_card),
+                        spacing="2", width="100%",
                     ),
-                    width="100%",
+                    display=["block", "block", "none"], width="100%",
                 ),
             ),
             _empty_state("해당 월 정산 데이터가 없습니다."),
