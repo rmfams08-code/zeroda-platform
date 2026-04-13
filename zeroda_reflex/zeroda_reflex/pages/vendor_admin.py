@@ -252,7 +252,7 @@ def _mobile_nav() -> rx.Component:
 
 
 def _mobile_drawer() -> rx.Component:
-    """모바일 왼쪽 슬라이드 드로어 메뉴"""
+    """모바일 왼쪽 슬라이드 드로어 메뉴 (커스텀 fixed-position 오버레이)"""
     def _drawer_item(label: str, icon: str) -> rx.Component:
         return rx.button(
             rx.hstack(
@@ -288,92 +288,97 @@ def _mobile_drawer() -> rx.Component:
             _hover={"bg": "rgba(56,189,148,0.08)", "color": ACCENT_VENDOR},
         )
 
-    return rx.drawer.root(
-        rx.drawer.portal(
-            rx.drawer.overlay(
-                on_click=VendorState.close_mobile_drawer,
-                background="rgba(0,0,0,0.4)",
-            ),
-            rx.drawer.content(
-                rx.vstack(
-                    # 드로어 헤더
-                    rx.hstack(
-                        _logo_box(),
-                        rx.spacer(),
-                        rx.button(
-                            rx.icon("x", size=18),
-                            on_click=VendorState.close_mobile_drawer,
-                            variant="ghost",
-                            color=TEXT_MUTED,
-                            padding="4px",
-                            border_radius="6px",
-                        ),
-                        spacing="2",
-                        align="center",
-                        width="100%",
-                        padding_x="16px",
-                        padding_y="14px",
-                        border_bottom=f"1px solid {BORDER}",
-                    ),
-                    # 메뉴 목록
-                    rx.vstack(
-                        rx.text(
-                            "메뉴",
-                            font_size="10px",
-                            font_weight="700",
-                            color=TEXT_MUTED,
-                            letter_spacing="1.5px",
-                            padding_x="16px",
-                            padding_top="4px",
-                        ),
-                        rx.box(height="1px", bg=BORDER, width="100%", margin_y="4px"),
-                        *[_drawer_item(label, icon) for label, icon in TABS],
-                        spacing="1",
-                        width="100%",
-                        align="start",
-                        padding_x="8px",
-                        padding_y="8px",
-                    ),
-                    rx.spacer(),
-                    # 로그아웃
-                    rx.box(
-                        rx.button(
-                            rx.hstack(
-                                rx.icon("log_out", size=14),
-                                rx.text("로그아웃", font_size="13px"),
-                                spacing="2",
-                            ),
-                            on_click=VendorState.logout,
-                            variant="ghost",
-                            color=TEXT_MUTED,
-                            width="100%",
-                            justify_content="flex-start",
-                            padding_x="16px",
-                            _hover={"color": ERROR},
-                        ),
-                        width="100%",
-                        padding_x="8px",
-                        padding_bottom="24px",
-                        border_top=f"1px solid {BORDER}",
-                        padding_top="8px",
-                    ),
-                    width="100%",
-                    height="100%",
-                    spacing="0",
-                ),
-                bg="white",
-                width="280px",
-                height="100%",
-                position="fixed",
-                left="0",
-                top="0",
-                z_index="300",
-                box_shadow="4px 0 20px rgba(0,0,0,0.12)",
-                overflow_y="auto",
-            ),
+    return rx.box(
+        # ── 반투명 오버레이 배경 ──
+        rx.box(
+            on_click=VendorState.close_mobile_drawer,
+            position="fixed",
+            top="0",
+            left="0",
+            right="0",
+            bottom="0",
+            bg="rgba(0,0,0,0.45)",
+            z_index="998",
+            display=rx.cond(VendorState.mobile_drawer_open, "block", "none"),
         ),
-        open=VendorState.mobile_drawer_open,
-        direction="left",
+        # ── 드로어 패널 (슬라이드) ──
+        rx.vstack(
+            # 헤더
+            rx.hstack(
+                _logo_box(),
+                rx.spacer(),
+                rx.button(
+                    rx.icon("x", size=18),
+                    on_click=VendorState.close_mobile_drawer,
+                    variant="ghost",
+                    color=TEXT_MUTED,
+                    padding="4px",
+                    border_radius="6px",
+                    cursor="pointer",
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+                padding_x="16px",
+                padding_y="14px",
+                border_bottom=f"1px solid {BORDER}",
+            ),
+            # 메뉴 목록
+            rx.vstack(
+                rx.text(
+                    "메뉴",
+                    font_size="10px",
+                    font_weight="700",
+                    color=TEXT_MUTED,
+                    letter_spacing="1.5px",
+                    padding_x="16px",
+                    padding_top="4px",
+                ),
+                rx.box(height="1px", bg=BORDER, width="100%", margin_y="4px"),
+                *[_drawer_item(label, icon) for label, icon in TABS],
+                spacing="1",
+                width="100%",
+                align="start",
+                padding_x="8px",
+                padding_y="8px",
+                overflow_y="auto",
+                flex="1",
+            ),
+            # 로그아웃
+            rx.box(
+                rx.button(
+                    rx.hstack(
+                        rx.icon("log_out", size=14),
+                        rx.text("로그아웃", font_size="13px"),
+                        spacing="2",
+                    ),
+                    on_click=VendorState.logout,
+                    variant="ghost",
+                    color=TEXT_MUTED,
+                    width="100%",
+                    justify_content="flex-start",
+                    padding_x="16px",
+                    _hover={"color": ERROR},
+                    cursor="pointer",
+                ),
+                width="100%",
+                padding_x="8px",
+                padding_y="8px",
+                border_top=f"1px solid {BORDER}",
+            ),
+            spacing="0",
+            height="100vh",
+            bg="white",
+            position="fixed",
+            top="0",
+            left=rx.cond(VendorState.mobile_drawer_open, "0px", "-300px"),
+            width="280px",
+            z_index="999",
+            box_shadow="4px 0 20px rgba(0,0,0,0.15)",
+            overflow="hidden",
+            style={"transition": "left 0.25s ease"},
+        ),
+        display=["block", "block", "none"],
     )
 
 
