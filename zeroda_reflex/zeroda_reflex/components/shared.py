@@ -296,20 +296,82 @@ def empty_state(msg: str = "데이터가 없습니다") -> rx.Component:
 # ──────────────────────────────────────────
 
 def table_box(*children) -> rx.Component:
-    """카드형 테이블 래퍼 — overflow:hidden으로 모서리 깔끔하게 처리
+    """카드형 테이블 래퍼 — 모바일 가로 스크롤 지원
 
     Args:
         *children: 테이블 헤더 행 + 본문 등
     """
     return rx.box(
-        *children,
+        rx.box(
+            *children,
+            min_width="600px",
+        ),
         bg="white",
         border_radius="12px",
         border="1px solid #e2e8f0",
         box_shadow="0 1px 4px rgba(0,0,0,0.04)",
-        overflow="hidden",
+        overflow_x="auto",
+        overflow_y="hidden",
         width="100%",
+        # 모바일 스크롤 힌트
+        _webkit_overflow_scrolling="touch",
     )
+
+
+# ──────────────────────────────────────────
+#  6-1. 토스트 알림 헬퍼 (Phase 5 — 알림 통일 기반)
+# ──────────────────────────────────────────
+
+# 토스트 레벨별 기본 설정
+# - 상용화 시 duration, position 등을 여기서 일괄 조정
+TOAST_DEFAULTS = {
+    "success": {"duration": 3000},
+    "error":   {"duration": 5000},
+    "warning": {"duration": 4000},
+    "info":    {"duration": 3000},
+}
+
+
+def notify_success(msg: str, **kwargs):
+    """성공 토스트 — CRUD 완료, 발송 성공 등
+    Args:
+        msg: 표시할 메시지 (예: "저장 완료")
+        **kwargs: rx.toast.success 추가 옵션
+    Returns:
+        rx.toast 이벤트 (yield 또는 return 으로 사용)
+    """
+    opts = {**TOAST_DEFAULTS["success"], **kwargs}
+    return rx.toast.success(msg, **opts)
+
+
+def notify_error(msg: str, **kwargs):
+    """에러 토스트 — 저장 실패, 발송 실패 등
+    Args:
+        msg: 표시할 메시지 (예: "저장 실패")
+        **kwargs: rx.toast.error 추가 옵션
+    """
+    opts = {**TOAST_DEFAULTS["error"], **kwargs}
+    return rx.toast.error(msg, **opts)
+
+
+def notify_warning(msg: str, **kwargs):
+    """경고 토스트 — 유효성 경고, 권한 부족 등
+    Args:
+        msg: 표시할 메시지 (예: "입력값을 확인하세요")
+        **kwargs: rx.toast.warning 추가 옵션
+    """
+    opts = {**TOAST_DEFAULTS["warning"], **kwargs}
+    return rx.toast.warning(msg, **opts)
+
+
+def notify_info(msg: str, **kwargs):
+    """안내 토스트 — 진행 상황, 완료 안내 등
+    Args:
+        msg: 표시할 메시지 (예: "업로드 완료")
+        **kwargs: rx.toast.info 추가 옵션
+    """
+    opts = {**TOAST_DEFAULTS["info"], **kwargs}
+    return rx.toast.info(msg, **opts)
 
 
 def table_header_row(*labels_flex) -> rx.Component:
