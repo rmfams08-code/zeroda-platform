@@ -95,6 +95,17 @@ def _header() -> rx.Component:
     """상단 헤더: 로고 + 업체명 + 사용자명 + 로그아웃"""
     return rx.box(
         rx.hstack(
+            # 모바일 햄버거 버튼
+            rx.button(
+                rx.icon("menu", size=20),
+                on_click=VendorState.toggle_mobile_drawer,
+                variant="ghost",
+                color=TEXT_PRIMARY,
+                padding="6px",
+                _hover={"bg": BG_HOVER},
+                border_radius="8px",
+                display=["flex", "flex", "none"],
+            ),
             _logo_box(),
             rx.spacer(),
             rx.badge(
@@ -237,6 +248,132 @@ def _mobile_nav() -> rx.Component:
         border_top=f"1px solid {BORDER}",
         z_index="100",
         box_shadow="0 -2px 8px rgba(0,0,0,0.05)",
+    )
+
+
+def _mobile_drawer() -> rx.Component:
+    """모바일 왼쪽 슬라이드 드로어 메뉴"""
+    def _drawer_item(label: str, icon: str) -> rx.Component:
+        return rx.button(
+            rx.hstack(
+                rx.icon(icon, size=17),
+                rx.text(label, font_size="14px"),
+                spacing="3",
+                align="center",
+                width="100%",
+            ),
+            on_click=VendorState.select_tab_mobile(label),
+            width="100%",
+            variant="ghost",
+            justify="start",
+            padding_x="16px",
+            padding_y="10px",
+            border_radius="10px",
+            bg=rx.cond(
+                VendorState.active_tab == label,
+                "rgba(56,189,148,0.12)",
+                "transparent",
+            ),
+            color=rx.cond(
+                VendorState.active_tab == label,
+                ACCENT_VENDOR,
+                TEXT_SECONDARY,
+            ),
+            font_weight=rx.cond(
+                VendorState.active_tab == label,
+                "700",
+                "500",
+            ),
+            cursor="pointer",
+            _hover={"bg": "rgba(56,189,148,0.08)", "color": ACCENT_VENDOR},
+        )
+
+    return rx.drawer.root(
+        rx.drawer.portal(
+            rx.drawer.overlay(
+                on_click=VendorState.close_mobile_drawer,
+                background="rgba(0,0,0,0.4)",
+            ),
+            rx.drawer.content(
+                rx.vstack(
+                    # 드로어 헤더
+                    rx.hstack(
+                        _logo_box(),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=VendorState.close_mobile_drawer,
+                            variant="ghost",
+                            color=TEXT_MUTED,
+                            padding="4px",
+                            border_radius="6px",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                        padding_x="16px",
+                        padding_y="14px",
+                        border_bottom=f"1px solid {BORDER}",
+                    ),
+                    # 메뉴 목록
+                    rx.vstack(
+                        rx.text(
+                            "메뉴",
+                            font_size="10px",
+                            font_weight="700",
+                            color=TEXT_MUTED,
+                            letter_spacing="1.5px",
+                            padding_x="16px",
+                            padding_top="4px",
+                        ),
+                        rx.box(height="1px", bg=BORDER, width="100%", margin_y="4px"),
+                        *[_drawer_item(label, icon) for label, icon in TABS],
+                        spacing="1",
+                        width="100%",
+                        align="start",
+                        padding_x="8px",
+                        padding_y="8px",
+                    ),
+                    rx.spacer(),
+                    # 로그아웃
+                    rx.box(
+                        rx.button(
+                            rx.hstack(
+                                rx.icon("log_out", size=14),
+                                rx.text("로그아웃", font_size="13px"),
+                                spacing="2",
+                            ),
+                            on_click=VendorState.logout,
+                            variant="ghost",
+                            color=TEXT_MUTED,
+                            width="100%",
+                            justify_content="flex-start",
+                            padding_x="16px",
+                            _hover={"color": ERROR},
+                        ),
+                        width="100%",
+                        padding_x="8px",
+                        padding_bottom="24px",
+                        border_top=f"1px solid {BORDER}",
+                        padding_top="8px",
+                    ),
+                    width="100%",
+                    height="100%",
+                    spacing="0",
+                ),
+                bg="white",
+                width="280px",
+                height="100%",
+                position="fixed",
+                left="0",
+                top="0",
+                z_index="300",
+                box_shadow="4px 0 20px rgba(0,0,0,0.12)",
+                overflow_y="auto",
+            ),
+        ),
+        open=VendorState.mobile_drawer_open,
+        direction="left",
     )
 
 
@@ -4485,6 +4622,7 @@ def _main_content() -> rx.Component:
 def vendor_admin_page() -> rx.Component:
     """업체관리자 대시보드 — 메인 페이지"""
     return rx.box(
+        _mobile_drawer(),
         _header(),
         rx.box(
             _sidebar(),

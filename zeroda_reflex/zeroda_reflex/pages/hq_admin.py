@@ -157,6 +157,7 @@ def _sidebar() -> rx.Component:
         left="0",
         top="0",
         overflow_y="auto",
+        display=["none", "none", "block"],
     )
 
 
@@ -4402,17 +4403,210 @@ def _tab_content() -> rx.Component:
 
 
 # ══════════════════════════════════════════
+#  모바일 헤더 + 드로어
+# ══════════════════════════════════════════
+
+def _mobile_header() -> rx.Component:
+    """모바일 전용 상단 헤더 (햄버거 + 로고)"""
+    return rx.box(
+        rx.hstack(
+            rx.button(
+                rx.icon("menu", size=22),
+                on_click=AdminState.toggle_mobile_drawer,
+                variant="ghost",
+                color=TEXT_PRIMARY,
+                padding="6px",
+                _hover={"bg": BG_HOVER},
+                border_radius="8px",
+            ),
+            rx.hstack(
+                rx.box(
+                    rx.text("Z", font_size="14px", font_weight="800", color="white"),
+                    width="28px", height="28px",
+                    bg=f"linear-gradient(135deg, #38bd94, {PRIMARY})",
+                    border_radius="7px",
+                    display="flex", align_items="center", justify_content="center",
+                ),
+                rx.text("ZERODA", font_size="14px", font_weight="800", color="#0f172a"),
+                spacing="2", align="center",
+            ),
+            rx.spacer(),
+            rx.text(
+                AdminState.active_tab,
+                font_size="13px",
+                color=TEXT_SECONDARY,
+                font_weight="600",
+            ),
+            spacing="3",
+            align="center",
+            width="100%",
+        ),
+        display=["flex", "flex", "none"],
+        bg="white",
+        border_bottom=f"1px solid {BORDER}",
+        padding_x="16px",
+        padding_y="12px",
+        position="sticky",
+        top="0",
+        z_index="200",
+        box_shadow=SHADOW_SM,
+    )
+
+
+def _mobile_drawer() -> rx.Component:
+    """모바일 왼쪽 슬라이드 드로어 메뉴"""
+    tab_icons = {
+        "대시보드": "layout_dashboard",
+        "수거데이터": "database",
+        "외주업체관리": "building_2",
+        "거래처관리": "contact",
+        "수거일정": "calendar",
+        "정산관리": "receipt",
+        "안전관리": "shield_check",
+        "탄소감축": "leaf",
+        "폐기물분석": "bar_chart_3",
+        "현장사진": "camera",
+        "계정관리": "users",
+        "문서서비스": "file_text",
+    }
+
+    def _drawer_item(tab_name: str) -> rx.Component:
+        icon_name = tab_icons.get(tab_name, "circle")
+        return rx.button(
+            rx.hstack(
+                rx.icon(icon_name, size=16),
+                rx.text(tab_name, font_size="14px"),
+                spacing="3",
+                width="100%",
+            ),
+            on_click=AdminState.select_tab_mobile(tab_name),
+            variant="ghost",
+            width="100%",
+            justify_content="flex-start",
+            padding_x="16px",
+            padding_y="10px",
+            border_radius="8px",
+            bg=rx.cond(
+                AdminState.active_tab == tab_name,
+                "rgba(59,130,246,0.1)",
+                "transparent",
+            ),
+            color=rx.cond(
+                AdminState.active_tab == tab_name,
+                PRIMARY,
+                TEXT_SECONDARY,
+            ),
+            font_weight=rx.cond(
+                AdminState.active_tab == tab_name,
+                "700",
+                "500",
+            ),
+            _hover={"bg": "rgba(59,130,246,0.06)"},
+        )
+
+    return rx.drawer.root(
+        rx.drawer.portal(
+            rx.drawer.overlay(
+                on_click=AdminState.close_mobile_drawer,
+                background="rgba(0,0,0,0.4)",
+            ),
+            rx.drawer.content(
+                rx.vstack(
+                    # 드로어 헤더
+                    rx.hstack(
+                        rx.box(
+                            rx.text("Z", font_size="16px", font_weight="800", color="white"),
+                            width="32px", height="32px",
+                            bg=f"linear-gradient(135deg, #38bd94, {PRIMARY})",
+                            border_radius="8px",
+                            display="flex", align_items="center", justify_content="center",
+                        ),
+                        rx.vstack(
+                            rx.text("ZERODA", font_size="14px", font_weight="800", color="#0f172a"),
+                            rx.text("본사 관리자", font_size="10px", color=TEXT_MUTED),
+                            spacing="0",
+                        ),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=AdminState.close_mobile_drawer,
+                            variant="ghost",
+                            color=TEXT_MUTED,
+                            padding="4px",
+                            border_radius="6px",
+                        ),
+                        spacing="2",
+                        align="center",
+                        width="100%",
+                        padding_x="16px",
+                        padding_y="16px",
+                        border_bottom=f"1px solid {BORDER}",
+                    ),
+                    # 메뉴 목록
+                    rx.vstack(
+                        *[_drawer_item(t) for t in HQ_TABS],
+                        spacing="1",
+                        width="100%",
+                        padding_x="8px",
+                        padding_y="8px",
+                    ),
+                    rx.spacer(),
+                    # 로그아웃
+                    rx.box(
+                        rx.button(
+                            rx.hstack(
+                                rx.icon("log_out", size=14),
+                                rx.text("로그아웃", font_size="13px"),
+                                spacing="2",
+                            ),
+                            on_click=AdminState.logout,
+                            variant="ghost",
+                            color=TEXT_MUTED,
+                            width="100%",
+                            justify_content="flex-start",
+                            padding_x="16px",
+                            _hover={"color": ERROR},
+                        ),
+                        width="100%",
+                        padding_x="8px",
+                        padding_bottom="24px",
+                        border_top=f"1px solid {BORDER}",
+                        padding_top="8px",
+                    ),
+                    width="100%",
+                    height="100%",
+                    spacing="0",
+                ),
+                bg="white",
+                width="280px",
+                height="100%",
+                position="fixed",
+                left="0",
+                top="0",
+                z_index="300",
+                box_shadow="4px 0 20px rgba(0,0,0,0.12)",
+                overflow_y="auto",
+            ),
+        ),
+        open=AdminState.mobile_drawer_open,
+        direction="left",
+    )
+
+
+# ══════════════════════════════════════════
 #  메인 페이지
 # ══════════════════════════════════════════
 
 def hq_admin_page() -> rx.Component:
     """본사관리자 메인 페이지"""
     return rx.box(
+        _mobile_header(),
+        _mobile_drawer(),
         _sidebar(),
         rx.box(
             _tab_content(),
-            margin_left="220px",
-            padding="24px",
+            margin_left=["0", "0", "220px"],
+            padding=["16px", "20px", "24px"],
             min_height="100vh",
             bg=f"{BG_HOVER}",
         ),

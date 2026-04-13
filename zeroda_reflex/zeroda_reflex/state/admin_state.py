@@ -187,6 +187,7 @@ class AdminState(AuthState):
     #  공통
     # ══════════════════════════════
     active_tab: str = "대시보드"
+    mobile_drawer_open: bool = False
     selected_year: str = str(datetime.now().year)
     selected_month: str = str(datetime.now().month)
 
@@ -923,6 +924,16 @@ class AdminState(AuthState):
             self.load_users()
         elif tab == "문서서비스":
             self.load_doc_service()
+
+    def toggle_mobile_drawer(self):
+        self.mobile_drawer_open = not self.mobile_drawer_open
+
+    def close_mobile_drawer(self):
+        self.mobile_drawer_open = False
+
+    def select_tab_mobile(self, tab_name: str):
+        self.active_tab = tab_name
+        self.mobile_drawer_open = False
 
     # ══════════════════════════════
     #  이벤트 — 문서서비스 (2026-04-10 신규)

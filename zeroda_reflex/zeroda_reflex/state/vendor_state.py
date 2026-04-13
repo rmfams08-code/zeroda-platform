@@ -22,6 +22,7 @@ class VendorState(AuthState):
 
     # ── 현재 활성 탭 ──
     active_tab: str = "수거현황"
+    mobile_drawer_open: bool = False
 
     # ── [수거현황] 데이터 ──
     monthly_collections: list[dict] = []
@@ -681,6 +682,16 @@ class VendorState(AuthState):
             self.info_save_msg = ""
             self.load_biz_customers()
             self.load_vendor_info()
+
+    def toggle_mobile_drawer(self):
+        self.mobile_drawer_open = not self.mobile_drawer_open
+
+    def close_mobile_drawer(self):
+        self.mobile_drawer_open = False
+
+    def select_tab_mobile(self, tab_name: str):
+        self.active_tab = tab_name
+        self.mobile_drawer_open = False
 
     def set_selected_year(self, year: str):
         self.selected_year = year
